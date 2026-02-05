@@ -1,0 +1,277 @@
+# ===========================================
+# Coinnect Project .gitignore
+# ===========================================
+
+# ===========================================
+# Python (Backend)
+# ===========================================
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+*.virtualenv
+
+# Python compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.log
+.hypothesis/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+*.env
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# ===========================================
+# Machine Learning Models
+# ===========================================
+
+# YOLO models
+*.pt
+*.pth
+*.weights
+*.onnx
+*.pb
+*.tflite
+
+# Model checkpoints and training artifacts
+runs/
+weights/
+checkpoints/
+models/*.pt
+models/*.pth
+
+# Large datasets (if any)
+datasets/
+data/raw/
+data/processed/
+*.h5
+*.hdf5
+
+# ===========================================
+# Node.js / Frontend
+# ===========================================
+
+# Dependencies
+node_modules/
+jspm_packages/
+bower_components/
+
+# Build outputs
+dist/
+dist-ssr/
+build/
+out/
+.next/
+.nuxt/
+.cache/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Local environment
+*.local
+
+# Parcel cache
+.parcel-cache/
+
+# ===========================================
+# Arduino / Firmware
+# ===========================================
+
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Arduino build artifacts
+*.hex
+*.elf
+*.bin
+*.eep
+*.lss
+*.map
+*.sym
+
+# Arduino IDE
+*.ino.eep
+*.ino.elf
+*.ino.hex
+*.ino.with_bootloader.bin
+*.ino.with_bootloader.hex
+
+# ===========================================
+# IDE / Editors
+# ===========================================
+
+# VSCode
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# ===========================================
+# Operating System
+# ===========================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+# ===========================================
+# Application Specific
+# ===========================================
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Hardware test recordings (camera captures, etc.)
+captures/
+recordings/
+test_images/
+test_videos/
+
+# Transaction data (should be in database only)
+transactions/
+receipts/
+
+# Configuration (keep examples, ignore actual configs)
+config.json
+config.yaml
+!config.example.json
+!config.example.yaml
+
+# API keys and secrets
+secrets/
+credentials/
+*.key
+*.pem
+*.p12
+*.pfx
+
+# System service files (generated)
+*.service
+
+# ===========================================
+# Documentation Build Artifacts
+# ===========================================
+
+# Sphinx
+docs/_build/
+docs/_static/
+docs/_templates/
+
+# MkDocs
+site/
+
+# ===========================================
+# Misc
+# ===========================================
+
+# Compressed files
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Archives
+archive/
+old/
+deprecated/

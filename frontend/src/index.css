@@ -1,0 +1,115 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply box-border;
+  }
+
+  body {
+    @apply m-0 min-h-screen bg-surface-light text-gray-900 antialiased;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+
+  #root {
+    @apply min-h-screen w-full;
+  }
+}
+
+@layer components {
+  /* Orange gradient background for transaction screens */
+  .bg-orange-gradient {
+    @apply bg-gradient-to-br from-coinnect-primary to-coinnect-primary-dark;
+  }
+
+  /* Navy gradient for initial screen */
+  .bg-navy-gradient {
+    @apply bg-gradient-to-br from-coinnect-navy to-coinnect-navy-dark;
+  }
+
+  /* Card styles */
+  .card-default {
+    @apply bg-surface-white rounded-card shadow-sm;
+  }
+
+  .card-orange {
+    @apply bg-coinnect-primary text-white rounded-card;
+  }
+
+  .card-outlined {
+    @apply bg-transparent border-2 border-gray-300 rounded-card;
+  }
+
+  /* Button base styles */
+  .btn {
+    @apply inline-flex items-center justify-center font-semibold rounded-button transition-all duration-200;
+    @apply focus:outline-none focus:ring-2 focus:ring-offset-2;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply bg-coinnect-primary text-white hover:bg-coinnect-primary-dark;
+    @apply focus:ring-coinnect-primary;
+  }
+
+  .btn-secondary {
+    @apply bg-white/80 text-coinnect-primary border border-white;
+    @apply hover:bg-white;
+  }
+
+  .btn-outline {
+    @apply bg-transparent border-2 border-white text-white;
+    @apply hover:bg-white/10;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent text-coinnect-primary;
+    @apply hover:bg-coinnect-primary/10;
+  }
+
+  /* Size variants */
+  .btn-sm {
+    @apply px-4 py-2 text-sm min-h-[36px];
+  }
+
+  .btn-md {
+    @apply px-6 py-3 text-base min-h-[44px];
+  }
+
+  .btn-lg {
+    @apply px-8 py-4 text-lg min-h-[52px];
+  }
+
+  .btn-xl {
+    @apply px-10 py-5 text-xl min-h-[64px];
+  }
+}
+
+@layer utilities {
+  /* Custom scrollbar for light theme */
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    @apply bg-surface-light;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply bg-gray-400 rounded-full;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-500;
+  }
+
+  /* Touch-friendly minimum sizes */
+  .touch-target {
+    @apply min-h-[48px] min-w-[48px];
+  }
+
+  .touch-target-lg {
+    @apply min-h-[64px] min-w-[64px];
+  }
+}
