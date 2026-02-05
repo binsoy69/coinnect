@@ -1,11 +1,18 @@
-import { motion } from 'framer-motion';
-import PropTypes from 'prop-types';
+import { motion } from "framer-motion";
+import PropTypes from "prop-types";
 
-// Flag components using emoji or simple text representations
-const FLAGS = {
-  us: '🇺🇸',
-  ph: '🇵🇭',
-  eu: '🇪🇺',
+// Flag image paths
+const FLAG_IMAGES = {
+  us: "/assets/united-states.png",
+  ph: "/assets/philippines.png",
+  eu: "/assets/europe-flag-icon.png",
+};
+
+// Country code prefix (2-letter code shown before country name)
+const COUNTRY_CODES = {
+  us: "US",
+  ph: "PH",
+  eu: "EU",
 };
 
 /**
@@ -13,12 +20,12 @@ const FLAGS = {
  * Shows: Flag | Country Name | Currency Code | Rate in PHP
  */
 function ExchangeRateCard({
-  flag = 'us',
-  countryName = 'UNITED STATES',
-  currencyCode = 'USD',
+  flag = "us",
+  countryName = "UNITED STATES",
+  currencyCode = "USD",
   rate = 0,
-  targetCurrency = 'PHP',
-  className = '',
+  targetCurrency = "PHP",
+  className = "",
 }) {
   // Format rate to 4 decimal places
   const formattedRate = rate.toFixed(4);
@@ -36,18 +43,18 @@ function ExchangeRateCard({
     >
       {/* Flag and Country */}
       <div className="flex items-center gap-4">
-        <span className="text-4xl" role="img" aria-label={`${countryName} flag`}>
-          {FLAGS[flag] || '🏳️'}
-        </span>
+        <img
+          src={FLAG_IMAGES[flag] || FLAG_IMAGES.us}
+          alt={`${countryName} flag`}
+          className="w-10 h-7 object-cover rounded-sm"
+        />
         <span className="text-xl font-semibold tracking-wide">
           {countryName}
         </span>
       </div>
 
       {/* Currency Code */}
-      <span className="text-xl font-medium">
-        {currencyCode}
-      </span>
+      <span className="text-xl font-medium">{currencyCode}</span>
 
       {/* Rate */}
       <span className="text-xl font-bold">
@@ -58,7 +65,7 @@ function ExchangeRateCard({
 }
 
 ExchangeRateCard.propTypes = {
-  flag: PropTypes.oneOf(['us', 'ph', 'eu']),
+  flag: PropTypes.oneOf(["us", "ph", "eu"]),
   countryName: PropTypes.string,
   currencyCode: PropTypes.string,
   rate: PropTypes.number,

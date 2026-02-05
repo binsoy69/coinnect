@@ -1,11 +1,10 @@
-import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { ArrowRightLeft } from 'lucide-react';
-import PageLayout from '../../components/layout/PageLayout';
-import ServiceCard from '../../components/transaction/ServiceCard';
-import { ROUTES } from '../../constants/routes';
-import { FOREX_SERVICES } from '../../constants/forexData';
-import { useForex } from '../../context/ForexContext';
+import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import PageLayout from "../../components/layout/PageLayout";
+import ServiceCard from "../../components/transaction/ServiceCard";
+import { ROUTES } from "../../constants/routes";
+import { FOREX_SERVICES } from "../../constants/forexData";
+import { useForex } from "../../context/ForexContext";
 
 export default function ForexServiceSelectionScreen() {
   const navigate = useNavigate();
@@ -21,7 +20,7 @@ export default function ForexServiceSelectionScreen() {
       headerProps={{
         showBack: true,
         onBack: () => navigate(ROUTES.SELECT_TRANSACTION),
-        subtitle: 'Foreign Exchange',
+        subtitle: "Foreign Exchange",
       }}
     >
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-140px)] py-4">
@@ -47,7 +46,7 @@ export default function ForexServiceSelectionScreen() {
               transition={{ delay: index * 0.1 }}
             >
               <ServiceCard
-                icon={<ArrowRightLeft className="w-12 h-12" />}
+                icon={service.icon}
                 title={service.title}
                 color="bg-coinnect-forex"
                 onClick={() => handleSelectService(service.type)}

@@ -1,20 +1,21 @@
-import { useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import PageLayout from '../../components/layout/PageLayout';
-import InsertMoneyPanel from '../../components/transaction/InsertMoneyPanel';
-import Timer from '../../components/common/Timer';
-import { ROUTES, getForexRoute } from '../../constants/routes';
-import { useForex } from '../../context/ForexContext';
+import { useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import PageLayout from "../../components/layout/PageLayout";
+import InsertMoneyPanel from "../../components/transaction/InsertMoneyPanel";
+import Timer from "../../components/common/Timer";
+import { ROUTES, getForexRoute } from "../../constants/routes";
+import { useForex } from "../../context/ForexContext";
 import {
   formatCurrency,
   isForeignToPhp,
   FOREX_TIMER_DURATIONS,
-} from '../../constants/forexData';
+} from "../../constants/forexData";
 
 export default function ForexInsertMoneyScreen() {
   const navigate = useNavigate();
-  const { forex, addInsertedMoney, getForexConfig, isAmountMatched } = useForex();
+  const { forex, addInsertedMoney, getForexConfig, isAmountMatched } =
+    useForex();
   const config = getForexConfig();
 
   // Handle timeout - go to warning or conversion screen
@@ -33,12 +34,12 @@ export default function ForexInsertMoneyScreen() {
     const handleKeyPress = (e) => {
       const acceptDenoms = config.acceptDenominations;
       const keyMap = {
-        '1': acceptDenoms[0],
-        '2': acceptDenoms[1],
-        '3': acceptDenoms[2],
-        '4': acceptDenoms[3],
-        '5': acceptDenoms[4],
-        '6': acceptDenoms[5],
+        1: acceptDenoms[0],
+        2: acceptDenoms[1],
+        3: acceptDenoms[2],
+        4: acceptDenoms[3],
+        5: acceptDenoms[4],
+        6: acceptDenoms[5],
       };
 
       if (keyMap[e.key]) {
@@ -46,8 +47,8 @@ export default function ForexInsertMoneyScreen() {
       }
     };
 
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
+    window.addEventListener("keydown", handleKeyPress);
+    return () => window.removeEventListener("keydown", handleKeyPress);
   }, [config, addInsertedMoney]);
 
   // Auto-advance when amount is matched
@@ -87,7 +88,8 @@ export default function ForexInsertMoneyScreen() {
     <PageLayout
       headerProps={{
         showBack: true,
-        onBack: () => navigate(getForexRoute(ROUTES.FOREX_CONFIRM, forex.serviceType)),
+        onBack: () =>
+          navigate(getForexRoute(ROUTES.FOREX_CONFIRM, forex.serviceType)),
         subtitle: headerSubtitle,
         rightContent: (
           <div className="flex items-center gap-2 bg-coinnect-forex text-white px-3 py-1 rounded-full text-sm">
@@ -102,6 +104,7 @@ export default function ForexInsertMoneyScreen() {
         <div className="w-1/3">
           <InsertMoneyPanel
             variant="bill"
+            cardVariant="forex"
             noteText={config.insertNote}
           />
         </div>
@@ -156,14 +159,15 @@ export default function ForexInsertMoneyScreen() {
           >
             {acceptedDenoms.map((denom) => {
               const count = forex.insertedCounts[denom] || 0;
-              const symbol = isForeignIn ? config.fromSymbol : 'P';
+              const symbol = isForeignIn ? config.fromSymbol : "P";
               return (
                 <div
                   key={denom}
                   className="text-center bg-gray-100 px-4 py-2 rounded-lg"
                 >
                   <span className="text-lg font-semibold text-coinnect-forex">
-                    {symbol}{denom}
+                    {symbol}
+                    {denom}
                   </span>
                   <span className="text-gray-600 ml-2">= {count}x</span>
                 </div>
@@ -183,9 +187,11 @@ export default function ForexInsertMoneyScreen() {
               onComplete={handleTimeout}
               showProgressBar={true}
               autoStart={true}
+              color="forex"
             />
             <p className="text-center text-gray-500 text-sm mt-2">
-              This tab will automatically close after 60s if no money is inserted.
+              This tab will automatically close after 60s if no money is
+              inserted.
             </p>
           </motion.div>
         </div>

@@ -1,12 +1,12 @@
-import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import PageLayout from '../../components/layout/PageLayout';
-import Button from '../../components/common/Button';
-import Clock from '../../components/common/Clock';
-import { ExchangeRateCard, ConversionDisplay } from '../../components/forex';
-import { ROUTES, getForexRoute } from '../../constants/routes';
-import { useForex } from '../../context/ForexContext';
-import { isForeignToPhp, MOCK_EXCHANGE_RATES } from '../../constants/forexData';
+import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import PageLayout from "../../components/layout/PageLayout";
+import Button from "../../components/common/Button";
+import Clock from "../../components/common/Clock";
+import { ExchangeRateCard, ConversionDisplay } from "../../components/forex";
+import { ROUTES, getForexRoute } from "../../constants/routes";
+import { useForex } from "../../context/ForexContext";
+import { isForeignToPhp, MOCK_EXCHANGE_RATES } from "../../constants/forexData";
 
 export default function ForexConversionScreen() {
   const navigate = useNavigate();
@@ -33,12 +33,12 @@ export default function ForexConversionScreen() {
     const rate = MOCK_EXCHANGE_RATES[forex.fromCurrency];
     convertedAmount = Math.round(insertedAmount * rate * 1000) / 1000; // 3 decimal places
     fromCurrency = forex.fromCurrency;
-    toCurrency = 'PHP';
+    toCurrency = "PHP";
   } else {
     // PHP to Foreign
     const rate = 1 / MOCK_EXCHANGE_RATES[forex.toCurrency];
     convertedAmount = Math.round(insertedAmount * rate * 10000) / 10000; // 4 decimal places
-    fromCurrency = 'PHP';
+    fromCurrency = "PHP";
     toCurrency = forex.toCurrency;
   }
 
@@ -49,7 +49,8 @@ export default function ForexConversionScreen() {
     <PageLayout
       headerProps={{
         showBack: true,
-        onBack: () => navigate(getForexRoute(ROUTES.FOREX_INSERT, forex.serviceType)),
+        onBack: () =>
+          navigate(getForexRoute(ROUTES.FOREX_INSERT, forex.serviceType)),
         subtitle: headerSubtitle,
         rightContent: (
           <div className="flex items-center gap-2 bg-coinnect-forex text-white px-3 py-1 rounded-full text-sm">
@@ -72,8 +73,7 @@ export default function ForexConversionScreen() {
               <p className="text-4xl font-bold">
                 {isForeignIn
                   ? `${config.fromSymbol}${insertedAmount}`
-                  : `P${insertedAmount}`
-                }
+                  : `P${insertedAmount}`}
               </p>
             </div>
 
@@ -97,9 +97,12 @@ export default function ForexConversionScreen() {
             className="mb-4"
           >
             <h2 className="text-xl font-bold text-gray-900">
-              Live {isForeignIn ? forex.fromCurrency : forex.toCurrency} Currency Exchange Rates
+              Live {isForeignIn ? forex.fromCurrency : forex.toCurrency}{" "}
+              Currency Exchange Rates
             </h2>
-            <p className="text-gray-500 text-sm">*The rate changes every minute.</p>
+            <p className="text-gray-500 text-sm">
+              *The rate changes every minute.
+            </p>
           </motion.div>
 
           {/* Exchange Rate Card */}
@@ -112,7 +115,7 @@ export default function ForexConversionScreen() {
             <ExchangeRateCard
               flag={config.flag}
               countryName={config.countryName}
-              currencyCode={isForeignIn ? forex.fromCurrency : 'PHP'}
+              currencyCode={isForeignIn ? forex.fromCurrency : "PHP"}
               rate={forex.exchangeRate}
               targetCurrency="PHP"
             />
@@ -153,7 +156,7 @@ export default function ForexConversionScreen() {
               variant="primary"
               size="xl"
               onClick={handleProceed}
-              className="min-w-[200px] bg-coinnect-forex hover:bg-coinnect-forex/90"
+              className="min-w-[200px] !bg-coinnect-forex hover:!bg-coinnect-forex/90"
             >
               Proceed
             </Button>

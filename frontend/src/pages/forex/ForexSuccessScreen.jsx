@@ -1,9 +1,9 @@
-import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import SuccessIcon from '../../components/feedback/SuccessIcon';
-import Button from '../../components/common/Button';
-import { ROUTES } from '../../constants/routes';
-import { useForex } from '../../context/ForexContext';
+import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import SuccessIcon from "../../components/feedback/SuccessIcon";
+import Button from "../../components/common/Button";
+import { ROUTES } from "../../constants/routes";
+import { useForex } from "../../context/ForexContext";
 
 export default function ForexSuccessScreen() {
   const navigate = useNavigate();
@@ -25,7 +25,7 @@ export default function ForexSuccessScreen() {
       <motion.div
         initial={{ scale: 0 }}
         animate={{ scale: 1 }}
-        transition={{ type: 'spring', duration: 0.5 }}
+        transition={{ type: "spring", duration: 0.5 }}
         className="mb-8"
       >
         <SuccessIcon size={150} />
@@ -49,7 +49,7 @@ export default function ForexSuccessScreen() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.5 }}
-        className="flex flex-col gap-4 w-full max-w-xs"
+        className="flex gap-4 w-full max-w-2xl justify-center"
       >
         <Button
           variant="outline"
@@ -60,10 +60,10 @@ export default function ForexSuccessScreen() {
           Exit
         </Button>
         <Button
-          variant="outline"
+          variant="white"
           size="xl"
           onClick={handleAnotherTransaction}
-          className="bg-white text-coinnect-forex hover:bg-gray-100 w-full"
+          className="w-full !text-coinnect-forex"
         >
           Another Transaction
         </Button>

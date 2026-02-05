@@ -1,6 +1,6 @@
-import { motion } from 'framer-motion';
-import PropTypes from 'prop-types';
-import { CURRENCY_SYMBOLS } from '../../constants/forexData';
+import { motion } from "framer-motion";
+import PropTypes from "prop-types";
+import { CURRENCY_SYMBOLS } from "../../constants/forexData";
 
 /**
  * CurrencyAmountGrid - Grid of currency amount selection buttons
@@ -8,13 +8,13 @@ import { CURRENCY_SYMBOLS } from '../../constants/forexData';
  */
 function CurrencyAmountGrid({
   amounts = [],
-  currency = 'USD',
+  currency = "USD",
   selectedAmount = null,
   onSelect,
   disabled = false,
-  className = '',
+  className = "",
 }) {
-  const symbol = CURRENCY_SYMBOLS[currency] || '$';
+  const symbol = CURRENCY_SYMBOLS[currency] || "$";
 
   return (
     <div className={`grid grid-cols-3 gap-4 ${className}`}>
@@ -31,14 +31,16 @@ function CurrencyAmountGrid({
             className={`
               p-6 rounded-card text-4xl font-bold
               transition-all duration-200
-              ${isSelected
-                ? 'bg-coinnect-forex text-white'
-                : 'bg-white border-2 border-gray-200 text-coinnect-forex hover:border-coinnect-forex'
+              ${
+                isSelected
+                  ? "bg-coinnect-forex text-white border-2 border-coinnect-forex"
+                  : "bg-white border-2 border-coinnect-forex text-coinnect-forex hover:bg-coinnect-forex/5"
               }
-              ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+              ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
             `}
           >
-            {symbol}{amount}
+            {symbol}
+            {amount}
           </motion.button>
         );
       })}

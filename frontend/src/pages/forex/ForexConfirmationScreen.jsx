@@ -1,10 +1,10 @@
-import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { HelpCircle } from 'lucide-react';
-import Button from '../../components/common/Button';
-import { ROUTES, getForexRoute } from '../../constants/routes';
-import { useForex } from '../../context/ForexContext';
-import { formatCurrency, isForeignToPhp } from '../../constants/forexData';
+import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import { HelpCircle } from "lucide-react";
+import Button from "../../components/common/Button";
+import { ROUTES, getForexRoute } from "../../constants/routes";
+import { useForex } from "../../context/ForexContext";
+import { formatCurrency, isForeignToPhp } from "../../constants/forexData";
 
 export default function ForexConfirmationScreen() {
   const navigate = useNavigate();
@@ -44,7 +44,7 @@ export default function ForexConfirmationScreen() {
     : formatCurrency(forex.amountToDispense, forex.toCurrency);
 
   // For PHP→Foreign, show Total Due instead of Amount to Dispense
-  const displayLabel = isForeignIn ? 'Amount to Dispense' : 'Total Due';
+  const displayLabel = isForeignIn ? "Amount to Dispense" : "Total Due";
   const displayValue = isForeignIn ? amountToDispense : `P${forex.totalDue}`;
 
   return (
@@ -98,15 +98,15 @@ export default function ForexConfirmationScreen() {
           variant="outline"
           size="xl"
           onClick={handleBack}
-          className="bg-white text-coinnect-forex hover:bg-gray-100 min-w-[150px]"
+          className="min-w-[150px]"
         >
           Back
         </Button>
         <Button
-          variant="outline"
+          variant="white"
           size="xl"
           onClick={handleProceed}
-          className="bg-transparent border-white text-white hover:bg-white/10 min-w-[150px]"
+          className="min-w-[150px] !text-coinnect-forex"
         >
           Proceed
         </Button>
@@ -119,7 +119,8 @@ export default function ForexConfirmationScreen() {
         transition={{ delay: 0.6 }}
         className="text-white/80 text-sm mt-8"
       >
-        <span className="font-bold">Note:</span> The transaction fee is automatically deducted from the inserted amount.
+        <span className="font-bold">Note:</span> The transaction fee is
+        automatically deducted from the inserted amount.
       </motion.p>
     </div>
   );

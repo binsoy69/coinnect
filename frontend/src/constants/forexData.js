@@ -1,45 +1,45 @@
-import { FOREX_SERVICE_TYPES } from './routes';
+import { FOREX_SERVICE_TYPES } from "./routes";
 
 // Currency codes
 export const CURRENCIES = {
-  PHP: 'PHP',
-  USD: 'USD',
-  EUR: 'EUR',
+  PHP: "PHP",
+  USD: "USD",
+  EUR: "EUR",
 };
 
 // Currency symbols
 export const CURRENCY_SYMBOLS = {
-  PHP: '₱',
-  USD: '$',
-  EUR: '€',
+  PHP: "₱",
+  USD: "$",
+  EUR: "€",
 };
 
 // Currency denominations per hardware spec
 export const FOREX_DENOMINATIONS = {
-  USD: [10, 50, 100],      // USD bills accepted/dispensed
-  EUR: [5, 10, 20],        // EUR bills accepted/dispensed
+  USD: [10, 50, 100], // USD bills accepted/dispensed
+  EUR: [5, 10, 20], // EUR bills accepted/dispensed
   PHP: [20, 50, 100, 200, 500, 1000], // PHP bills
 };
 
 // Amount options for selection (what user can choose to convert)
 export const FOREX_AMOUNT_OPTIONS = {
-  [FOREX_SERVICE_TYPES.USD_TO_PHP]: [5, 10, 100],    // Select USD amount to convert
-  [FOREX_SERVICE_TYPES.PHP_TO_USD]: [5, 10, 100],    // Select USD amount to receive
-  [FOREX_SERVICE_TYPES.EUR_TO_PHP]: [5, 10, 20],     // Select EUR amount to convert
-  [FOREX_SERVICE_TYPES.PHP_TO_EUR]: [5, 10, 100],    // Select EUR amount to receive
+  [FOREX_SERVICE_TYPES.USD_TO_PHP]: [5, 10, 100], // Select USD amount to convert
+  [FOREX_SERVICE_TYPES.PHP_TO_USD]: [5, 10, 100], // Select USD amount to receive
+  [FOREX_SERVICE_TYPES.EUR_TO_PHP]: [5, 10, 20], // Select EUR amount to convert
+  [FOREX_SERVICE_TYPES.PHP_TO_EUR]: [5, 10, 100], // Select EUR amount to receive
 };
 
 // Mock exchange rates (will be replaced by real API)
 export const MOCK_EXCHANGE_RATES = {
-  USD: 58.7656,  // 1 USD = 58.7656 PHP
-  EUR: 61.7246,  // 1 EUR = 61.7246 PHP
+  USD: 58.7656, // 1 USD = 58.7656 PHP
+  EUR: 61.7246, // 1 EUR = 61.7246 PHP
 };
 
 // Service configuration for each forex type
 export const FOREX_CONFIG = {
   [FOREX_SERVICE_TYPES.USD_TO_PHP]: {
-    name: 'USD-to-PHP',
-    displayName: 'USD to PHP',
+    name: "USD-to-PHP",
+    displayName: "USD to PHP",
     fromCurrency: CURRENCIES.USD,
     toCurrency: CURRENCIES.PHP,
     fromSymbol: CURRENCY_SYMBOLS.USD,
@@ -47,16 +47,17 @@ export const FOREX_CONFIG = {
     acceptDenominations: FOREX_DENOMINATIONS.USD,
     dispenseDenominations: FOREX_DENOMINATIONS.PHP,
     amountOptions: FOREX_AMOUNT_OPTIONS[FOREX_SERVICE_TYPES.USD_TO_PHP],
-    flag: 'us',
-    countryName: 'UNITED STATES',
+    flag: "us",
+    countryName: "UNITED STATES",
     feePercentage: 5,
-    insertHeading: 'Please Insert US Dollar Bill',
-    insertNote: 'Ensure your bill is in correct orientation and in good condition. Refer to the figure below.',
-    acceptedDenomNote: '($10, $50, $100 only)',
+    insertHeading: "Please Insert US Dollar Bill",
+    insertNote:
+      "Ensure your bill is in correct orientation and in good condition. Refer to the figure below.",
+    acceptedDenomNote: "($10, $50, $100 only)",
   },
   [FOREX_SERVICE_TYPES.PHP_TO_USD]: {
-    name: 'PHP-to-USD',
-    displayName: 'PHP to USD',
+    name: "PHP-to-USD",
+    displayName: "PHP to USD",
     fromCurrency: CURRENCIES.PHP,
     toCurrency: CURRENCIES.USD,
     fromSymbol: CURRENCY_SYMBOLS.PHP,
@@ -64,17 +65,18 @@ export const FOREX_CONFIG = {
     acceptDenominations: FOREX_DENOMINATIONS.PHP,
     dispenseDenominations: FOREX_DENOMINATIONS.USD,
     amountOptions: FOREX_AMOUNT_OPTIONS[FOREX_SERVICE_TYPES.PHP_TO_USD],
-    flag: 'ph',
-    countryName: 'PHILIPPINES',
+    flag: "ph",
+    countryName: "PHILIPPINES",
     feePercentage: 5,
-    insertHeading: 'Please Insert Money',
-    insertNote: 'Ensure your bill is in correct orientation and in good condition. Refer to the figure below.',
-    acceptedDenomNote: '',
-    selectLabel: 'Select Dollar to Dispense',
+    insertHeading: "Please Insert Money",
+    insertNote:
+      "Ensure your bill is in correct orientation and in good condition. Refer to the figure below.",
+    acceptedDenomNote: "",
+    selectLabel: "Select Dollar to Dispense",
   },
   [FOREX_SERVICE_TYPES.EUR_TO_PHP]: {
-    name: 'EUR-to-PHP',
-    displayName: 'EUR to PHP',
+    name: "EUR-to-PHP",
+    displayName: "EUR to PHP",
     fromCurrency: CURRENCIES.EUR,
     toCurrency: CURRENCIES.PHP,
     fromSymbol: CURRENCY_SYMBOLS.EUR,
@@ -82,16 +84,17 @@ export const FOREX_CONFIG = {
     acceptDenominations: FOREX_DENOMINATIONS.EUR,
     dispenseDenominations: FOREX_DENOMINATIONS.PHP,
     amountOptions: FOREX_AMOUNT_OPTIONS[FOREX_SERVICE_TYPES.EUR_TO_PHP],
-    flag: 'eu',
-    countryName: 'EUROPE',
+    flag: "eu",
+    countryName: "EUROPE",
     feePercentage: 5,
-    insertHeading: 'Please Insert Euro Bill',
-    insertNote: 'Ensure your bill is in correct orientation and in good condition. Refer to the figure below.',
-    acceptedDenomNote: '(€5, €10, €20 only)',
+    insertHeading: "Please Insert Euro Bill",
+    insertNote:
+      "Ensure your bill is in correct orientation and in good condition. Refer to the figure below.",
+    acceptedDenomNote: "(€5, €10, €20 only)",
   },
   [FOREX_SERVICE_TYPES.PHP_TO_EUR]: {
-    name: 'PHP-to-EUR',
-    displayName: 'PHP to EUR',
+    name: "PHP-to-EUR",
+    displayName: "PHP to EUR",
     fromCurrency: CURRENCIES.PHP,
     toCurrency: CURRENCIES.EUR,
     fromSymbol: CURRENCY_SYMBOLS.PHP,
@@ -99,13 +102,14 @@ export const FOREX_CONFIG = {
     acceptDenominations: FOREX_DENOMINATIONS.PHP,
     dispenseDenominations: FOREX_DENOMINATIONS.EUR,
     amountOptions: FOREX_AMOUNT_OPTIONS[FOREX_SERVICE_TYPES.PHP_TO_EUR],
-    flag: 'ph',
-    countryName: 'PHILIPPINES',
+    flag: "ph",
+    countryName: "PHILIPPINES",
     feePercentage: 5,
-    insertHeading: 'Please Insert Money',
-    insertNote: 'Ensure your bill is in correct orientation and in good condition. Refer to the figure below.',
-    acceptedDenomNote: '',
-    selectLabel: 'Select Euro to Dispense',
+    insertHeading: "Please Insert Money",
+    insertNote:
+      "Ensure your bill is in correct orientation and in good condition. Refer to the figure below.",
+    acceptedDenomNote: "",
+    selectLabel: "Select Euro to Dispense",
   },
 };
 
@@ -113,39 +117,39 @@ export const FOREX_CONFIG = {
 export const FOREX_SERVICES = [
   {
     type: FOREX_SERVICE_TYPES.USD_TO_PHP,
-    title: 'USD-to-PHP',
-    icon: 'usd-to-php',
-    fromFlag: 'us',
-    toFlag: 'ph',
+    title: "USD-to-PHP",
+    icon: "/assets/currency exchange3.png",
+    fromFlag: "us",
+    toFlag: "ph",
   },
   {
     type: FOREX_SERVICE_TYPES.PHP_TO_USD,
-    title: 'PHP-to-USD',
-    icon: 'php-to-usd',
-    fromFlag: 'ph',
-    toFlag: 'us',
+    title: "PHP-to-USD",
+    icon: "/assets/currency exchange3.png",
+    fromFlag: "ph",
+    toFlag: "us",
   },
   {
     type: FOREX_SERVICE_TYPES.EUR_TO_PHP,
-    title: 'EUR-to-PHP',
-    icon: 'eur-to-php',
-    fromFlag: 'eu',
-    toFlag: 'ph',
+    title: "EUR-to-PHP",
+    icon: "/assets/currency exchange3.png",
+    fromFlag: "eu",
+    toFlag: "ph",
   },
   {
     type: FOREX_SERVICE_TYPES.PHP_TO_EUR,
-    title: 'PHP-to-EUR',
-    icon: 'php-to-eur',
-    fromFlag: 'ph',
-    toFlag: 'eu',
+    title: "PHP-to-EUR",
+    icon: "/assets/currency exchange3.png",
+    fromFlag: "ph",
+    toFlag: "eu",
   },
 ];
 
 // Timer durations for forex
 export const FOREX_TIMER_DURATIONS = {
-  INSERT_MONEY: 60,      // 60 seconds to insert money
-  RATE_REFRESH: 60,      // Rate "changes" every 60 seconds
-  AUTO_ADVANCE: 2500,    // 2.5 seconds on processing screen
+  INSERT_MONEY: 60, // 60 seconds to insert money
+  RATE_REFRESH: 60, // Rate "changes" every 60 seconds
+  AUTO_ADVANCE: 2500, // 2.5 seconds on processing screen
 };
 
 // Mock data for demo/navigation
@@ -159,7 +163,7 @@ export const FOREX_MOCK_DATA = {
     amountToDispense: 263,
   },
   [FOREX_SERVICE_TYPES.PHP_TO_USD]: {
-    rate: 0.0170,
+    rate: 0.017,
     selectedAmount: 5,
     convertedAmount: 294,
     feePercentage: 5,
@@ -195,7 +199,7 @@ export const FOREX_MOCK_DATA = {
  * @returns {string} Formatted amount with symbol
  */
 export const formatCurrency = (amount, currency) => {
-  const symbol = CURRENCY_SYMBOLS[currency] || '';
+  const symbol = CURRENCY_SYMBOLS[currency] || "";
   if (currency === CURRENCIES.PHP) {
     return `P${amount.toLocaleString()}`;
   }
@@ -225,7 +229,12 @@ export const getExchangeRate = (fromCurrency, toCurrency) => {
  * @param {number} feePercentage - Fee percentage
  * @returns {Object} Conversion details
  */
-export const calculateConversion = (amount, fromCurrency, toCurrency, feePercentage = 5) => {
+export const calculateConversion = (
+  amount,
+  fromCurrency,
+  toCurrency,
+  feePercentage = 5,
+) => {
   const rate = getExchangeRate(fromCurrency, toCurrency);
   const convertedAmount = amount * rate;
   const feeAmount = Math.round(convertedAmount * (feePercentage / 100));
@@ -246,8 +255,10 @@ export const calculateConversion = (amount, fromCurrency, toCurrency, feePercent
  * @returns {boolean}
  */
 export const isForeignToPhp = (serviceType) => {
-  return serviceType === FOREX_SERVICE_TYPES.USD_TO_PHP ||
-         serviceType === FOREX_SERVICE_TYPES.EUR_TO_PHP;
+  return (
+    serviceType === FOREX_SERVICE_TYPES.USD_TO_PHP ||
+    serviceType === FOREX_SERVICE_TYPES.EUR_TO_PHP
+  );
 };
 
 /**
@@ -256,8 +267,10 @@ export const isForeignToPhp = (serviceType) => {
  * @returns {boolean}
  */
 export const isPhpToForeign = (serviceType) => {
-  return serviceType === FOREX_SERVICE_TYPES.PHP_TO_USD ||
-         serviceType === FOREX_SERVICE_TYPES.PHP_TO_EUR;
+  return (
+    serviceType === FOREX_SERVICE_TYPES.PHP_TO_USD ||
+    serviceType === FOREX_SERVICE_TYPES.PHP_TO_EUR
+  );
 };
 
 /**

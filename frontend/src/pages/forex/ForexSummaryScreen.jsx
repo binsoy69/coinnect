@@ -1,9 +1,9 @@
-import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import Button from '../../components/common/Button';
-import { ROUTES, getForexRoute } from '../../constants/routes';
-import { useForex } from '../../context/ForexContext';
-import { formatCurrency, isForeignToPhp } from '../../constants/forexData';
+import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import Button from "../../components/common/Button";
+import { ROUTES, getForexRoute } from "../../constants/routes";
+import { useForex } from "../../context/ForexContext";
+import { formatCurrency, isForeignToPhp } from "../../constants/forexData";
 
 export default function ForexSummaryScreen() {
   const navigate = useNavigate();
@@ -50,7 +50,9 @@ export default function ForexSummaryScreen() {
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-2xl font-bold italic mb-1">MY TRANSACTION</h1>
-          <p className="text-sm opacity-80">Please review the information below</p>
+          <p className="text-sm opacity-80">
+            Please review the information below
+          </p>
         </div>
 
         {/* Transaction Details */}
@@ -98,18 +100,18 @@ export default function ForexSummaryScreen() {
         {/* Buttons */}
         <div className="flex gap-4 justify-center">
           <Button
-            variant="ghost"
+            variant="outline"
             size="lg"
             onClick={handleBack}
-            className="bg-white/20 text-white hover:bg-white/30 min-w-[140px]"
+            className="min-w-[140px]"
           >
             Back
           </Button>
           <Button
-            variant="outline"
+            variant="white"
             size="lg"
             onClick={handleProceed}
-            className="bg-white text-coinnect-forex hover:bg-gray-100 min-w-[140px]"
+            className="min-w-[140px] !text-coinnect-forex"
           >
             Proceed
           </Button>

@@ -138,12 +138,13 @@ const CoinInsertIcon = () => (
 
 export default function InsertMoneyPanel({
   variant = "bill", // 'bill' or 'coin'
+  cardVariant = "orange", // 'orange' or 'forex'
   noteText = "",
   className = "",
 }) {
   return (
     <Card
-      variant="orange"
+      variant={cardVariant}
       animated={false}
       className={`p-4 flex flex-col items-center text-center h-full justify-center ${className}`}
     >

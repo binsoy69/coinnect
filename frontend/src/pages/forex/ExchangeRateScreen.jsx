@@ -1,11 +1,11 @@
-import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import PageLayout from '../../components/layout/PageLayout';
-import Button from '../../components/common/Button';
-import { ExchangeRateCard, CurrencyAmountGrid } from '../../components/forex';
-import { ROUTES, getForexRoute } from '../../constants/routes';
-import { useForex } from '../../context/ForexContext';
-import { isForeignToPhp } from '../../constants/forexData';
+import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import PageLayout from "../../components/layout/PageLayout";
+import Button from "../../components/common/Button";
+import { ExchangeRateCard, CurrencyAmountGrid } from "../../components/forex";
+import { ROUTES, getForexRoute } from "../../constants/routes";
+import { useForex } from "../../context/ForexContext";
+import { isForeignToPhp } from "../../constants/forexData";
 
 export default function ExchangeRateScreen() {
   const navigate = useNavigate();
@@ -29,12 +29,12 @@ export default function ExchangeRateScreen() {
 
   // Determine which currency to show for selection
   const selectionCurrency = isForeignToPhp(forex.serviceType)
-    ? forex.fromCurrency  // For foreign→PHP: select foreign amount
-    : forex.toCurrency;   // For PHP→foreign: select foreign amount to receive
+    ? forex.fromCurrency // For foreign→PHP: select foreign amount
+    : forex.toCurrency; // For PHP→foreign: select foreign amount to receive
 
   // Get the label for selection
   const selectionLabel = isForeignToPhp(forex.serviceType)
-    ? 'Select Specific Amount'
+    ? "Select Specific Amount"
     : config.selectLabel || `Select ${forex.toCurrency} to Dispense`;
 
   // Determine rate display
@@ -47,7 +47,7 @@ export default function ExchangeRateScreen() {
       headerProps={{
         showBack: true,
         onBack: handleBack,
-        subtitle: 'Foreign Exchange',
+        subtitle: "Foreign Exchange",
         showClock: true,
       }}
     >
@@ -77,7 +77,11 @@ export default function ExchangeRateScreen() {
           <ExchangeRateCard
             flag={config.flag}
             countryName={config.countryName}
-            currencyCode={isForeignToPhp(forex.serviceType) ? forex.fromCurrency : forex.fromCurrency}
+            currencyCode={
+              isForeignToPhp(forex.serviceType)
+                ? forex.fromCurrency
+                : forex.fromCurrency
+            }
             rate={rateDisplay}
             targetCurrency="PHP"
           />
@@ -119,7 +123,7 @@ export default function ExchangeRateScreen() {
             size="xl"
             onClick={handleProceed}
             disabled={!forex.selectedAmount}
-            className="min-w-[200px] bg-coinnect-forex hover:bg-coinnect-forex/90"
+            className="min-w-[200px] !bg-coinnect-forex hover:!bg-coinnect-forex/90 !text-white"
           >
             Proceed
           </Button>
