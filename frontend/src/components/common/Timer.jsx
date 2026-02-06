@@ -10,6 +10,18 @@ const colorVariants = {
     text: "text-coinnect-forex",
     bg: "bg-coinnect-forex",
   },
+  ewallet: {
+    text: "text-coinnect-ewallet",
+    bg: "bg-coinnect-ewallet",
+  },
+  gcash: {
+    text: "text-coinnect-gcash",
+    bg: "bg-coinnect-gcash",
+  },
+  maya: {
+    text: "text-coinnect-maya",
+    bg: "bg-coinnect-maya",
+  },
 };
 
 export default function Timer({

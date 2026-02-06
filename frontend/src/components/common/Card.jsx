@@ -4,6 +4,9 @@ const variants = {
   default: "bg-surface-white shadow-sm",
   orange: "bg-coinnect-primary text-white",
   forex: "bg-coinnect-forex text-white",
+  ewallet: "bg-coinnect-ewallet text-white",
+  gcash: "bg-coinnect-gcash text-white",
+  maya: "bg-coinnect-maya text-white",
   outlined: "bg-transparent border-2 border-gray-300",
 };
 

@@ -29,6 +29,25 @@ export const ROUTES = {
   FOREX_PROCESSING: '/forex/:type/processing',
   FOREX_SUCCESS: '/forex/:type/success',
   FOREX_WARNING: '/forex/:type/warning',
+
+  // E-Wallet routes
+  EWALLET: '/ewallet',
+  EWALLET_SERVICE: '/ewallet/:provider/service',
+  EWALLET_REMINDER: '/ewallet/reminder',
+
+  // E-Wallet dynamic routes - :type = 'gcash-cash-in' | 'gcash-cash-out' | 'maya-cash-in' | 'maya-cash-out'
+  EWALLET_FEE: '/ewallet/:type/fee',
+  EWALLET_MOBILE: '/ewallet/:type/mobile',
+  EWALLET_AMOUNT: '/ewallet/:type/amount',
+  EWALLET_CONFIRM: '/ewallet/:type/confirm',
+  EWALLET_INSERT_BILLS: '/ewallet/:type/insert-bills',
+  EWALLET_INSERT_COINS: '/ewallet/:type/insert-coins',
+  EWALLET_DETAILS: '/ewallet/:type/details',
+  EWALLET_QR: '/ewallet/:type/qr',
+  EWALLET_VERIFY: '/ewallet/:type/verify',
+  EWALLET_PROCESSING: '/ewallet/:type/processing',
+  EWALLET_SUMMARY: '/ewallet/:type/summary',
+  EWALLET_SUCCESS: '/ewallet/:type/success',
 };
 
 // Service type constants
@@ -54,4 +73,28 @@ export const getServiceRoute = (baseRoute, serviceType) => {
 // Helper to generate forex route with type parameter
 export const getForexRoute = (baseRoute, forexType) => {
   return baseRoute.replace(':type', forexType);
+};
+
+// E-Wallet service type constants
+export const EWALLET_SERVICE_TYPES = {
+  GCASH_CASH_IN: 'gcash-cash-in',
+  GCASH_CASH_OUT: 'gcash-cash-out',
+  MAYA_CASH_IN: 'maya-cash-in',
+  MAYA_CASH_OUT: 'maya-cash-out',
+};
+
+// E-Wallet provider constants
+export const EWALLET_PROVIDERS = {
+  GCASH: 'gcash',
+  MAYA: 'maya',
+};
+
+// Helper to generate e-wallet route with type parameter
+export const getEWalletRoute = (baseRoute, ewalletType) => {
+  return baseRoute.replace(':type', ewalletType);
+};
+
+// Helper to generate e-wallet route with provider parameter
+export const getEWalletProviderRoute = (baseRoute, provider) => {
+  return baseRoute.replace(':provider', provider);
 };

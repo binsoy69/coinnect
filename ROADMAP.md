@@ -96,6 +96,41 @@ _Goal: Create a visually stunning, premium interface based on mockup designs bef
   - [x] Verify red theme consistency
   - [x] Test animations and back navigation
 
+**E-Wallet UI Flow (Phase 1.10):**
+
+- [x] **Phase 1.10.1: E-Wallet Foundation**
+  - [x] Add e-wallet route constants + `getEWalletRoute()` helper
+  - [x] Create `ewalletData.js` with provider configs, fee tiers, mock data
+  - [x] Create `EWalletContext` for state management
+- [x] **Phase 1.10.2: New Shared Components**
+  - [x] `VirtualKeypad` - Reusable number pad with display field
+  - [x] `LoadingSpinner` - Circular dot spinner animation
+  - [x] Update `InsertMoneyPanel` with `ewallet` card variant
+- [x] **Phase 1.10.3: E-Wallet Components**
+  - [x] `TransactionFeeTable` - Fee tiers display
+  - [x] `QRCodeDisplay` - Static QR code with provider branding
+  - [x] `AccountDetailsPanel` - Two-column account details layout
+  - [x] `EWalletTransactionCard` - Blue transaction summary card
+- [x] **Phase 1.10.4: E-Wallet Entry Screens**
+  - [x] EWalletProviderScreen (GCash/Maya selection)
+  - [x] EWalletServiceScreen (Cash In/Out selection)
+  - [x] EWalletReminderScreen (blue disclaimer)
+- [x] **Phase 1.10.5: Cash In Screens**
+  - [x] EWalletFeeScreen, EWalletMobileScreen, EWalletAmountScreen
+  - [x] EWalletConfirmScreen
+  - [x] EWalletInsertBillsScreen (bills first, optional coins)
+  - [x] EWalletInsertCoinsScreen (fill remaining amount)
+- [x] **Phase 1.10.6: Cash Out Screens**
+  - [x] EWalletQRCodeScreen (QR code display)
+  - [x] EWalletVerifyPINScreen (6-digit PIN entry)
+- [x] **Phase 1.10.7: Shared End Screens**
+  - [x] EWalletAccountDetailsScreen, EWalletProcessingScreen
+  - [x] EWalletSummaryScreen, EWalletSuccessScreen
+- [x] **Phase 1.10.8: Integration**
+  - [x] Enable E-Wallet card on TransactionTypeScreen
+  - [x] Test all 4 flows (GCash/Maya Cash In/Out)
+  - [x] Verify blue theme consistency and animations
+
 **Future Additions (After Core Flow):**
 
 - [ ] **Localization (i18n)**
@@ -330,6 +365,20 @@ _Goal: Enable basic remote visibility into kiosk health and operations._
 - [ ] `[FE-017]` Implement 10 forex screens (see UI.md Phase 1.9.3)
 - [ ] `[FE-018]` Add forex routes and navigation
 - [ ] `[FE-019]` Enable forex flow on TransactionTypeScreen
+
+**E-Wallet UI:**
+
+- [x] `[FE-020]` Create `EWalletContext` with provider, service type, and transaction state
+- [x] `[FE-021]` Create `VirtualKeypad` component (reusable numpad)
+- [x] `[FE-022]` Create `LoadingSpinner` component (circular dot animation)
+- [x] `[FE-023]` Create `TransactionFeeTable` component (fee tiers display)
+- [x] `[FE-024]` Create `QRCodeDisplay` component (static QR placeholder)
+- [x] `[FE-025]` Create `AccountDetailsPanel` component (two-column layout)
+- [x] `[FE-026]` Create `EWalletTransactionCard` component (blue summary card)
+- [x] `[FE-027]` Implement 15 e-wallet screens (see UI.md Phase 1.10.4-1.10.7)
+- [x] `[FE-028]` Add e-wallet routes and navigation
+- [x] `[FE-029]` Enable e-wallet flow on TransactionTypeScreen
+- [x] `[FE-030]` Implement bill/coin split insertion logic (bills first, optional coins)
 
 ### Firmware
 

@@ -32,6 +32,25 @@ import {
   ForexWarningScreen,
 } from '../pages/forex';
 
+// E-Wallet Pages
+import {
+  EWalletProviderScreen,
+  EWalletServiceScreen,
+  EWalletReminderScreen,
+  EWalletFeeScreen,
+  EWalletMobileScreen,
+  EWalletAmountScreen,
+  EWalletConfirmScreen,
+  EWalletInsertBillsScreen,
+  EWalletInsertCoinsScreen,
+  EWalletQRCodeScreen,
+  EWalletVerifyPINScreen,
+  EWalletAccountDetailsScreen,
+  EWalletProcessingScreen,
+  EWalletSummaryScreen,
+  EWalletSuccessScreen,
+} from '../pages/ewallet';
+
 export default function AppRoutes() {
   return (
     <Routes>
@@ -71,6 +90,27 @@ export default function AppRoutes() {
       <Route path={ROUTES.FOREX_PROCESSING} element={<ForexProcessingScreen />} />
       <Route path={ROUTES.FOREX_SUCCESS} element={<ForexSuccessScreen />} />
       <Route path={ROUTES.FOREX_WARNING} element={<ForexWarningScreen />} />
+
+      {/* E-Wallet Flow */}
+      <Route path={ROUTES.EWALLET} element={<EWalletProviderScreen />} />
+      <Route path={ROUTES.EWALLET_SERVICE} element={<EWalletServiceScreen />} />
+      <Route path={ROUTES.EWALLET_REMINDER} element={<EWalletReminderScreen />} />
+
+      {/* E-Wallet Transaction Flow (with :type parameter) */}
+      <Route path={ROUTES.EWALLET_FEE} element={<EWalletFeeScreen />} />
+      <Route path={ROUTES.EWALLET_MOBILE} element={<EWalletMobileScreen />} />
+      <Route path={ROUTES.EWALLET_AMOUNT} element={<EWalletAmountScreen />} />
+      <Route path={ROUTES.EWALLET_CONFIRM} element={<EWalletConfirmScreen />} />
+      <Route path={ROUTES.EWALLET_INSERT_BILLS} element={<EWalletInsertBillsScreen />} />
+      <Route path={ROUTES.EWALLET_INSERT_COINS} element={<EWalletInsertCoinsScreen />} />
+      <Route path={ROUTES.EWALLET_QR} element={<EWalletQRCodeScreen />} />
+      <Route path={ROUTES.EWALLET_VERIFY} element={<EWalletVerifyPINScreen />} />
+      <Route path={ROUTES.EWALLET_DETAILS} element={<EWalletAccountDetailsScreen />} />
+
+      {/* E-Wallet Feedback Screens */}
+      <Route path={ROUTES.EWALLET_PROCESSING} element={<EWalletProcessingScreen />} />
+      <Route path={ROUTES.EWALLET_SUMMARY} element={<EWalletSummaryScreen />} />
+      <Route path={ROUTES.EWALLET_SUCCESS} element={<EWalletSuccessScreen />} />
     </Routes>
   );
 }

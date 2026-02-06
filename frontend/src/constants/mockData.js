@@ -76,7 +76,7 @@ export const TRANSACTION_TYPES = [
     icon: "/assets/ewallet.png",
     color: "coinnect-ewallet",
     bgClass: "bg-coinnect-ewallet",
-    enabled: false,
+    enabled: true,
   },
 ];
 

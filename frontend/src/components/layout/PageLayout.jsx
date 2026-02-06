@@ -5,6 +5,7 @@ const bgVariants = {
   default: 'bg-surface-light',
   orange: 'bg-coinnect-primary',
   navy: 'bg-gradient-to-br from-coinnect-navy to-coinnect-navy-dark',
+  ewallet: 'bg-coinnect-ewallet',
 };
 
 export default function PageLayout({

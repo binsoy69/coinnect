@@ -1,7 +1,16 @@
 import Card from "../common/Card";
 
+// Accent color mapping for SVG fills per card variant
+const accentColors = {
+  orange: "#F97316",
+  forex: "#DC2626",
+  ewallet: "#3B82F6",
+  gcash: "#007DFE",
+  maya: "#01B463",
+};
+
 // Inline SVG for bill insert illustration
-const BillInsertIcon = () => (
+const BillInsertIcon = ({ accentColor = "#F97316" }) => (
   <svg
     viewBox="0 0 120 120"
     className="w-32 h-32 mx-auto"
@@ -44,7 +53,7 @@ const BillInsertIcon = () => (
       width="30"
       height="8"
       rx="1"
-      fill="#F97316"
+      fill={accentColor}
       fillOpacity="0.5"
     />
     <rect
@@ -53,7 +62,7 @@ const BillInsertIcon = () => (
       width="20"
       height="3"
       rx="1"
-      fill="#F97316"
+      fill={accentColor}
       fillOpacity="0.3"
     />
     <rect
@@ -62,7 +71,7 @@ const BillInsertIcon = () => (
       width="25"
       height="3"
       rx="1"
-      fill="#F97316"
+      fill={accentColor}
       fillOpacity="0.3"
     />
 
@@ -78,7 +87,7 @@ const BillInsertIcon = () => (
 );
 
 // Inline SVG for coin insert illustration
-const CoinInsertIcon = () => (
+const CoinInsertIcon = ({ accentColor = "#F97316" }) => (
   <svg
     viewBox="0 0 120 120"
     className="w-32 h-32 mx-auto"
@@ -107,7 +116,7 @@ const CoinInsertIcon = () => (
 
     {/* Coins being inserted */}
     <circle cx="60" cy="35" r="18" fill="white" fillOpacity="0.9" />
-    <circle cx="60" cy="35" r="14" fill="#F97316" fillOpacity="0.3" />
+    <circle cx="60" cy="35" r="14" fill={accentColor} fillOpacity="0.3" />
     <text
       x="60"
       y="40"
@@ -120,10 +129,10 @@ const CoinInsertIcon = () => (
     </text>
 
     <circle cx="45" cy="55" r="12" fill="white" fillOpacity="0.7" />
-    <circle cx="45" cy="55" r="9" fill="#F97316" fillOpacity="0.3" />
+    <circle cx="45" cy="55" r="9" fill={accentColor} fillOpacity="0.3" />
 
     <circle cx="75" cy="55" r="12" fill="white" fillOpacity="0.7" />
-    <circle cx="75" cy="55" r="9" fill="#F97316" fillOpacity="0.3" />
+    <circle cx="75" cy="55" r="9" fill={accentColor} fillOpacity="0.3" />
 
     {/* Arrow indicating insertion direction */}
     <path
@@ -162,7 +171,15 @@ export default function InsertMoneyPanel({
 
       {/* Insert illustration */}
       <div className="mt-auto mb-4">
-        {variant === "coin" ? <CoinInsertIcon /> : <BillInsertIcon />}
+        {variant === "coin" ? (
+          <CoinInsertIcon
+            accentColor={accentColors[cardVariant] || accentColors.orange}
+          />
+        ) : (
+          <BillInsertIcon
+            accentColor={accentColors[cardVariant] || accentColors.orange}
+          />
+        )}
       </div>
     </Card>
   );

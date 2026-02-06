@@ -63,7 +63,9 @@ frontend/src/
 │   │   ├── Header.jsx
 │   │   ├── Clock.jsx
 │   │   ├── Timer.jsx
-│   │   └── LoadingDots.jsx
+│   │   ├── LoadingDots.jsx
+│   │   ├── VirtualKeypad.jsx
+│   │   └── LoadingSpinner.jsx
 │   │
 │   ├── layout/
 │   │   ├── PageLayout.jsx
@@ -82,10 +84,16 @@ frontend/src/
 │   │   ├── SuccessIcon.jsx
 │   │   └── WarningIcon.jsx
 │   │
-│   └── forex/
-│       ├── ExchangeRateCard.jsx
-│       ├── CurrencyAmountGrid.jsx
-│       └── ConversionDisplay.jsx
+│   ├── forex/
+│   │   ├── ExchangeRateCard.jsx
+│   │   ├── CurrencyAmountGrid.jsx
+│   │   └── ConversionDisplay.jsx
+│   │
+│   └── ewallet/
+│       ├── TransactionFeeTable.jsx
+│       ├── QRCodeDisplay.jsx
+│       ├── AccountDetailsPanel.jsx
+│       └── EWalletTransactionCard.jsx
 │
 ├── pages/
 │   ├── InitialScreen.jsx
@@ -104,17 +112,34 @@ frontend/src/
 │   │   ├── SuccessScreen.jsx
 │   │   └── WarningScreen.jsx
 │   │
-│   └── forex/
-│       ├── ForexServiceSelectionScreen.jsx
-│       ├── ForexReminderScreen.jsx
-│       ├── ExchangeRateScreen.jsx
-│       ├── ForexConfirmationScreen.jsx
-│       ├── ForexInsertMoneyScreen.jsx
-│       ├── ForexConversionScreen.jsx
-│       ├── ForexSummaryScreen.jsx
-│       ├── ForexProcessingScreen.jsx
-│       ├── ForexSuccessScreen.jsx
-│       └── ForexWarningScreen.jsx
+│   ├── forex/
+│   │   ├── ForexServiceSelectionScreen.jsx
+│   │   ├── ForexReminderScreen.jsx
+│   │   ├── ExchangeRateScreen.jsx
+│   │   ├── ForexConfirmationScreen.jsx
+│   │   ├── ForexInsertMoneyScreen.jsx
+│   │   ├── ForexConversionScreen.jsx
+│   │   ├── ForexSummaryScreen.jsx
+│   │   ├── ForexProcessingScreen.jsx
+│   │   ├── ForexSuccessScreen.jsx
+│   │   └── ForexWarningScreen.jsx
+│   │
+│   └── ewallet/
+│       ├── EWalletProviderScreen.jsx
+│       ├── EWalletServiceScreen.jsx
+│       ├── EWalletReminderScreen.jsx
+│       ├── EWalletFeeScreen.jsx
+│       ├── EWalletMobileScreen.jsx
+│       ├── EWalletAmountScreen.jsx
+│       ├── EWalletConfirmScreen.jsx
+│       ├── EWalletInsertBillsScreen.jsx
+│       ├── EWalletInsertCoinsScreen.jsx
+│       ├── EWalletAccountDetailsScreen.jsx
+│       ├── EWalletQRCodeScreen.jsx
+│       ├── EWalletVerifyPINScreen.jsx
+│       ├── EWalletProcessingScreen.jsx
+│       ├── EWalletSummaryScreen.jsx
+│       └── EWalletSuccessScreen.jsx
 │
 ├── routes/
 │   └── index.jsx
@@ -123,11 +148,13 @@ frontend/src/
 │   ├── routes.js
 │   ├── denominations.js
 │   ├── mockData.js
-│   └── forexData.js
+│   ├── forexData.js
+│   └── ewalletData.js
 │
 ├── context/
 │   ├── TransactionContext.jsx
-│   └── ForexContext.jsx
+│   ├── ForexContext.jsx
+│   └── EWalletContext.jsx
 │
 └── hooks/
     └── useCountdown.js
@@ -171,6 +198,28 @@ frontend/src/
 | `/forex/:type/warning`    | ForexWarningScreen          | Amount mismatch              |
 
 **Forex Service Types**: `usd-to-php`, `php-to-usd`, `eur-to-php`, `php-to-eur`
+
+### E-Wallet Routes
+
+| Route                            | Screen                      | Description                    |
+| -------------------------------- | --------------------------- | ------------------------------ |
+| `/ewallet`                       | EWalletProviderScreen       | Select GCash or Maya           |
+| `/ewallet/:provider/service`     | EWalletServiceScreen        | Select Cash In or Cash Out     |
+| `/ewallet/reminder`              | EWalletReminderScreen       | Blue disclaimer screen         |
+| `/ewallet/:type/fee`             | EWalletFeeScreen            | Transaction fee tiers display  |
+| `/ewallet/:type/mobile`          | EWalletMobileScreen         | Enter mobile number            |
+| `/ewallet/:type/amount`          | EWalletAmountScreen         | Enter amount with keypad       |
+| `/ewallet/:type/confirm`         | EWalletConfirmScreen        | Confirm transaction details    |
+| `/ewallet/:type/insert-bills`    | EWalletInsertBillsScreen    | Insert bills (Cash In only)    |
+| `/ewallet/:type/insert-coins`    | EWalletInsertCoinsScreen    | Insert coins (Cash In only)    |
+| `/ewallet/:type/details`         | EWalletAccountDetailsScreen | Account details review         |
+| `/ewallet/:type/qr`              | EWalletQRCodeScreen         | QR code scan (Cash Out only)   |
+| `/ewallet/:type/verify`          | EWalletVerifyPINScreen      | Verification PIN (Cash Out)    |
+| `/ewallet/:type/processing`      | EWalletProcessingScreen     | Checking spinner               |
+| `/ewallet/:type/summary`         | EWalletSummaryScreen        | Transaction summary card       |
+| `/ewallet/:type/success`         | EWalletSuccessScreen        | Success with checkmark         |
+
+**E-Wallet Service Types**: `gcash-cash-in`, `gcash-cash-out`, `maya-cash-in`, `maya-cash-out`
 
 ---
 
@@ -638,6 +687,350 @@ _Goal: Add Foreign Exchange UI flow with red theme (#DC2626) following mockups i
 
 ---
 
+## Phase 1.10: E-Wallet Flow
+
+_Goal: Add E-Wallet (GCash + Maya) Cash In / Cash Out UI flow with blue theme (#3B82F6) following mockups in `UI/e-wallet/`._
+
+### E-Wallet Design System Additions
+
+| Token                    | Hex       | Usage                              |
+| ------------------------ | --------- | ---------------------------------- |
+| `coinnect-ewallet`       | `#3B82F6` | E-Wallet cards, backgrounds, accents |
+| `coinnect-ewallet-dark`  | `#2563EB` | E-Wallet hover states              |
+
+### E-Wallet Providers
+
+| Provider  | Services                | Icon                        |
+| --------- | ----------------------- | --------------------------- |
+| **GCash** | Cash In, Cash Out       | GCash logo (blue)           |
+| **Maya**  | Cash In, Cash Out       | Maya logo (blue)            |
+
+### E-Wallet Fee Structure
+
+| Amount Range  | Transaction Fee |
+| ------------- | --------------- |
+| P1 - P500     | P15             |
+| P501 - P1000  | P25             |
+
+Fee is automatically deducted from the inserted amount.
+
+### E-Wallet Bill/Coin Denominations
+
+| Type      | Denominations                        |
+| --------- | ------------------------------------ |
+| **Bills** | P20, P50, P100, P200, P500, P1000   |
+| **Coins** | P1, P5, P10, P20                     |
+
+### Phase 1.10.1: E-Wallet Foundation
+
+- [x] **Create E-Wallet Routes**
+  - [x] Add e-wallet route constants to `routes.js`
+  - [x] Add `getEWalletRoute()` helper function
+  - [x] Register e-wallet routes in router
+  - [x] **File**: `frontend/src/constants/routes.js`, `frontend/src/routes/index.jsx`
+- [x] **Create E-Wallet Constants**
+  - [x] Provider configs: GCash, Maya
+  - [x] Service types: `gcash-cash-in`, `gcash-cash-out`, `maya-cash-in`, `maya-cash-out`
+  - [x] Fee tiers: P1-P500 = P15, P501-P1000 = P25
+  - [x] Bill denominations: P20, P50, P100, P200, P500, P1000
+  - [x] Coin denominations: P1, P5, P10, P20
+  - [x] Mock data for all 4 service types
+  - [x] Helper functions: `calculateFee()`, `getEWalletConfig()`, `isCashIn()`, `isCashOut()`
+  - [x] **File**: `frontend/src/constants/ewalletData.js`
+- [x] **Create EWalletContext**
+  - [x] State: provider, serviceType, mobileNumber, amount, fee, totalDue, insertedBills, insertedCoins, billerNumber
+  - [x] Functions: startEWalletTransaction, setMobileNumber, setAmount, addInsertedBill, addInsertedCoin, resetTransaction
+  - [x] Helper: isAmountMatched, getTotalInserted, getRemainingAmount
+  - [x] **File**: `frontend/src/context/EWalletContext.jsx`
+
+**Test**: Context provides correct config for each e-wallet service type ✅
+
+---
+
+### Phase 1.10.2: New Shared Components
+
+- [x] **VirtualKeypad Component**
+  - [x] 3x4 number grid (1-9, empty, 0, backspace)
+  - [x] Input display field with blue border
+  - [x] Configurable maxLength (11 for mobile, 4 for amount, 6 for PIN)
+  - [x] Configurable placeholder text
+  - [x] onSubmit callback
+  - [x] Framer Motion press animations on keys
+  - [x] **File**: `frontend/src/components/common/VirtualKeypad.jsx`
+- [x] **LoadingSpinner Component**
+  - [x] 8 dots arranged in circle
+  - [x] Rotation animation (spinning)
+  - [x] Dots vary in size (larger at top, smaller at bottom)
+  - [x] White dots on blue background
+  - [x] Customizable text below (default: "Checking...")
+  - [x] **File**: `frontend/src/components/common/LoadingSpinner.jsx`
+- [x] **Update InsertMoneyPanel**
+  - [x] Add `ewallet` cardVariant (blue color scheme)
+  - [x] **File**: `frontend/src/components/transaction/InsertMoneyPanel.jsx`
+
+**Test**: Visual check of VirtualKeypad and LoadingSpinner in isolation ✅
+
+---
+
+### Phase 1.10.3: E-Wallet Components
+
+- [x] **TransactionFeeTable Component**
+  - [x] Table with Amount and Transaction Fee columns
+  - [x] Blue background rows for fee tiers
+  - [x] Note text: "The transaction fee is automatically deducted from the inserted amount."
+  - [x] Optional extra note for Cash Out
+  - [x] **File**: `frontend/src/components/ewallet/TransactionFeeTable.jsx`
+- [x] **QRCodeDisplay Component**
+  - [x] Static QR code placeholder image
+  - [x] Provider name in heading: "Scan QR Code (GCash App)" / "(Maya App)"
+  - [x] Instruction text: "Scan QR Code and input money you want to send."
+  - [x] "After paying, click the button" text
+  - [x] "Verify Transaction" button
+  - [x] **File**: `frontend/src/components/ewallet/QRCodeDisplay.jsx`
+- [x] **AccountDetailsPanel Component**
+  - [x] Two-column layout
+  - [x] Left: Blue summary card (Money Inserted/Send, Transaction Fee, DateTime)
+  - [x] Right: Account Details (Biller, Mobile Number, Amount to Transfer)
+  - [x] Proceed button
+  - [x] **File**: `frontend/src/components/ewallet/AccountDetailsPanel.jsx`
+- [x] **EWalletTransactionCard Component**
+  - [x] Blue background card (matching blue theme)
+  - [x] "MY TRANSACTION" header with subtitle
+  - [x] Fields: Transaction Type, Service Type, Mobile Number, Total Money Inserted, Transaction Fee, Money to Transfer, Total Due
+  - [x] Back and Proceed buttons
+  - [x] **File**: `frontend/src/components/ewallet/EWalletTransactionCard.jsx`
+
+**Test**: Visual check of each e-wallet component in isolation ✅
+
+---
+
+### Phase 1.10.4: E-Wallet Entry Screens
+
+- [x] **E-Wallet Provider Screen**
+  - [x] Header with "E-Wallet" breadcrumb
+  - [x] "Select your E-Wallet" heading
+  - [x] Two blue service cards: GCash, Maya
+  - [x] Navigation: Each card → `/ewallet/:provider/service`
+  - [x] **File**: `frontend/src/pages/ewallet/EWalletProviderScreen.jsx`
+  - [x] **Mockup**: `UI/e-wallet/Select Service.png`
+- [x] **E-Wallet Service Screen**
+  - [x] Header with provider name breadcrumb (e.g., "GCash")
+  - [x] "Select Type of Service" heading
+  - [x] Two blue service cards: Cash In (down arrow), Cash Out (up arrow)
+  - [x] Provider-specific icons (GCash logo with arrows, Maya logo with arrows)
+  - [x] Navigation: Each card → `/ewallet/reminder`
+  - [x] **File**: `frontend/src/pages/ewallet/EWalletServiceScreen.jsx`
+  - [x] **Mockups**: `UI/e-wallet/GCASH CASH IN.png`, `UI/e-wallet/MAYA CASH IN.png`
+- [x] **E-Wallet Reminder Screen**
+  - [x] Full blue background
+  - [x] Kiosk icon with smiley face
+  - [x] Same disclaimer text as money converter/forex
+  - [x] "Proceed" button
+  - [x] Navigation: Button → `/ewallet/:type/fee`
+  - [x] **File**: `frontend/src/pages/ewallet/EWalletReminderScreen.jsx`
+  - [x] **Mockup**: `UI/e-wallet/Select Service-1.png`
+
+**Test**: Navigate through E-Wallet Provider → Service → Reminder ✅
+
+---
+
+### Phase 1.10.5: Cash In Screens
+
+- [x] **E-Wallet Fee Screen**
+  - [x] Header with service indicator (e.g., "E-Wallet / GCash Cash In" + icon)
+  - [x] "Transaction Fee" heading
+  - [x] TransactionFeeTable component
+  - [x] Note: "The transaction fee is automatically deducted from the inserted amount."
+  - [x] Cash Out extra note: "Ensure you have your mobile phone and the provided mobile number with you."
+  - [x] "Proceed" button
+  - [x] Navigation: Button → `/ewallet/:type/mobile`
+  - [x] **File**: `frontend/src/pages/ewallet/EWalletFeeScreen.jsx`
+  - [x] **Mockup**: `UI/e-wallet/GCASH CASH IN-2.png`
+- [x] **E-Wallet Mobile Number Screen**
+  - [x] Header with service indicator
+  - [x] "Enter Mobile Number" heading
+  - [x] VirtualKeypad (maxLength: 11)
+  - [x] "Proceed" button
+  - [x] Navigation: Button → `/ewallet/:type/amount`
+  - [x] **File**: `frontend/src/pages/ewallet/EWalletMobileScreen.jsx`
+  - [x] **Mockup**: `UI/e-wallet/GCASH CASH IN-3.png`
+- [x] **E-Wallet Amount Screen**
+  - [x] Header with service indicator
+  - [x] "Enter Amount" heading
+  - [x] VirtualKeypad (maxLength: 4)
+  - [x] "Pay" button
+  - [x] Navigation: Button → `/ewallet/:type/confirm`
+  - [x] **File**: `frontend/src/pages/ewallet/EWalletAmountScreen.jsx`
+  - [x] **Mockup**: `UI/e-wallet/GCASH CASH IN-4.png`
+- [x] **E-Wallet Confirm Screen**
+  - [x] Full blue background
+  - [x] Question mark icon in circle
+  - [x] Display: Mobile Number | Amount to Transfer | Transaction Fee | Total Due
+  - [x] "Click Proceed to Continue" instruction
+  - [x] "Back" and "Proceed" buttons
+  - [x] Navigation: Proceed → `/ewallet/:type/insert-bills` (Cash In) or `/ewallet/:type/qr` (Cash Out)
+  - [x] **File**: `frontend/src/pages/ewallet/EWalletConfirmScreen.jsx`
+  - [x] **Mockup**: `UI/e-wallet/GCASH CASH IN-5.png`
+- [x] **E-Wallet Insert Bills Screen**
+  - [x] Header with service indicator
+  - [x] Left panel: InsertMoneyPanel (bill variant, ewallet cardVariant)
+  - [x] Right panel: "Please Insert Money" heading
+  - [x] Current count display + Total Due badge
+  - [x] Bill denomination counters (P20-P1000)
+  - [x] Timer with progress bar (60s countdown)
+  - [x] Auto-close warning text
+  - [x] If bills >= totalDue: auto-proceed to Account Details
+  - [x] If bills < totalDue: show "Insert Coins" option
+  - [x] Navigation: Amount matched → `/ewallet/:type/details`, need coins → `/ewallet/:type/insert-coins`
+  - [x] **File**: `frontend/src/pages/ewallet/EWalletInsertBillsScreen.jsx`
+  - [x] **Mockup**: `UI/e-wallet/GCASH CASH IN-6.png`
+- [x] **E-Wallet Insert Coins Screen**
+  - [x] Same layout as Insert Bills but with coin denominations
+  - [x] Coin denomination counters (P1, P5, P10, P20)
+  - [x] Shows remaining amount needed after bills
+  - [x] Timer with progress bar (60s countdown)
+  - [x] If total (bills + coins) >= totalDue: auto-proceed
+  - [x] Navigation: Amount matched → `/ewallet/:type/details`
+  - [x] **File**: `frontend/src/pages/ewallet/EWalletInsertCoinsScreen.jsx`
+
+**Test**: Navigate through complete Cash In flow with bill/coin insertion ✅
+
+---
+
+### Phase 1.10.6: Cash Out Screens
+
+- [x] **E-Wallet QR Code Screen**
+  - [x] Header with service indicator
+  - [x] "Scan QR Code (GCash/Maya App)" heading
+  - [x] "Scan QR Code and input money you want to send." instruction
+  - [x] Static QR code placeholder image
+  - [x] "After paying, click the button" text
+  - [x] "Verify Transaction" button
+  - [x] Navigation: Button → `/ewallet/:type/verify`
+  - [x] **File**: `frontend/src/pages/ewallet/EWalletQRCodeScreen.jsx`
+  - [x] **Mockup**: `UI/e-wallet/GCASH CASH OUT-3.png`
+- [x] **E-Wallet Verify PIN Screen**
+  - [x] Header with service indicator
+  - [x] "Enter Verification PIN" heading
+  - [x] "We send Verification PIN to your mobile number." subtitle
+  - [x] VirtualKeypad (maxLength: 6)
+  - [x] "Proceed" button (accepts any input)
+  - [x] Navigation: Button → `/ewallet/:type/details`
+  - [x] **File**: `frontend/src/pages/ewallet/EWalletVerifyPINScreen.jsx`
+  - [x] **Mockup**: `UI/e-wallet/GCASH CASH OUT-4.png`
+
+**Test**: Navigate through QR Code → Verify PIN → Account Details ✅
+
+---
+
+### Phase 1.10.7: Shared End Screens
+
+- [x] **E-Wallet Account Details Screen**
+  - [x] Header with service indicator
+  - [x] AccountDetailsPanel component
+  - [x] Left blue card: Money Inserted/Send, Transaction Fee, DateTime
+  - [x] Right: Account Details (Biller, Mobile Number, Amount to Transfer)
+  - [x] "Proceed" button
+  - [x] Navigation: Button → `/ewallet/:type/processing`
+  - [x] **File**: `frontend/src/pages/ewallet/EWalletAccountDetailsScreen.jsx`
+  - [x] **Mockups**: `UI/e-wallet/GCASH CASH IN-7.png`, `UI/e-wallet/GCASH CASH OUT-5.png`
+- [x] **E-Wallet Processing Screen**
+  - [x] Full blue background
+  - [x] LoadingSpinner animation (circular dots)
+  - [x] "Checking..." text
+  - [x] Auto-advance after 2.5s → Summary screen
+  - [x] **File**: `frontend/src/pages/ewallet/EWalletProcessingScreen.jsx`
+  - [x] **Mockup**: `UI/e-wallet/GCASH CASH IN-8.png`
+- [x] **E-Wallet Summary Screen**
+  - [x] EWalletTransactionCard centered
+  - [x] "MY TRANSACTION" header
+  - [x] Transaction Type: "E-Wallet"
+  - [x] Service Type: "GCash Cash In" / "Maya Cash Out" etc.
+  - [x] Mobile Number
+  - [x] Total Money Inserted, Transaction Fee, Money to Transfer, Total Due
+  - [x] "Back" and "Proceed" buttons
+  - [x] Navigation: Proceed → `/ewallet/:type/success`
+  - [x] **File**: `frontend/src/pages/ewallet/EWalletSummaryScreen.jsx`
+  - [x] **Mockups**: `UI/e-wallet/GCASH CASH IN-9.png`, `UI/e-wallet/GCASH CASH OUT-8.png`
+- [x] **E-Wallet Success Screen**
+  - [x] Full blue background
+  - [x] Animated green checkmark (SuccessIcon)
+  - [x] Cash In: "Successfully transfer the money! Get the receipt."
+  - [x] Cash Out: "Successfully dispensed the money! Check the cash tray and receipt!"
+  - [x] "Exit" button → `/`
+  - [x] "Another Transaction" button → `/select-transaction`
+  - [x] **File**: `frontend/src/pages/ewallet/EWalletSuccessScreen.jsx`
+  - [x] **Mockups**: `UI/e-wallet/GCASH CASH IN-10.png`, `UI/e-wallet/GCASH CASH OUT-9.png`
+
+**Test**: Navigate through Account Details → Processing → Summary → Success ✅
+
+---
+
+### Phase 1.10.8: Flow Integration
+
+- [x] **Enable E-Wallet on Transaction Type Screen**
+  - [x] Set `enabled: true` for E-Wallet card
+  - [x] Add onClick navigation to `/ewallet`
+  - [x] **File**: `frontend/src/pages/TransactionTypeScreen.jsx`
+- [x] **Test All E-Wallet Flows**
+  - [x] GCash Cash In: Complete flow with bill/coin insertion
+  - [x] GCash Cash Out: Complete flow with QR + PIN verification
+  - [x] Maya Cash In: Complete flow with bill/coin insertion
+  - [x] Maya Cash Out: Complete flow with QR + PIN verification
+- [x] **Verify Visual Consistency**
+  - [x] Blue theme applied consistently
+  - [x] Animations match money converter/forex quality
+  - [x] Back navigation works on all screens
+  - [x] VirtualKeypad works correctly on all input screens
+
+**Test**: Full E2E testing of all 4 e-wallet flows ✅
+
+---
+
+## E-Wallet Mock Data Reference
+
+```javascript
+// Fee tiers (same for all providers)
+const EWALLET_FEE_TIERS = [
+  { min: 1, max: 500, fee: 15 },
+  { min: 501, max: 1000, fee: 25 },
+];
+
+// Static values for navigation demo
+const EWALLET_MOCK_DATA = {
+  "gcash-cash-in": {
+    mobileNumber: "09924456533",
+    amount: 105,           // total due
+    transferAmount: 90,    // amount to e-wallet
+    fee: 15,               // transaction fee
+    billerNumber: "09099242851",
+  },
+  "gcash-cash-out": {
+    mobileNumber: "09924456533",
+    amount: 1025,          // total due
+    dispenseAmount: 1000,  // cash to dispense
+    fee: 25,               // transaction fee
+    billerNumber: "09099242851",
+  },
+  "maya-cash-in": {
+    mobileNumber: "09924456533",
+    amount: 105,
+    transferAmount: 90,
+    fee: 15,
+    billerNumber: "09099242851",
+  },
+  "maya-cash-out": {
+    mobileNumber: "09924456533",
+    amount: 105,
+    dispenseAmount: 90,
+    fee: 15,
+    billerNumber: "09099242851",
+  },
+};
+```
+
+---
+
 ## Forex Mock Data Reference
 
 ```javascript
@@ -740,6 +1133,16 @@ const MOCK_DATA = {
 - [ ] Warning screen → Choose Different Amount / Insert More Money
 - [ ] Rate locks on confirmation screen
 
+**E-Wallet Navigation Flows:**
+
+- [x] Initial → Transaction Type → E-Wallet Provider → Service Selection → Reminder → Fee → Mobile → Amount → Confirm → Insert Bills → [Insert Coins] → Account Details → Processing → Summary → Success
+- [x] Cash Out: ... → Confirm → QR Code → Verify PIN → Account Details → Processing → Summary → Success
+- [x] All 4 e-wallet service types complete flow (GCash/Maya Cash In/Out)
+- [x] Back button works on all e-wallet screens
+- [x] Bill/coin split insertion works (bills first, optional coins)
+- [x] VirtualKeypad works correctly on mobile, amount, and PIN screens
+- [x] Exit → Home, Another Transaction → Transaction Type
+
 **Linting:**
 
 - [x] `npm run lint` passes with no errors
@@ -747,7 +1150,8 @@ const MOCK_DATA = {
 **Visual:**
 
 - [x] Colors match mockups (orange for converter)
-- [ ] Colors match mockups (red for forex)
+- [x] Colors match mockups (red for forex)
+- [x] Colors match mockups (blue for e-wallet)
 - [x] Typography matches mockups
 - [x] Spacing and layout match mockups
 - [x] Animations are smooth (60fps)
@@ -758,6 +1162,8 @@ const MOCK_DATA = {
 
 - [x] **Coinnect Logo** - PNG files in `public/assets/`
 - [ ] **Sponsor Logos** - Optional, for sponsor panel (user to provide)
+- [x] **E-Wallet Provider Icons** - GCash/Maya Cash In/Out icons in `public/assets/`
+- [ ] **QR Code Placeholder Images** - Static QR images for GCash/Maya Cash Out screens
 
 ---
 

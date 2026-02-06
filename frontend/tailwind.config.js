@@ -22,6 +22,11 @@ export default {
         "coinnect-forex": "#DC2626",
         "coinnect-converter": "#F97316",
         "coinnect-ewallet": "#3B82F6",
+        "coinnect-ewallet-dark": "#2563EB",
+
+        // Provider specific
+        "coinnect-gcash": "#007DFE", // Standard GCash Blue
+        "coinnect-maya": "#01B463", // Standard Maya Green
 
         // Surface colors
         "surface-light": "#F3F4F6",
@@ -78,4 +83,9 @@ export default {
     },
   },
   plugins: [],
+  safelist: [
+    {
+      pattern: /(bg|text)-coinnect-(gcash|maya)/,
+    },
+  ],
 };

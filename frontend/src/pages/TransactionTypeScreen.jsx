@@ -15,8 +15,9 @@ export default function TransactionTypeScreen() {
       navigate(ROUTES.MONEY_CONVERTER);
     } else if (type.id === "forex") {
       navigate(ROUTES.FOREX);
+    } else if (type.id === "ewallet") {
+      navigate(ROUTES.EWALLET);
     }
-    // E-Wallet is disabled for now
   };
 
   return (
