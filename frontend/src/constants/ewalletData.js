@@ -22,12 +22,12 @@ export const EWALLET_PROVIDER_LIST = [
   {
     id: EWALLET_PROVIDERS.GCASH,
     name: "GCash",
-    icon: "/assets/GCASH CASH IN w.png",
+    icon: "/assets/GCASH w.png",
   },
   {
     id: EWALLET_PROVIDERS.MAYA,
     name: "Maya",
-    icon: "/assets/MAYA CASH IN w.png",
+    icon: "/assets/MAYA w.png",
   },
 ];
 
