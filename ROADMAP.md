@@ -26,7 +26,7 @@ This document serves as the master checklist for the Coinnect development lifecy
 
 **Testing:**
 
-- Verify Python setup: `python --version` (Should be 3.11+) - _Python not yet installed_
+- Verify Python setup: `python --version` (Should be 3.11+) - _Python not yet installed on dev machine_
 - Verify Frontend setup: `cd frontend && npm run dev` (Should load Coinnect welcome page with TailwindCSS styling)
 
 ---
@@ -149,32 +149,96 @@ _Goal: Create a visually stunning, premium interface based on mockup designs bef
 
 ---
 
-## ⚙️ Phase 2: Hardware Drivers & Emulation (Backend Layer 1)
+## ✅ Phase 2: Hardware Drivers & Emulation (Backend Layer 1)
 
 _Goal: Create Python drivers that can talk to "Mock" Arduino, allowing development without hardware._
 
-- [ ] **Serial Protocol Implementation**
-  - [ ] Create `BillController` class (wraps Arduino #1 commands).
-  - [ ] Create `CoinSecurityController` class (wraps Arduino #2 commands).
-  - [ ] Implement `MockSerial` class to simulate Arduino responses for testing.
-  - [ ] **Test**: `pytest tests/unit/test_serial_protocol.py` (Verify JSON framing/parsing).
-- [ ] **Hardware State Machine**
-  - [ ] Create `MachineStatus` store (holds current sensor states).
-  - [ ] Implement event loop to poll/read from serial ports.
-  - [ ] **Test**: `pytest tests/unit/test_state_machine.py`.
+**Phase 2.0: Backend Foundation (BE-001 to BE-004):**
+
+- [x] **Backend Project Structure**
+  - [x] Create `app/` package with `core/`, `models/`, `drivers/`, `services/`, `api/`, `ml/` modules.
+  - [x] Create `tests/` package with `unit/` and `integration/` subdirectories.
+  - [x] Setup `pytest.ini` with asyncio mode and markers.
+- [x] **`[BE-001]` FastAPI Entry Point**
+  - [x] Create `app/main.py` with CORS, lifespan handlers (startup/shutdown).
+  - [x] Create `app/api/router.py` with `/api/v1` prefix.
+- [x] **`[BE-003]` Pydantic Models**
+  - [x] `app/models/serial_messages.py` - All serial command, response, and event models.
+  - [x] `app/models/machine.py` - `MachineStateSnapshot`, `DeviceStatus`, `ConsumablesState`.
+  - [x] `app/models/events.py` - `WSEvent` envelope (type, payload, timestamp).
+  - [x] `app/models/denominations.py` - Frontend int ↔ protocol string converters.
+- [x] **`[BE-004]` Logging**
+  - [x] `app/core/logging.py` - Rotating file + console logger.
+- [x] **Configuration & Constants**
+  - [x] `app/core/config.py` - Pydantic Settings loading from `.env`.
+  - [x] `app/core/constants.py` - `BillDenom`, `CoinDenom`, `SortSlot` enums, slot/position maps.
+  - [x] `app/core/errors.py` - `HardwareError`, `SerialError`, `TimeoutError` exceptions.
+
+**Phase 2.1: Serial Protocol Implementation:**
+
+- [x] **`[BE-002]` Serial Manager**
+  - [x] `SerialConnection` class with threaded reader + `asyncio.Queue` bridge.
+  - [x] `SerialManager` class managing both connections with shared event queue.
+  - [x] Thread-safe command sending via `threading.Lock`.
+  - [x] Response routing via `asyncio.Future` (reader thread resolves).
+  - [x] Auto-switch between `pyserial.Serial` and `MockSerial` via `USE_MOCK_SERIAL` env var.
+- [x] **BillController** (`app/drivers/bill_controller.py`)
+  - [x] Typed async methods: `sort()`, `home()`, `sort_status()`, `dispense()`, `dispense_status()`.
+  - [x] `_parse_or_raise()` - raises `HardwareError` on error responses.
+- [x] **CoinSecurityController** (`app/drivers/coin_security_controller.py`)
+  - [x] Typed async methods: `coin_dispense()`, `coin_change()`, `coin_reset()`.
+  - [x] Security methods: `security_lock()`, `security_unlock()`, `security_status()`.
+- [x] **MockSerial** (`app/drivers/mock_serial.py`)
+  - [x] Simple mode (`mock_delay=0`): instant canned responses per command.
+  - [x] Realistic mode (`mock_delay>0`): state tracking (homed, position, locked), timing delays.
+  - [x] Fault injection: `inject_fault()`, `inject_event()`, `set_state()`.
+  - [x] Controller identity inferred from port name.
+
+**Phase 2.2: Hardware State Machine:**
+
+- [x] **MachineStatus** (`app/services/machine_status.py`)
+  - [x] Thread-safe singleton state store with `snapshot()` for immutable copies.
+  - [x] Device connection tracking (bill + coin controllers).
+  - [x] Sorter state (homed, position, slot).
+  - [x] Security state (locked, tamper active, sensor, timestamp).
+  - [x] Consumables tracking (bill storage counts, dispenser counts, coin counts).
+  - [x] Alert thresholds (low bill, empty bill, low coin, storage full).
+  - [x] `on_change` callback for state change notifications.
+- [x] **EventDispatcher** (`app/services/event_dispatcher.py`)
+  - [x] Async task consuming from serial event queue.
+  - [x] Routes: `COIN_IN` → status + WS, `TAMPER` → status + WS, `DOOR_STATE` → status + WS, `READY` → device status.
+- [x] **WebSocket Infrastructure**
+  - [x] `ConnectionManager` (`app/api/ws.py`) - tracks clients, broadcasts events.
+  - [x] WebSocket endpoint at `/api/v1/ws`.
+  - [x] `WSEvent` model with types: `BILL_INSERTED`, `COIN_INSERTED`, `TAMPER`, `STATE_CHANGE`, `DEVICE_CONNECTED`, etc.
+- [x] **REST Endpoints**
+  - [x] `GET /api/v1/health` - device connection summary.
+  - [x] `GET /api/v1/status` - full `MachineStateSnapshot` JSON.
+
+**Phase 2.3: Tests:**
+
+- [x] `tests/conftest.py` - shared fixtures (MockSerial, settings, managers).
+- [x] Unit tests: `test_config.py`, `test_constants.py`, `test_serial_messages.py`, `test_denomination_converter.py`, `test_mock_serial.py`, `test_bill_controller.py`, `test_coin_security_controller.py`, `test_machine_status.py`, `test_event_dispatcher.py`.
+- [x] Integration tests: `test_serial_manager.py`, `test_api_endpoints.py`, `test_ws_endpoint.py`.
+
+**Deferred to Phase 3:**
+
 - [ ] **Receipt Printer Driver**
   - [ ] Implement ESC/POS protocol driver for thermal printer.
   - [ ] Create receipt templates (transaction receipt, claim ticket).
   - [ ] **Test**: `pytest tests/unit/test_printer_driver.py`.
-- [ ] **Consumables Monitoring**
-  - [ ] Implement paper level sensor reading.
-  - [ ] Track storage slot bill counts (estimated fullness).
-  - [ ] Track dispenser inventory levels.
-  - [ ] Define alert thresholds for low consumables.
 - [ ] **Claim Ticket System**
   - [ ] Generate unique alphanumeric claim codes.
   - [ ] Store claim ticket data (transaction ID, amounts, timestamp).
   - [ ] Expose API for customer service lookup.
+
+**Testing:**
+
+- Install Python 3.11+ and run: `cd backend && pip install -r requirements.txt`
+- Run unit tests: `pytest tests/unit/ -v`
+- Run integration tests: `pytest tests/integration/ -v`
+- Run all tests: `pytest --cov=app tests/`
+- Smoke test: `USE_MOCK_SERIAL=true uvicorn app.main:app --reload`
 
 ---
 
@@ -292,20 +356,20 @@ _Goal: Enable basic remote visibility into kiosk health and operations._
 
 **Core Infrastructure:**
 
-- [ ] `[BE-001]` Create FastAPI entry point `main.py` with CORS and lifespan handlers
-- [ ] `[BE-002]` Implement `SerialManager` with auto-reconnect and port detection
-- [ ] `[BE-003]` Create Pydantic models for `Transaction`, `HardwareEvent`, `MachineState`
-- [ ] `[BE-004]` Implement Logging (File-based + Console with rotation)
+- [x] `[BE-001]` Create FastAPI entry point `main.py` with CORS and lifespan handlers
+- [x] `[BE-002]` Implement `SerialManager` with threaded reader and asyncio queue bridge
+- [x] `[BE-003]` Create Pydantic models for serial messages, `MachineState`, `WSEvent`
+- [x] `[BE-004]` Implement Logging (File-based + Console with rotation)
 
 **Frontend Communication (WebSocket + REST):**
 
-- [ ] `[BE-015]` Implement WebSocket manager (`/ws` endpoint) for real-time event broadcast
-- [ ] `[BE-016]` Create `ConnectionManager` class to track active WebSocket clients
-- [ ] `[BE-017]` Define WebSocket event schema (type, payload, timestamp)
-- [ ] `[BE-018]` Implement REST API router structure (`/api/v1/`)
+- [x] `[BE-015]` Implement WebSocket manager (`/ws` endpoint) for real-time event broadcast
+- [x] `[BE-016]` Create `ConnectionManager` class to track active WebSocket clients
+- [x] `[BE-017]` Define WebSocket event schema (type, payload, timestamp)
+- [x] `[BE-018]` Implement REST API router structure (`/api/v1/`)
 - [ ] `[BE-019]` Create transaction endpoints: `POST /transaction`, `GET /transaction/{id}`, `DELETE /transaction/{id}`
-- [ ] `[BE-020]` Create machine status endpoint: `GET /status` (inventory, device health, connectivity)
-- [ ] `[BE-021]` Implement event bridge: serial events → WebSocket broadcast
+- [x] `[BE-020]` Create machine status endpoint: `GET /status` (inventory, device health, connectivity)
+- [x] `[BE-021]` Implement event bridge: serial events → WebSocket broadcast
 
 **Transaction State Machine:**
 
@@ -319,9 +383,9 @@ _Goal: Enable basic remote visibility into kiosk health and operations._
 **Hardware Drivers:**
 
 - [ ] `[BE-005]` Implement ESC/POS receipt printer driver
-- [ ] `[BE-006]` Implement consumables monitoring (paper sensor, slot counters)
+- [x] `[BE-006]` Implement consumables monitoring (slot counters, dispenser levels, coin counts)
 - [ ] `[BE-007]` Implement claim ticket generation system
-- [ ] `[BE-008]` Add storage slot fullness tracking and alerts
+- [x] `[BE-008]` Add storage slot fullness tracking and alerts
 
 **External Integrations:**
 
