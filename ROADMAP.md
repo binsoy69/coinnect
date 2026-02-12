@@ -221,15 +221,15 @@ _Goal: Create Python drivers that can talk to "Mock" Arduino, allowing developme
 - [x] Unit tests: `test_config.py`, `test_constants.py`, `test_serial_messages.py`, `test_denomination_converter.py`, `test_mock_serial.py`, `test_bill_controller.py`, `test_coin_security_controller.py`, `test_machine_status.py`, `test_event_dispatcher.py`.
 - [x] Integration tests: `test_serial_manager.py`, `test_api_endpoints.py`, `test_ws_endpoint.py`.
 
-**Deferred to Phase 3:**
+**Deferred to Phase 3 (Partial):**
 
 - [ ] **Receipt Printer Driver**
   - [ ] Implement ESC/POS protocol driver for thermal printer.
   - [ ] Create receipt templates (transaction receipt, claim ticket).
   - [ ] **Test**: `pytest tests/unit/test_printer_driver.py`.
-- [ ] **Claim Ticket System**
-  - [ ] Generate unique alphanumeric claim codes.
-  - [ ] Store claim ticket data (transaction ID, amounts, timestamp).
+- [x] **Claim Ticket System (Partial)**
+  - [x] Generate unique alphanumeric claim codes (in `DispenseOrchestrator`).
+  - [x] Store claim ticket data in transaction record (transaction ID, amounts, shortfall).
   - [ ] Expose API for customer service lookup.
 
 **Testing:**
@@ -242,25 +242,42 @@ _Goal: Create Python drivers that can talk to "Mock" Arduino, allowing developme
 
 ---
 
-## 💰 Phase 3: Money Changer (Offline Core)
+## ✅ Phase 3: Money Changer (Offline Core)
 
 _Goal: Enable PHP Bill <-> Coin conversion without Internet._
 
-- [ ] **Bill Acceptance Logic**
-  - [ ] Implement `accept_bill()` flow:
-    - Trigger Camera -> Run YOLO -> Validate -> Command Sort -> Command Store.
-  - [ ] **Test**: `pytest tests/integration/test_bill_acceptance.py`.
-- [ ] **Dispensing Logic (Bills + Coins)**
-  - [ ] Implement `calculate_change(amount)` algorithm.
-  - [ ] Implement `dispense_sequence()` (send commands to Arduino #1 & #2).
-  - [ ] **Test**: `pytest tests/unit/test_change_calculator.py` (Verify math is perfect).
-- [ ] **Transaction Orchestrator (Money Changer)**
-  - [ ] Connect Frontend "Money Changer" UI to Backend `start_transaction` API.
-  - [ ] Handle `bill_inserted` events and push updates to UI via WebSocket/SSE.
-- [ ] **Storage Slot Management**
-  - [ ] Track bill counts per storage slot.
-  - [ ] Implement fullness alerts at configurable thresholds (~80%).
-  - [ ] Disable acceptance for specific denomination when slot is full.
+- [x] **Bill Acceptance Logic**
+  - [x] Implement `accept_bill()` flow:
+    - GPIO motor control → Camera capture → YOLO ML authentication → Arduino sort command → Store bill.
+  - [x] `BillAcceptor` service orchestrating GPIO, camera, ML, BillController, and MachineStatus.
+  - [x] RPi GPIO controller (`gpio_controller.py`) with real + mock implementations.
+  - [x] USB camera controller (`camera_controller.py`) with real + mock implementations.
+  - [x] YOLO bill authenticator (`bill_authenticator.py`) with real + mock implementations.
+  - [x] **Test**: `pytest tests/integration/test_bill_acceptance.py` (12 tests).
+  - [x] **Test**: `pytest tests/unit/test_bill_acceptor.py` (31 tests).
+- [x] **Dispensing Logic (Bills + Coins)**
+  - [x] Implement `calculate_change(amount)` greedy algorithm with preferred denominations.
+  - [x] Implement `DispenseOrchestrator` with inventory reservation, sequential bill/coin dispensing, partial dispense recovery, and claim ticket generation.
+  - [x] **Test**: `pytest tests/unit/test_change_calculator.py` (53 tests).
+  - [x] **Test**: `pytest tests/unit/test_dispense_orchestrator.py` (11 tests).
+- [x] **Transaction Orchestrator (Money Changer)**
+  - [x] `TransactionStateMachine` with WAL-backed state transitions, timeout handling, and WS event emission.
+  - [x] `TransactionOrchestrator` coordinating bill acceptor, dispense orchestrator, and state machine.
+  - [x] REST API endpoints: `POST /transaction`, `GET /transaction/{id}`, `DELETE /transaction/{id}`, `POST /transaction/{id}/confirm`, `POST /transaction/{id}/simulate-insert`.
+  - [x] Frontend WebSocket integration: `WebSocketContext`, `useBackendTransaction` hook, `useMachineStatus` hook.
+  - [x] Toggleable keyboard simulation (via `VITE_ENABLE_KEYBOARD_SIM` env var).
+  - [x] **Test**: `pytest tests/unit/test_transaction_state_machine.py` (22 tests).
+  - [x] **Test**: `pytest tests/unit/test_transaction_orchestrator.py` (21 tests).
+  - [x] **Test**: `pytest tests/integration/test_transaction_api.py` (17 tests).
+- [x] **Storage Slot Management**
+  - [x] Track bill counts per storage slot via `MachineStatus`.
+  - [x] `is_storage_full(denom)` and `get_acceptable_denominations()` methods.
+  - [x] Disable acceptance for specific denomination when slot is full.
+  - [x] Inventory REST API: `GET /inventory`, `GET /inventory/acceptable-denominations`.
+- [x] **Persistence & Crash Recovery**
+  - [x] SQLite database via SQLAlchemy async + aiosqlite.
+  - [x] `TransactionRecord` and `WALEntry` ORM models.
+  - [x] Write-ahead logging for crash recovery with `recover_pending_transactions()` on startup.
 
 ---
 
@@ -367,24 +384,24 @@ _Goal: Enable basic remote visibility into kiosk health and operations._
 - [x] `[BE-016]` Create `ConnectionManager` class to track active WebSocket clients
 - [x] `[BE-017]` Define WebSocket event schema (type, payload, timestamp)
 - [x] `[BE-018]` Implement REST API router structure (`/api/v1/`)
-- [ ] `[BE-019]` Create transaction endpoints: `POST /transaction`, `GET /transaction/{id}`, `DELETE /transaction/{id}`
+- [x] `[BE-019]` Create transaction endpoints: `POST /transaction`, `GET /transaction/{id}`, `DELETE /transaction/{id}`, `POST /transaction/{id}/confirm`, `POST /transaction/{id}/simulate-insert`
 - [x] `[BE-020]` Create machine status endpoint: `GET /status` (inventory, device health, connectivity)
 - [x] `[BE-021]` Implement event bridge: serial events → WebSocket broadcast
 
 **Transaction State Machine:**
 
-- [ ] `[BE-022]` Implement `TransactionStateMachine` class with defined states and transitions
-- [ ] `[BE-023]` Define transaction states: `IDLE`, `WAITING_FOR_BILL`, `AUTHENTICATING`, `SORTING`, `WAITING_FOR_CONFIRMATION`, `DISPENSING`, `COMPLETE`, `CANCELLED`, `ERROR`
-- [ ] `[BE-024]` Implement state transition validation (prevent invalid state jumps)
-- [ ] `[BE-025]` Add state change event emission to WebSocket on every transition
-- [ ] `[BE-026]` Implement transaction timeout handling (accept cancellation from frontend)
-- [ ] `[BE-027]` Implement write-ahead logging for crash recovery
+- [x] `[BE-022]` Implement `TransactionStateMachine` class with defined states and transitions
+- [x] `[BE-023]` Define transaction states: `IDLE`, `WAITING_FOR_BILL`, `AUTHENTICATING`, `SORTING`, `WAITING_FOR_CONFIRMATION`, `DISPENSING`, `COMPLETE`, `CANCELLED`, `ERROR`
+- [x] `[BE-024]` Implement state transition validation (prevent invalid state jumps)
+- [x] `[BE-025]` Add state change event emission to WebSocket on every transition
+- [x] `[BE-026]` Implement transaction timeout handling (accept cancellation from frontend)
+- [x] `[BE-027]` Implement write-ahead logging for crash recovery
 
 **Hardware Drivers:**
 
 - [ ] `[BE-005]` Implement ESC/POS receipt printer driver
 - [x] `[BE-006]` Implement consumables monitoring (slot counters, dispenser levels, coin counts)
-- [ ] `[BE-007]` Implement claim ticket generation system
+- [x] `[BE-007]` Implement claim ticket generation system (alphanumeric codes for partial dispense)
 - [x] `[BE-008]` Add storage slot fullness tracking and alerts
 
 **External Integrations:**
@@ -401,10 +418,10 @@ _Goal: Enable basic remote visibility into kiosk health and operations._
 **Routing & State:**
 
 - [ ] `[FE-001]` Setup React Router with route guards
-- [ ] `[FE-002]` Create `WebSocketContext` for real-time hardware events
-- [ ] `[FE-003]` Implement `useTransaction` hook (start, cancel, get state from backend)
-- [ ] `[FE-009]` Create `useMachineStatus` hook (poll/subscribe to machine health)
-- [ ] `[FE-010]` Implement WebSocket reconnection logic with exponential backoff
+- [x] `[FE-002]` Create `WebSocketContext` for real-time hardware events
+- [x] `[FE-003]` Implement `useBackendTransaction` hook (start, cancel, confirm, simulate-insert via backend API + WS events)
+- [x] `[FE-009]` Create `useMachineStatus` hook (REST fetch + WS STATE_CHANGE subscription)
+- [x] `[FE-010]` Implement WebSocket reconnection logic with exponential backoff
 
 **UI Components:**
 

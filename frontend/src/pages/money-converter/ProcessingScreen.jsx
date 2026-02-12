@@ -1,22 +1,82 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import LoadingDots from "../../components/common/LoadingDots";
 import PageTransition from "../../components/layout/PageTransition";
 import { ROUTES, getServiceRoute } from "../../constants/routes";
+import { useWebSocket } from "../../context/WebSocketContext";
+
+const SAFETY_TIMEOUT = 30000; // 30s fallback
 
 export default function ProcessingScreen() {
   const navigate = useNavigate();
   const { type } = useParams();
+  const { subscribe, unsubscribe, isConnected } = useWebSocket();
+  const [progressText, setProgressText] = useState("Please wait...");
+  const [isDone, setIsDone] = useState(false);
 
-  // Auto-advance to success screen after 2 seconds (simulated processing)
+  const handleComplete = useCallback(
+    (success) => {
+      if (isDone) return;
+      setIsDone(true);
+      if (success) {
+        navigate(getServiceRoute(ROUTES.SUCCESS, type));
+      } else {
+        navigate(getServiceRoute(ROUTES.WARNING, type));
+      }
+    },
+    [navigate, type, isDone]
+  );
+
+  // Subscribe to dispense events
+  useEffect(() => {
+    const handleProgress = (event) => {
+      const { completed_items, total_items, dispensed_amount } =
+        event.payload || {};
+      if (total_items) {
+        setProgressText(
+          `Dispensing ${completed_items}/${total_items} items...`
+        );
+      }
+    };
+
+    const handleDispenseComplete = (event) => {
+      const success = event.payload?.success !== false;
+      handleComplete(success);
+    };
+
+    const handleTransactionComplete = () => {
+      handleComplete(true);
+    };
+
+    const handleTransactionError = () => {
+      handleComplete(false);
+    };
+
+    subscribe("DISPENSE_PROGRESS", handleProgress);
+    subscribe("DISPENSE_COMPLETE", handleDispenseComplete);
+    subscribe("TRANSACTION_COMPLETE", handleTransactionComplete);
+    subscribe("TRANSACTION_ERROR", handleTransactionError);
+
+    return () => {
+      unsubscribe("DISPENSE_PROGRESS", handleProgress);
+      unsubscribe("DISPENSE_COMPLETE", handleDispenseComplete);
+      unsubscribe("TRANSACTION_COMPLETE", handleTransactionComplete);
+      unsubscribe("TRANSACTION_ERROR", handleTransactionError);
+    };
+  }, [subscribe, unsubscribe, handleComplete]);
+
+  // Safety timeout: if no WS events received, navigate after 30s
+  // Also handles case when WS is not connected (offline/demo mode)
   useEffect(() => {
     const timer = setTimeout(() => {
-      navigate(getServiceRoute(ROUTES.SUCCESS, type));
-    }, 2500);
+      if (!isDone) {
+        handleComplete(true);
+      }
+    }, isConnected ? SAFETY_TIMEOUT : 2500);
 
     return () => clearTimeout(timer);
-  }, [navigate, type]);
+  }, [isDone, isConnected, handleComplete]);
 
   return (
     <PageTransition>
@@ -45,7 +105,7 @@ export default function ProcessingScreen() {
             transition={{ delay: 0.3 }}
             className="text-lg text-white/80"
           >
-            Please wait...
+            {progressText}
           </motion.p>
         </motion.div>
       </div>

@@ -182,6 +182,36 @@ class MachineStatus:
         with self._lock:
             return list(self._consumables.alerts)
 
+    def is_storage_full(self, denom: str) -> bool:
+        """Check if the storage slot for the given denomination is at capacity."""
+        with self._lock:
+            storage_key = denom
+            if denom.startswith("USD_"):
+                storage_key = "USD"
+            elif denom.startswith("EUR_"):
+                storage_key = "EUR"
+            count = self._consumables.bill_storage_counts.get(storage_key, 0)
+            return count >= self._settings.storage_slot_capacity
+
+    def get_acceptable_denominations(self) -> List[str]:
+        """Return list of denomination strings whose storage is not full."""
+        from app.core.constants import DENOM_TO_SLOT
+
+        with self._lock:
+            acceptable = []
+            for denom in DENOM_TO_SLOT:
+                storage_key = denom.value
+                if denom.value.startswith("USD_"):
+                    storage_key = "USD"
+                elif denom.value.startswith("EUR_"):
+                    storage_key = "EUR"
+                count = self._consumables.bill_storage_counts.get(
+                    storage_key, 0
+                )
+                if count < self._settings.storage_slot_capacity:
+                    acceptable.append(denom.value)
+            return acceptable
+
     # --- Internal alert checks ---
 
     def _check_storage_alerts(self) -> None:

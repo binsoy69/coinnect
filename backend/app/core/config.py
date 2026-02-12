@@ -37,6 +37,34 @@ class Settings(BaseSettings):
     # Session
     session_timeout: int = 180
 
+    # Mock hardware (GPIO, camera, ML)
+    use_mock_hardware: bool = False
+
+    # Camera
+    camera_device: int = 0
+
+    # YOLO ML models
+    yolo_auth_model_path: str = "models/auth.pt"
+    yolo_denom_model_path: str = "models/denom.pt"
+    yolo_confidence_threshold: float = 0.7
+
+    # Bill acceptor motor speeds (PWM duty cycle %)
+    bill_pull_speed: int = 60
+    bill_eject_speed: int = 80
+    bill_store_speed: int = 70
+
+    # Bill acceptor timing (seconds)
+    led_stabilization_delay: float = 0.2
+    bill_position_timeout: float = 5.0
+    bill_store_duration: float = 2.0
+    bill_eject_duration: float = 1.5
+
+    # Storage slot capacity
+    storage_slot_capacity: int = 100
+
+    # Database
+    db_url: str = "sqlite+aiosqlite:///./coinnect.db"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

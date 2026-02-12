@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import PageLayout from "../../components/layout/PageLayout";
 import TransactionCard from "../../components/transaction/TransactionCard";
@@ -9,6 +9,7 @@ import {
   TRANSACTION_TYPE_LABEL,
 } from "../../constants/mockData";
 import { useTransaction } from "../../context/TransactionContext";
+import { useBackendTransaction } from "../../hooks/useBackendTransaction";
 
 // Service type indicator component
 function ServiceIndicator({ icon, shortName }) {
@@ -27,6 +28,8 @@ export default function TransactionSummaryScreen() {
   const { type } = useParams();
   const { transaction, getServiceConfig, getMoneyToDispense } =
     useTransaction();
+  const { confirmBackendTransaction } = useBackendTransaction();
+  const [isConfirming, setIsConfirming] = useState(false);
 
   const config = getServiceConfig() || SERVICE_CONFIG[type];
 
@@ -34,8 +37,17 @@ export default function TransactionSummaryScreen() {
     navigate(getServiceRoute(ROUTES.INSERT_MONEY, type));
   };
 
-  const handleProceed = () => {
-    navigate(getServiceRoute(ROUTES.PROCESSING, type));
+  const handleProceed = async () => {
+    setIsConfirming(true);
+    try {
+      // Trigger backend confirmation and dispensing
+      await confirmBackendTransaction();
+    } catch {
+      // Continue to processing screen even if backend call fails
+    } finally {
+      setIsConfirming(false);
+      navigate(getServiceRoute(ROUTES.PROCESSING, type));
+    }
   };
 
   const serviceIndicator = useMemo(

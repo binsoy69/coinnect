@@ -1,9 +1,11 @@
 import { useNavigate, useParams } from "react-router-dom";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import Button from "../../components/common/Button";
 import PageTransition from "../../components/layout/PageTransition";
 import { ROUTES, getServiceRoute } from "../../constants/routes";
 import { useTransaction } from "../../context/TransactionContext";
+import { useBackendTransaction } from "../../hooks/useBackendTransaction";
 import { formatPeso } from "../../constants/denominations";
 
 // Question mark icon
@@ -17,13 +19,30 @@ export default function ConfirmationScreen() {
   const navigate = useNavigate();
   const { type } = useParams();
   const { transaction } = useTransaction();
+  const { startBackendTransaction } = useBackendTransaction();
+  const [isStarting, setIsStarting] = useState(false);
 
   const handleBack = () => {
     navigate(getServiceRoute(ROUTES.TRANSACTION_FEE, type));
   };
 
-  const handleProceed = () => {
-    navigate(getServiceRoute(ROUTES.INSERT_MONEY, type));
+  const handleProceed = async () => {
+    setIsStarting(true);
+    try {
+      // Start backend transaction before navigating to insert screen
+      await startBackendTransaction(
+        type,
+        transaction.selectedAmount,
+        transaction.fee,
+        transaction.selectedDispenseDenominations
+      );
+      navigate(getServiceRoute(ROUTES.INSERT_MONEY, type));
+    } catch {
+      // On error, still navigate (frontend can work in offline/demo mode)
+      navigate(getServiceRoute(ROUTES.INSERT_MONEY, type));
+    } finally {
+      setIsStarting(false);
+    }
   };
 
   return (
@@ -99,8 +118,9 @@ export default function ConfirmationScreen() {
               size="xl"
               onClick={handleProceed}
               className="px-12"
+              disabled={isStarting}
             >
-              Proceed
+              {isStarting ? "Starting..." : "Proceed"}
             </Button>
           </motion.div>
         </motion.div>

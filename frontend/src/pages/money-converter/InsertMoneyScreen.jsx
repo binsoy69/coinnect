@@ -13,7 +13,9 @@ import {
   TIMER_DURATIONS,
 } from "../../constants/mockData";
 import { useTransaction } from "../../context/TransactionContext";
+import { useBackendTransaction } from "../../hooks/useBackendTransaction";
 import { formatPeso } from "../../constants/denominations";
+import { ENABLE_KEYBOARD_SIM } from "../../constants/api";
 
 // Service type indicator component
 function ServiceIndicator({ icon, shortName }) {
@@ -32,11 +34,15 @@ export default function InsertMoneyScreen() {
   const { type } = useParams();
   const { transaction, addInsertedMoney, getServiceConfig, isAmountMatched } =
     useTransaction();
+  const { simulateInsert } = useBackendTransaction();
 
   const config = getServiceConfig() || SERVICE_CONFIG[type];
 
-  // Simulate money insertion for demo (press keys 1-4 to insert different denominations)
+  // Keyboard simulation for development (toggleable via VITE_ENABLE_KEYBOARD_SIM)
+  // Press keys 1-4 to insert different denominations
   useEffect(() => {
+    if (!ENABLE_KEYBOARD_SIM) return;
+
     const handleKeyPress = (e) => {
       const keyMap = {
         1: config?.insertCounters[0],
@@ -46,13 +52,18 @@ export default function InsertMoneyScreen() {
       };
 
       if (keyMap[e.key]) {
-        addInsertedMoney(keyMap[e.key]);
+        const denom = keyMap[e.key];
+        const insertType = config?.insertType || "bill";
+        // Try backend simulation first, fall back to local
+        simulateInsert(denom, insertType).catch(() => {
+          addInsertedMoney(denom);
+        });
       }
     };
 
     window.addEventListener("keypress", handleKeyPress);
     return () => window.removeEventListener("keypress", handleKeyPress);
-  }, [addInsertedMoney, config?.insertCounters]);
+  }, [addInsertedMoney, simulateInsert, config?.insertCounters, config?.insertType]);
 
   const handleTimerComplete = useCallback(() => {
     // Auto-navigate when timer completes
