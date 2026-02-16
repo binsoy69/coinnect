@@ -4,12 +4,17 @@ import WarningIcon from '../../components/feedback/WarningIcon';
 import Button from '../../components/common/Button';
 import { ROUTES, getForexRoute } from '../../constants/routes';
 import { useForex } from '../../context/ForexContext';
+import { useForexTransaction } from '../../hooks/useForexTransaction';
 
 export default function ForexWarningScreen() {
   const navigate = useNavigate();
   const { forex } = useForex();
+  const { cancelForexTransaction, transactionId } = useForexTransaction();
 
-  const handleChooseDifferent = () => {
+  const handleChooseDifferent = async () => {
+    if (transactionId) {
+      try { await cancelForexTransaction(); } catch {}
+    }
     navigate(getForexRoute(ROUTES.FOREX_RATE, forex.serviceType));
   };
 

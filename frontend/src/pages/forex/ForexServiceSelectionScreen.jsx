@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import PageLayout from "../../components/layout/PageLayout";
@@ -5,10 +6,24 @@ import ServiceCard from "../../components/transaction/ServiceCard";
 import { ROUTES } from "../../constants/routes";
 import { FOREX_SERVICES } from "../../constants/forexData";
 import { useForex } from "../../context/ForexContext";
+import { useForexTransaction } from "../../hooks/useForexTransaction";
 
 export default function ForexServiceSelectionScreen() {
   const navigate = useNavigate();
-  const { startForexTransaction } = useForex();
+  const { startForexTransaction, updateRatesFromBackend } = useForex();
+  const { checkConnectivity, isOnline, forexRates } = useForexTransaction();
+
+  // Check connectivity and fetch rates on mount
+  useEffect(() => {
+    checkConnectivity();
+  }, [checkConnectivity]);
+
+  // Push backend rates into ForexContext
+  useEffect(() => {
+    if (forexRates && Object.keys(forexRates).length > 0) {
+      updateRatesFromBackend(forexRates);
+    }
+  }, [forexRates, updateRatesFromBackend]);
 
   const handleSelectService = (serviceType) => {
     startForexTransaction(serviceType);
@@ -21,6 +36,17 @@ export default function ForexServiceSelectionScreen() {
         showBack: true,
         onBack: () => navigate(ROUTES.SELECT_TRANSACTION),
         subtitle: "Foreign Exchange",
+        rightContent: !isOnline ? (
+          <div className="flex items-center gap-2 bg-yellow-500 text-white px-3 py-1 rounded-full text-sm">
+            <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
+            Offline - Using cached rates
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 bg-green-500 text-white px-3 py-1 rounded-full text-sm">
+            <span className="w-2 h-2 bg-white rounded-full"></span>
+            Live Rates
+          </div>
+        ),
       }}
     >
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-140px)] py-4">

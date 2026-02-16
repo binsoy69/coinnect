@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from app.api.ws import ConnectionManager
 from app.core.config import Settings
-from app.core.constants import BillDenom, BILL_DENOM_VALUES
+from app.core.constants import BillDenom, BILL_DENOM_VALUES, BILL_DENOM_CURRENCY, Currency
 from app.core.errors import StorageFullError
 from app.drivers.bill_controller import BillController
 from app.drivers.camera_controller import CameraControllerBase
@@ -66,6 +66,19 @@ class BillAcceptor:
         self._status = machine_status
         self._ws = ws_manager
         self._settings = settings
+        self._expected_currency: Optional[str] = None
+
+    def set_expected_currency(self, currency: str) -> None:
+        """Configure the bill acceptor to expect a specific currency.
+
+        Switches the ML model to the appropriate currency-specific model.
+
+        Args:
+            currency: "PHP", "USD", or "EUR"
+        """
+        if hasattr(self._auth, "set_currency"):
+            self._auth.set_currency(currency)
+        self._expected_currency = currency
 
     async def wait_for_bill(self, timeout: Optional[float] = None) -> bool:
         """Poll entry sensor until a bill is detected.
@@ -149,6 +162,30 @@ class BillAcceptor:
                 )
 
             denomination = denom_result.denomination
+
+            # Step 3b: Validate currency matches expected (for forex)
+            if self._expected_currency:
+                detected_currency = BILL_DENOM_CURRENCY.get(denomination)
+                if detected_currency and detected_currency != Currency(self._expected_currency):
+                    logger.warning(
+                        f"Wrong currency: expected {self._expected_currency}, "
+                        f"got {detected_currency.value}"
+                    )
+                    await self._eject_bill()
+                    await self._broadcast(
+                        WSEventType.BILL_REJECTED,
+                        {
+                            "reason": "WRONG_CURRENCY",
+                            "expected": self._expected_currency,
+                            "detected": detected_currency.value,
+                        },
+                    )
+                    return BillAcceptResult(
+                        error=f"Expected {self._expected_currency} bill, got {detected_currency.value}",
+                        denomination=denomination,
+                        auth_confidence=auth_result.confidence,
+                        denom_confidence=denom_result.confidence,
+                    )
 
             # Step 4: Check storage capacity
             if self._status.is_storage_full(denomination.value):

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { HelpCircle } from "lucide-react";
@@ -5,10 +6,13 @@ import Button from "../../components/common/Button";
 import { ROUTES, getForexRoute } from "../../constants/routes";
 import { useForex } from "../../context/ForexContext";
 import { formatCurrency, isForeignToPhp } from "../../constants/forexData";
+import { useForexTransaction } from "../../hooks/useForexTransaction";
 
 export default function ForexConfirmationScreen() {
   const navigate = useNavigate();
   const { forex, lockRate, getForexConfig } = useForex();
+  const { startForexBackendTransaction } = useForexTransaction();
+  const [loading, setLoading] = useState(false);
   const config = getForexConfig();
 
   if (!config) {
@@ -16,10 +20,22 @@ export default function ForexConfirmationScreen() {
     return null;
   }
 
-  const handleProceed = () => {
-    // Lock the rate when user confirms
-    lockRate();
-    navigate(getForexRoute(ROUTES.FOREX_INSERT, forex.serviceType));
+  const handleProceed = async () => {
+    setLoading(true);
+    try {
+      await startForexBackendTransaction(
+        forex.serviceType,
+        forex.selectedAmount,
+        []
+      );
+      lockRate();
+      navigate(getForexRoute(ROUTES.FOREX_INSERT, forex.serviceType));
+    } catch {
+      lockRate();
+      navigate(getForexRoute(ROUTES.FOREX_INSERT, forex.serviceType));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleBack = () => {
@@ -106,9 +122,10 @@ export default function ForexConfirmationScreen() {
           variant="white"
           size="xl"
           onClick={handleProceed}
+          disabled={loading}
           className="min-w-[150px] !text-coinnect-forex"
         >
-          Proceed
+          {loading ? "Loading..." : "Proceed"}
         </Button>
       </motion.div>
 

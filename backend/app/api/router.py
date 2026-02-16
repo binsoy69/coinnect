@@ -3,6 +3,7 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.api.forex import router as forex_router
 from app.api.health import router as health_router
 from app.api.inventory import router as inventory_router
 from app.api.status import router as status_router
@@ -15,6 +16,7 @@ api_router.include_router(health_router)
 api_router.include_router(status_router)
 api_router.include_router(transaction_router)
 api_router.include_router(inventory_router)
+api_router.include_router(forex_router)
 
 
 @api_router.websocket("/ws")
@@ -77,3 +79,29 @@ async def _handle_ws_action(
                 await orchestrator.handle_coin_inserted(denom=denom, total=0)
             except Exception as e:
                 logger.error(f"WS SIMULATE_COIN_INSERT error: {e}")
+
+    elif action == "SIMULATE_FOREX_BILL_INSERT" and settings.use_mock_hardware:
+        denom = data.get("denom")
+        currency = data.get("currency", "PHP")
+        forex_orchestrator = websocket.app.state.forex_transaction_orchestrator
+        if denom and forex_orchestrator.has_active_transaction:
+            try:
+                bill_acceptor = websocket.app.state.bill_acceptor
+                from app.core.constants import BillDenom
+                from app.models.denominations import value_to_denom_string
+
+                denom_str = value_to_denom_string(denom, currency)
+                bill_denom = BillDenom(denom_str)
+                auth = bill_acceptor._auth
+                if hasattr(auth, "set_next_denomination"):
+                    auth.set_next_denomination(bill_denom)
+                if hasattr(auth, "set_accept_next"):
+                    auth.set_accept_next()
+                gpio = bill_acceptor._gpio
+                if hasattr(gpio, "set_bill_at_entry"):
+                    gpio.set_bill_at_entry(True)
+                if hasattr(gpio, "set_bill_in_position"):
+                    gpio.set_bill_in_position(True)
+                await forex_orchestrator.handle_bill_inserted()
+            except Exception as e:
+                logger.error(f"WS SIMULATE_FOREX_BILL_INSERT error: {e}")

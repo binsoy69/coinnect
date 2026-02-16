@@ -281,3 +281,18 @@ export const isPhpToForeign = (serviceType) => {
 export const getForexConfig = (serviceType) => {
   return FOREX_CONFIG[serviceType] || null;
 };
+
+/**
+ * Get exchange rate from backend rates (live) or mock rates (fallback).
+ * @param {string} fromCurrency
+ * @param {string} toCurrency
+ * @param {Object} backendRates - Optional backend rates {USD: 58.76, EUR: 61.72}
+ * @returns {number}
+ */
+export const getExchangeRateLive = (fromCurrency, toCurrency, backendRates = null) => {
+  const rates = backendRates || MOCK_EXCHANGE_RATES;
+  if (fromCurrency === CURRENCIES.PHP) {
+    return 1 / rates[toCurrency];
+  }
+  return rates[fromCurrency];
+};

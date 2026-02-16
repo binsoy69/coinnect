@@ -29,6 +29,17 @@ const ForexContext = createContext(null);
 
 export function ForexProvider({ children }) {
   const [forex, setForex] = useState(DEFAULT_FOREX_STATE);
+  const [backendRates, setBackendRates] = useState(null);
+
+  // Update rates from backend (called by useForexTransaction hook)
+  const updateRatesFromBackend = useCallback((rates) => {
+    setBackendRates(rates);
+  }, []);
+
+  // Get rates: prefer backend, fallback to mock
+  const _getRates = useCallback(() => {
+    return backendRates || MOCK_EXCHANGE_RATES;
+  }, [backendRates]);
 
   // Initialize forex transaction with service type
   const startForexTransaction = useCallback((serviceType) => {
@@ -36,15 +47,16 @@ export function ForexProvider({ children }) {
     if (!config) return;
 
     const { fromCurrency, toCurrency, feePercentage } = config;
+    const rates = backendRates || MOCK_EXCHANGE_RATES;
 
     // Get the exchange rate
     let exchangeRate;
     if (fromCurrency === CURRENCIES.PHP) {
       // PHP to foreign: use inverse rate
-      exchangeRate = 1 / MOCK_EXCHANGE_RATES[toCurrency];
+      exchangeRate = 1 / rates[toCurrency];
     } else {
       // Foreign to PHP
-      exchangeRate = MOCK_EXCHANGE_RATES[fromCurrency];
+      exchangeRate = rates[fromCurrency];
     }
 
     setForex({
@@ -55,7 +67,7 @@ export function ForexProvider({ children }) {
       exchangeRate,
       feePercentage,
     });
-  }, []);
+  }, [backendRates]);
 
   // Set selected amount and calculate conversion
   const setSelectedAmount = useCallback((amount) => {
@@ -81,7 +93,8 @@ export function ForexProvider({ children }) {
       } else {
         // PHP to foreign: user selects foreign amount to receive
         // Calculate how much PHP they need to insert
-        const foreignToPhpRate = MOCK_EXCHANGE_RATES[toCurrency];
+        const rates = backendRates || MOCK_EXCHANGE_RATES;
+        const foreignToPhpRate = rates[toCurrency];
         const phpNeeded = Math.ceil(amount * foreignToPhpRate);
         const feeAmount = Math.round(phpNeeded * (feePercentage / 100));
         const totalDue = phpNeeded + feeAmount;
@@ -96,7 +109,7 @@ export function ForexProvider({ children }) {
         };
       }
     });
-  }, []);
+  }, [backendRates]);
 
   // Lock the exchange rate (called when user confirms)
   const lockRate = useCallback(() => {
@@ -123,13 +136,14 @@ export function ForexProvider({ children }) {
       if (!config) return prev;
 
       const { fromCurrency, toCurrency } = config;
+      const rates = backendRates || MOCK_EXCHANGE_RATES;
 
-      // Get fresh rate (in real app, would fetch from API)
+      // Get fresh rate
       let exchangeRate;
       if (fromCurrency === CURRENCIES.PHP) {
-        exchangeRate = 1 / MOCK_EXCHANGE_RATES[toCurrency];
+        exchangeRate = 1 / rates[toCurrency];
       } else {
-        exchangeRate = MOCK_EXCHANGE_RATES[fromCurrency];
+        exchangeRate = rates[fromCurrency];
       }
 
       // Recalculate if amount is selected
@@ -149,7 +163,7 @@ export function ForexProvider({ children }) {
             amountToDispense: conversion.amountToDispense,
           };
         } else {
-          const foreignToPhpRate = MOCK_EXCHANGE_RATES[toCurrency];
+          const foreignToPhpRate = rates[toCurrency];
           const phpNeeded = Math.ceil(prev.selectedAmount * foreignToPhpRate);
           const feeAmount = Math.round(phpNeeded * (prev.feePercentage / 100));
           const totalDue = phpNeeded + feeAmount;
@@ -166,7 +180,7 @@ export function ForexProvider({ children }) {
 
       return { ...prev, exchangeRate };
     });
-  }, []);
+  }, [backendRates]);
 
   // Update inserted money counts
   const updateInsertedCount = useCallback((denom, count) => {
@@ -249,6 +263,8 @@ export function ForexProvider({ children }) {
     getForexConfig,
     isAmountMatched,
     getActualDispenseAmount,
+    updateRatesFromBackend,
+    backendRates,
   };
 
   return (

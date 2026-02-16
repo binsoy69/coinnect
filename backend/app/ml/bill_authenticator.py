@@ -59,9 +59,10 @@ class BillAuthenticatorBase(ABC):
 
 class YOLOBillAuthenticator(BillAuthenticatorBase):
     """YOLO-based bill authentication using Ultralytics.
-    
+
     Models are loaded lazily on first use to avoid slow startup.
     Inference runs in executor thread to avoid blocking async loop.
+    Supports per-currency model switching for forex transactions.
     """
 
     def __init__(
@@ -69,37 +70,61 @@ class YOLOBillAuthenticator(BillAuthenticatorBase):
         auth_model_path: str,
         denom_model_path: str,
         confidence_threshold: float = 0.7,
+        auth_model_path_usd: Optional[str] = None,
+        denom_model_path_usd: Optional[str] = None,
+        auth_model_path_eur: Optional[str] = None,
+        denom_model_path_eur: Optional[str] = None,
     ):
-        self._auth_model_path = auth_model_path
-        self._denom_model_path = denom_model_path
         self._confidence_threshold = confidence_threshold
-        self._auth_model = None
-        self._denom_model = None
+        self._model_paths: Dict[str, Dict[str, str]] = {
+            "PHP": {"auth": auth_model_path, "denom": denom_model_path},
+        }
+        if auth_model_path_usd and denom_model_path_usd:
+            self._model_paths["USD"] = {
+                "auth": auth_model_path_usd,
+                "denom": denom_model_path_usd,
+            }
+        if auth_model_path_eur and denom_model_path_eur:
+            self._model_paths["EUR"] = {
+                "auth": auth_model_path_eur,
+                "denom": denom_model_path_eur,
+            }
+        self._loaded_models: Dict[str, Dict[str, object]] = {}
+        self._active_currency = "PHP"
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def set_currency(self, currency: str) -> None:
+        """Switch to models for the given currency."""
+        if currency not in self._model_paths:
+            raise ValueError(f"No models available for currency: {currency}")
+        self._active_currency = currency
 
     def _ensure_loop(self) -> None:
         if self._loop is None:
             self._loop = asyncio.get_event_loop()
 
-    def _load_auth_model(self):
-        if self._auth_model is None:
+    def _load_model(self, currency: str, model_type: str):
+        """Lazily load a model for the given currency and type."""
+        if currency not in self._loaded_models:
+            self._loaded_models[currency] = {}
+        if model_type not in self._loaded_models[currency]:
             from ultralytics import YOLO
 
-            logger.info(f"Loading auth model: {self._auth_model_path}")
-            self._auth_model = YOLO(self._auth_model_path)
-            logger.info("Auth model loaded")
+            path = self._model_paths[currency][model_type]
+            logger.info(f"Loading {model_type} model for {currency}: {path}")
+            self._loaded_models[currency][model_type] = YOLO(path)
+            logger.info(f"{model_type} model for {currency} loaded")
+        return self._loaded_models[currency][model_type]
 
-    def _load_denom_model(self):
-        if self._denom_model is None:
-            from ultralytics import YOLO
+    def _get_active_auth_model(self):
+        return self._load_model(self._active_currency, "auth")
 
-            logger.info(f"Loading denom model: {self._denom_model_path}")
-            self._denom_model = YOLO(self._denom_model_path)
-            logger.info("Denom model loaded")
+    def _get_active_denom_model(self):
+        return self._load_model(self._active_currency, "denom")
 
     async def authenticate(self, uv_image: np.ndarray) -> BillAuthResult:
         """Run authentication model on UV image.
-        
+
         Expected model output: class "genuine" or "fake" with confidence.
         """
         self._ensure_loop()
@@ -108,8 +133,8 @@ class YOLOBillAuthenticator(BillAuthenticatorBase):
         )
 
     def _run_auth_inference(self, image: np.ndarray) -> BillAuthResult:
-        self._load_auth_model()
-        results = self._auth_model.predict(image, verbose=False)
+        model = self._get_active_auth_model()
+        results = model.predict(image, verbose=False)
         if not results or len(results) == 0:
             return BillAuthResult(is_genuine=False, confidence=0.0)
 
@@ -141,8 +166,8 @@ class YOLOBillAuthenticator(BillAuthenticatorBase):
         )
 
     def _run_denom_inference(self, image: np.ndarray) -> BillAuthResult:
-        self._load_denom_model()
-        results = self._denom_model.predict(image, verbose=False)
+        model = self._get_active_denom_model()
+        results = model.predict(image, verbose=False)
         if not results or len(results) == 0:
             return BillAuthResult(is_genuine=True, confidence=0.0)
 

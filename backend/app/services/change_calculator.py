@@ -41,7 +41,7 @@ class DispensePlan(BaseModel):
         return [i for i in self.items if i.denom_type == "coin"]
 
 
-# PHP bill denominations sorted descending by value
+# Bill denominations sorted descending by value, per currency
 _PHP_BILL_DENOMS = [
     (BillDenom.PHP_1000, 1000),
     (BillDenom.PHP_500, 500),
@@ -50,6 +50,24 @@ _PHP_BILL_DENOMS = [
     (BillDenom.PHP_50, 50),
     (BillDenom.PHP_20, 20),
 ]
+
+_USD_BILL_DENOMS = [
+    (BillDenom.USD_100, 100),
+    (BillDenom.USD_50, 50),
+    (BillDenom.USD_10, 10),
+]
+
+_EUR_BILL_DENOMS = [
+    (BillDenom.EUR_20, 20),
+    (BillDenom.EUR_10, 10),
+    (BillDenom.EUR_5, 5),
+]
+
+_BILL_DENOMS_BY_CURRENCY = {
+    "PHP": _PHP_BILL_DENOMS,
+    "USD": _USD_BILL_DENOMS,
+    "EUR": _EUR_BILL_DENOMS,
+}
 
 # PHP coin denominations sorted descending by value
 _PHP_COIN_DENOMS = [
@@ -70,14 +88,14 @@ def calculate_change(
     """Calculate optimal change dispensing plan.
 
     Args:
-        amount: Total amount to dispense in PHP.
+        amount: Total amount to dispense.
         available_bills: Available bill counts by denomination string
             (e.g., {"PHP_100": 50, "PHP_500": 20}).
         available_coins: Available coin counts by denomination string
             (e.g., {"PHP_20": 100, "PHP_10": 200}).
         preferred_denoms: User-selected denomination values to prefer
             (e.g., [50, 100]). These are tried first.
-        currency: Currency code (currently only "PHP" supported).
+        currency: Currency code ("PHP", "USD", or "EUR").
 
     Returns:
         DispensePlan with items, total, and exactness flag.
@@ -88,7 +106,7 @@ def calculate_change(
     if amount <= 0:
         return DispensePlan(items=[], total_amount=0, is_exact=True)
 
-    if currency != "PHP":
+    if currency not in _BILL_DENOMS_BY_CURRENCY:
         raise ValueError(f"Unsupported currency for change: {currency}")
 
     remaining = amount
@@ -99,8 +117,7 @@ def calculate_change(
     coins_avail = dict(available_coins)
 
     # Determine denomination ordering based on user preferences
-    bill_order = _get_bill_order(preferred_denoms)
-    coin_order = _get_coin_order(preferred_denoms)
+    bill_order = _get_bill_order(preferred_denoms, currency)
 
     # Phase 1: Dispense bills (largest preferred first, then remaining)
     for denom, value in bill_order:
@@ -123,26 +140,28 @@ def calculate_change(
             remaining -= count * value
             bills_avail[denom_key] = avail - count
 
-    # Phase 2: Dispense coins (largest first)
-    for denom, value in coin_order:
-        if remaining <= 0:
-            break
-        denom_key = f"PHP_{value}"
-        avail = coins_avail.get(denom_key, 0)
-        if avail <= 0 or value > remaining:
-            continue
-        count = min(remaining // value, avail)
-        if count > 0:
-            items.append(
-                DispensePlanItem(
-                    denom=denom_key,
-                    denom_type="coin",
-                    count=count,
-                    value=value,
+    # Phase 2: Dispense coins (only for PHP)
+    if currency == "PHP":
+        coin_order = _get_coin_order(preferred_denoms)
+        for denom, value in coin_order:
+            if remaining <= 0:
+                break
+            denom_key = f"PHP_{value}"
+            avail = coins_avail.get(denom_key, 0)
+            if avail <= 0 or value > remaining:
+                continue
+            count = min(remaining // value, avail)
+            if count > 0:
+                items.append(
+                    DispensePlanItem(
+                        denom=denom_key,
+                        denom_type="coin",
+                        count=count,
+                        value=value,
+                    )
                 )
-            )
-            remaining -= count * value
-            coins_avail[denom_key] = avail - count
+                remaining -= count * value
+                coins_avail[denom_key] = avail - count
 
     total_dispensed = amount - remaining
     is_exact = remaining == 0
@@ -163,20 +182,23 @@ def calculate_change(
 
 def _get_bill_order(
     preferred_denoms: Optional[List[int]],
+    currency: str = "PHP",
 ) -> List[tuple]:
     """Get bill denominations in dispensing order.
 
     If preferred_denoms is provided, those denominations come first
     (in descending order), followed by remaining denominations.
     """
+    base_denoms = _BILL_DENOMS_BY_CURRENCY.get(currency, _PHP_BILL_DENOMS)
+
     if not preferred_denoms:
-        return list(_PHP_BILL_DENOMS)
+        return list(base_denoms)
 
     preferred_set = set(preferred_denoms)
     preferred = []
     others = []
 
-    for denom, value in _PHP_BILL_DENOMS:
+    for denom, value in base_denoms:
         if value in preferred_set:
             preferred.append((denom, value))
         else:

@@ -32,6 +32,10 @@ class TransactionType(str, enum.Enum):
     BILL_TO_BILL = "bill-to-bill"
     BILL_TO_COIN = "bill-to-coin"
     COIN_TO_BILL = "coin-to-bill"
+    FOREX_USD_TO_PHP = "forex-usd-to-php"
+    FOREX_PHP_TO_USD = "forex-php-to-usd"
+    FOREX_EUR_TO_PHP = "forex-eur-to-php"
+    FOREX_PHP_TO_EUR = "forex-php-to-eur"
 
 
 class WALAction(str, enum.Enum):
@@ -42,6 +46,8 @@ class WALAction(str, enum.Enum):
     DISPENSE_COMPLETE = "DISPENSE_COMPLETE"
     BILL_ACCEPTED = "BILL_ACCEPTED"
     TRANSACTION_CREATED = "TRANSACTION_CREATED"
+    FOREX_RATE_LOCKED = "FOREX_RATE_LOCKED"
+    FOREX_CONVERSION_START = "FOREX_CONVERSION_START"
 
 
 class WALStatus(str, enum.Enum):
@@ -78,6 +84,23 @@ class TransactionRecord(Base):
     )
     selected_dispense_denoms: Mapped[list] = mapped_column(
         JSON, default=list
+    )
+    # Forex-specific fields (nullable for non-forex transactions)
+    from_currency: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )
+    to_currency: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )
+    exchange_rate: Mapped[Optional[float]] = mapped_column(nullable=True)
+    rate_locked_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True
+    )
+    forex_fee_percentage: Mapped[Optional[float]] = mapped_column(
+        nullable=True
+    )
+    converted_amount: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
     )
     error_code: Mapped[Optional[str]] = mapped_column(
         String, nullable=True

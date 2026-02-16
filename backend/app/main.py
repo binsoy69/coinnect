@@ -15,6 +15,8 @@ from app.drivers.serial_manager import SerialManager
 from app.services.bill_acceptor import BillAcceptor
 from app.services.dispense_orchestrator import DispenseOrchestrator
 from app.services.event_dispatcher import EventDispatcher
+from app.services.forex_rate_service import ForexRateService
+from app.services.forex_transaction_orchestrator import ForexTransactionOrchestrator
 from app.services.machine_status import MachineStatus
 from app.services.transaction_orchestrator import TransactionOrchestrator
 
@@ -99,6 +101,17 @@ async def lifespan(app: FastAPI):
         db_session_factory=get_session_factory(),
     )
 
+    # --- Phase 5: Forex services ---
+    forex_rate_service = ForexRateService(settings, ws_manager)
+    forex_transaction_orchestrator = ForexTransactionOrchestrator(
+        bill_acceptor=bill_acceptor,
+        dispense_orchestrator=dispense_orchestrator,
+        machine_status=machine_status,
+        ws_manager=ws_manager,
+        forex_rate_service=forex_rate_service,
+        db_session_factory=get_session_factory(),
+    )
+
     # Store on app state for dependency injection in endpoints
     app.state.serial_manager = serial_manager
     app.state.ws_manager = ws_manager
@@ -110,6 +123,8 @@ async def lifespan(app: FastAPI):
     app.state.bill_acceptor = bill_acceptor
     app.state.dispense_orchestrator = dispense_orchestrator
     app.state.transaction_orchestrator = transaction_orchestrator
+    app.state.forex_rate_service = forex_rate_service
+    app.state.forex_transaction_orchestrator = forex_transaction_orchestrator
 
     # Startup
     await serial_manager.startup()
@@ -118,11 +133,15 @@ async def lifespan(app: FastAPI):
     # Recover any transactions interrupted by crash/power loss
     await transaction_orchestrator.recover_pending_transactions()
 
+    # Start forex rate service (fetches initial rates + starts periodic refresh)
+    await forex_rate_service.start()
+
     logger.info("Coinnect backend ready")
     yield
 
     # Shutdown
     logger.info("Coinnect backend shutting down")
+    await forex_rate_service.stop()
     await event_dispatcher.stop()
     await serial_manager.shutdown()
     await camera.release()

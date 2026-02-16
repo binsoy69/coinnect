@@ -4,17 +4,21 @@ import SuccessIcon from "../../components/feedback/SuccessIcon";
 import Button from "../../components/common/Button";
 import { ROUTES } from "../../constants/routes";
 import { useForex } from "../../context/ForexContext";
+import { useForexTransaction } from "../../hooks/useForexTransaction";
 
 export default function ForexSuccessScreen() {
   const navigate = useNavigate();
   const { resetForexTransaction } = useForex();
+  const { resetForexTransaction: resetBackend } = useForexTransaction();
 
   const handleExit = () => {
+    resetBackend();
     resetForexTransaction();
     navigate(ROUTES.HOME);
   };
 
   const handleAnotherTransaction = () => {
+    resetBackend();
     resetForexTransaction();
     navigate(ROUTES.SELECT_TRANSACTION);
   };

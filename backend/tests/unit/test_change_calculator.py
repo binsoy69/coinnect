@@ -589,27 +589,29 @@ class TestCurrencyValidation:
         )
         assert plan.is_exact
 
-    def test_usd_raises_value_error(
-        self, full_bill_inventory, full_coin_inventory
-    ):
-        with pytest.raises(ValueError, match="Unsupported currency"):
-            calculate_change(
-                100,
-                full_bill_inventory,
-                full_coin_inventory,
-                currency="USD",
-            )
+    def test_usd_is_accepted(self):
+        """USD currency is now supported for forex."""
+        usd_bills = {"USD_100": 10, "USD_50": 10, "USD_10": 20}
+        plan = calculate_change(100, usd_bills, {}, currency="USD")
+        assert plan.is_exact
+        assert plan.total_amount == 100
+        assert plan.items[0].denom == "USD_100"
 
-    def test_eur_raises_value_error(
-        self, full_bill_inventory, full_coin_inventory
-    ):
-        with pytest.raises(ValueError, match="Unsupported currency"):
-            calculate_change(
-                100,
-                full_bill_inventory,
-                full_coin_inventory,
-                currency="EUR",
-            )
+    def test_eur_is_accepted(self):
+        """EUR currency is now supported for forex."""
+        eur_bills = {"EUR_20": 10, "EUR_10": 10, "EUR_5": 20}
+        plan = calculate_change(20, eur_bills, {}, currency="EUR")
+        assert plan.is_exact
+        assert plan.total_amount == 20
+        assert plan.items[0].denom == "EUR_20"
+
+    def test_usd_no_coins(self):
+        """USD dispensing should not use coins even if coins provided."""
+        usd_bills = {"USD_10": 5}
+        php_coins = {"PHP_5": 100, "PHP_1": 100}
+        plan = calculate_change(30, usd_bills, php_coins, currency="USD")
+        assert plan.is_exact
+        assert all(item.denom_type == "bill" for item in plan.items)
 
     def test_empty_currency_raises_value_error(
         self, full_bill_inventory, full_coin_inventory

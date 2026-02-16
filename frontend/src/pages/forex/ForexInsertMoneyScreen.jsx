@@ -6,6 +6,7 @@ import InsertMoneyPanel from "../../components/transaction/InsertMoneyPanel";
 import Timer from "../../components/common/Timer";
 import { ROUTES, getForexRoute } from "../../constants/routes";
 import { useForex } from "../../context/ForexContext";
+import { useForexTransaction } from "../../hooks/useForexTransaction";
 import {
   formatCurrency,
   isForeignToPhp,
@@ -16,6 +17,7 @@ export default function ForexInsertMoneyScreen() {
   const navigate = useNavigate();
   const { forex, addInsertedMoney, getForexConfig, isAmountMatched } =
     useForex();
+  const { simulateForexInsert, transactionId } = useForexTransaction();
   const config = getForexConfig();
 
   // Handle timeout - go to warning or conversion screen
@@ -27,7 +29,7 @@ export default function ForexInsertMoneyScreen() {
     }
   }, [navigate, forex.serviceType, isAmountMatched]);
 
-  // Keyboard simulation for testing
+  // Keyboard simulation for testing - uses backend API when available
   useEffect(() => {
     if (!config) return;
 
@@ -43,13 +45,21 @@ export default function ForexInsertMoneyScreen() {
       };
 
       if (keyMap[e.key]) {
-        addInsertedMoney(keyMap[e.key]);
+        const denom = keyMap[e.key];
+        if (transactionId) {
+          const currency = isForeignToPhp(forex.serviceType)
+            ? forex.fromCurrency
+            : "PHP";
+          simulateForexInsert(denom, currency);
+        } else {
+          addInsertedMoney(denom);
+        }
       }
     };
 
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [config, addInsertedMoney]);
+  }, [config, addInsertedMoney, simulateForexInsert, transactionId, forex.serviceType, forex.fromCurrency]);
 
   // Auto-advance when amount is matched
   useEffect(() => {

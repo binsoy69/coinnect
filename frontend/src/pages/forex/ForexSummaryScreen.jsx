@@ -1,21 +1,33 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import Button from "../../components/common/Button";
 import { ROUTES, getForexRoute } from "../../constants/routes";
 import { useForex } from "../../context/ForexContext";
+import { useForexTransaction } from "../../hooks/useForexTransaction";
 import { formatCurrency, isForeignToPhp } from "../../constants/forexData";
 
 export default function ForexSummaryScreen() {
   const navigate = useNavigate();
   const { forex, getForexConfig } = useForex();
+  const { confirmForexTransaction, transactionId } = useForexTransaction();
   const config = getForexConfig();
+  const [confirming, setConfirming] = useState(false);
 
   if (!config) {
     navigate(ROUTES.FOREX);
     return null;
   }
 
-  const handleProceed = () => {
+  const handleProceed = async () => {
+    setConfirming(true);
+    try {
+      if (transactionId) {
+        await confirmForexTransaction();
+      }
+    } catch (err) {
+      console.error("Forex confirm error:", err);
+    }
     navigate(getForexRoute(ROUTES.FOREX_PROCESSING, forex.serviceType));
   };
 
@@ -111,9 +123,10 @@ export default function ForexSummaryScreen() {
             variant="white"
             size="lg"
             onClick={handleProceed}
+            disabled={confirming}
             className="min-w-[140px] !text-coinnect-forex"
           >
-            Proceed
+            {confirming ? "Processing..." : "Proceed"}
           </Button>
         </div>
       </motion.div>

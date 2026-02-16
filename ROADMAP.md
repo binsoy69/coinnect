@@ -300,22 +300,47 @@ _Goal: Connect GCash/Maya flows._
 
 ---
 
-## 🌍 Phase 5: Foreign Exchange
+## ✅ Phase 5: Foreign Exchange
 
-_Goal: Accept USD/EUR and dispense PHP._
+_Goal: Accept USD/EUR and dispense PHP (and vice versa) using live exchange rates._
 
-- [ ] **Forex Rate Service**
-  - [ ] Implement `ForexAPI` client (fetch rates from external provider).
-  - [ ] Implement local caching with 24-hour expiry.
-  - [ ] Add "Spread/Fee" configuration.
-  - [ ] Handle offline gracefully (use cached rates if valid, block if expired).
-  - [ ] **Test**: `pytest tests/unit/test_forex_rates.py`.
-- [ ] **Multi-Currency Bill Recognition**
-  - [ ] Update YOLO model integration to handle USD/EUR labels.
-  - [ ] Update `BillController` to map foreign bills to specific storage slots (7 & 8).
-- [ ] **Exchange Logic**
-  - [ ] `calculate_forex_conversion(input_currency, amount)` logic.
-  - [ ] Update UI to show "Estimated Rate" and "Final Amount".
+- [x] **Backend Configuration & Models**
+  - [x] Add forex config fields (API key, fees, ML model paths per currency).
+  - [x] Add `Currency`, `ForexServiceType` enums and currency mappings.
+  - [x] Add forex error types (`ForexError`, `ConnectivityError`, `RateExpiredError`).
+  - [x] Add forex columns to `TransactionRecord` and forex `WALAction` variants.
+  - [x] Create `backend/app/models/forex.py` (ExchangeRateCache, ForexQuote, etc.).
+- [x] **Forex Rate Service**
+  - [x] Implement `ForexRateService` with Abstract API integration.
+  - [x] Implement local caching with 24-hour expiry.
+  - [x] Add configurable fee percentage per currency pair.
+  - [x] Handle offline gracefully (block forex when offline, use cached rates if valid).
+  - [x] Broadcast rate updates and connectivity changes via WebSocket.
+  - [x] **Test**: `pytest tests/unit/test_forex_rate_service.py`.
+- [x] **Forex Change Calculator**
+  - [x] Extend `calculate_change()` to support USD/EUR currencies.
+  - [x] Create `calculate_forex_dispense()` for forex-specific dispense plans.
+  - [x] **Test**: `pytest tests/unit/test_forex_change_calculator.py`.
+- [x] **Multi-Currency Bill Authentication**
+  - [x] Update `YOLOBillAuthenticator` with per-currency model switching (`set_currency()`).
+  - [x] Update `MockBillAuthenticator` with `set_currency()`.
+  - [x] Update `BillAcceptor` with `set_expected_currency()` and wrong-currency rejection.
+- [x] **Forex Transaction Orchestrator**
+  - [x] Create `ForexTransactionOrchestrator` with full transaction lifecycle.
+  - [x] Rate locking, connectivity checks, currency-specific bill acceptance.
+  - [x] DB persistence with forex metadata (rate, currency pair, fee %).
+  - [x] **Test**: `pytest tests/unit/test_forex_transaction_orchestrator.py`.
+- [x] **REST API Endpoints**
+  - [x] `GET /forex/rates`, `GET /forex/quote/{service_type}`, `GET /forex/connectivity`.
+  - [x] `POST /forex/transaction`, `GET /forex/transaction/{id}`, `DELETE /forex/transaction/{id}`.
+  - [x] `POST /forex/transaction/{id}/confirm`, `POST /forex/transaction/{id}/simulate-insert`.
+  - [x] **Test**: `pytest tests/integration/test_forex_api.py`.
+- [x] **Frontend Backend Integration**
+  - [x] Create `useForexTransaction` hook (REST + WS bridge).
+  - [x] Update `ForexContext` with backend rates support.
+  - [x] Wire all 8 forex screens to backend API (insert, confirm, cancel, reset, connectivity).
+- [x] **Wire up in `main.py`**
+  - [x] Initialize and start/stop `ForexRateService` and `ForexTransactionOrchestrator` in lifespan.
 
 ---
 
@@ -406,7 +431,7 @@ _Goal: Enable basic remote visibility into kiosk health and operations._
 
 **External Integrations:**
 
-- [ ] `[BE-009]` Implement forex rate API client with local caching (24h expiry)
+- [x] `[BE-009]` Implement forex rate API client with local caching (24h expiry)
 - [ ] `[BE-010]` Implement remote alert push notifications to technician
 - [ ] `[BE-011]` Implement basic telemetry collector
 - [ ] `[BE-012]` Implement telemetry cloud sync service
@@ -439,13 +464,13 @@ _Goal: Enable basic remote visibility into kiosk health and operations._
 
 **Forex UI:**
 
-- [ ] `[FE-013]` Create `ForexContext` with rate locking and conversion state
-- [ ] `[FE-014]` Create `ExchangeRateCard` component (flag, country, rate)
-- [ ] `[FE-015]` Create `CurrencyAmountGrid` component (€5, €10, $10, etc.)
-- [ ] `[FE-016]` Create `ConversionDisplay` component (Amount | From | To table)
-- [ ] `[FE-017]` Implement 10 forex screens (see UI.md Phase 1.9.3)
-- [ ] `[FE-018]` Add forex routes and navigation
-- [ ] `[FE-019]` Enable forex flow on TransactionTypeScreen
+- [x] `[FE-013]` Create `ForexContext` with rate locking and conversion state
+- [x] `[FE-014]` Create `ExchangeRateCard` component (flag, country, rate)
+- [x] `[FE-015]` Create `CurrencyAmountGrid` component (€5, €10, $10, etc.)
+- [x] `[FE-016]` Create `ConversionDisplay` component (Amount | From | To table)
+- [x] `[FE-017]` Implement 10 forex screens (see UI.md Phase 1.9.3)
+- [x] `[FE-018]` Add forex routes and navigation
+- [x] `[FE-019]` Enable forex flow on TransactionTypeScreen
 
 **E-Wallet UI:**
 

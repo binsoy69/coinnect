@@ -100,3 +100,42 @@ async def db_session():
     async with factory() as session:
         yield session
     await engine.dispose()
+
+
+@pytest.fixture
+async def db_session_factory():
+    """Async session factory for services that need to create their own sessions."""
+    from sqlalchemy.ext.asyncio import (
+        AsyncSession,
+        async_sessionmaker,
+        create_async_engine,
+    )
+
+    from app.models.db_models import Base
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
+    yield factory
+    await engine.dispose()
+
+
+@pytest.fixture
+def mock_forex_rate_service(ws_manager, test_settings):
+    """ForexRateService with mocked HTTP client and pre-populated cache."""
+    from datetime import datetime, timedelta
+
+    from app.models.forex import ExchangeRateCache
+    from app.services.forex_rate_service import ForexRateService
+
+    service = ForexRateService(test_settings, ws_manager)
+    service._cache = ExchangeRateCache(
+        rates={"USD": 58.7656, "EUR": 61.7246},
+        fetched_at=datetime.utcnow(),
+        expires_at=datetime.utcnow() + timedelta(hours=24),
+    )
+    service._is_online = True
+    return service

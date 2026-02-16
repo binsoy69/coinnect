@@ -65,6 +65,28 @@ class Settings(BaseSettings):
     # Database
     db_url: str = "sqlite+aiosqlite:///./coinnect.db"
 
+    # Forex
+    forex_api_key: str = ""
+    forex_api_url: str = "https://exchange-rates.abstractapi.com/v1/live/"
+    forex_cache_ttl_seconds: int = 86400  # 24 hours
+    forex_rate_refresh_interval: int = 3600  # Auto-refresh every 1 hour
+
+    # Forex fees (percentage per currency pair)
+    forex_fee_usd_to_php: float = 5.0
+    forex_fee_php_to_usd: float = 5.0
+    forex_fee_eur_to_php: float = 5.0
+    forex_fee_php_to_eur: float = 5.0
+
+    # Forex connectivity
+    forex_connectivity_check_url: str = "https://exchange-rates.abstractapi.com"
+    forex_connectivity_timeout: int = 5
+
+    # ML models per currency
+    yolo_auth_model_path_usd: str = "models/auth_usd.pt"
+    yolo_denom_model_path_usd: str = "models/denom_usd.pt"
+    yolo_auth_model_path_eur: str = "models/auth_eur.pt"
+    yolo_denom_model_path_eur: str = "models/denom_eur.pt"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

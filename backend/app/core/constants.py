@@ -120,3 +120,39 @@ DISPENSER_UNITS: Dict[int, BillDenom] = {
     11: BillDenom.EUR_10,
     12: BillDenom.EUR_20,
 }
+
+
+class Currency(str, Enum):
+    PHP = "PHP"
+    USD = "USD"
+    EUR = "EUR"
+
+
+class ForexServiceType(str, Enum):
+    USD_TO_PHP = "usd-to-php"
+    PHP_TO_USD = "php-to-usd"
+    EUR_TO_PHP = "eur-to-php"
+    PHP_TO_EUR = "php-to-eur"
+
+
+# Currency pair -> (from_currency, to_currency)
+FOREX_PAIRS: Dict[ForexServiceType, tuple] = {
+    ForexServiceType.USD_TO_PHP: (Currency.USD, Currency.PHP),
+    ForexServiceType.PHP_TO_USD: (Currency.PHP, Currency.USD),
+    ForexServiceType.EUR_TO_PHP: (Currency.EUR, Currency.PHP),
+    ForexServiceType.PHP_TO_EUR: (Currency.PHP, Currency.EUR),
+}
+
+# Which BillDenom values belong to each currency
+CURRENCY_BILL_DENOMS: Dict[Currency, list] = {
+    Currency.PHP: [BillDenom.PHP_20, BillDenom.PHP_50, BillDenom.PHP_100,
+                   BillDenom.PHP_200, BillDenom.PHP_500, BillDenom.PHP_1000],
+    Currency.USD: [BillDenom.USD_10, BillDenom.USD_50, BillDenom.USD_100],
+    Currency.EUR: [BillDenom.EUR_5, BillDenom.EUR_10, BillDenom.EUR_20],
+}
+
+# Bill denomination -> currency
+BILL_DENOM_CURRENCY: Dict[BillDenom, Currency] = {}
+for _curr, _denoms in CURRENCY_BILL_DENOMS.items():
+    for _d in _denoms:
+        BILL_DENOM_CURRENCY[_d] = _curr

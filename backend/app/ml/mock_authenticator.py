@@ -25,6 +25,7 @@ class MockBillAuthenticator(BillAuthenticatorBase):
         self.denom_confidence: float = 0.92
         self.auth_call_count: int = 0
         self.denom_call_count: int = 0
+        self._currency: str = "PHP"
 
     async def authenticate(self, uv_image: np.ndarray) -> BillAuthResult:
         self.auth_call_count += 1
@@ -63,6 +64,10 @@ class MockBillAuthenticator(BillAuthenticatorBase):
         """Next denomination identification will return unknown."""
         self.next_denomination = None
 
+    def set_currency(self, currency: str) -> None:
+        """Set the expected currency for mock auth."""
+        self._currency = currency
+
     def reset(self) -> None:
         """Reset to defaults."""
         self.next_auth_genuine = True
@@ -71,3 +76,4 @@ class MockBillAuthenticator(BillAuthenticatorBase):
         self.denom_confidence = 0.92
         self.auth_call_count = 0
         self.denom_call_count = 0
+        self._currency = "PHP"

@@ -68,3 +68,32 @@ class StorageFullError(CoinnectError):
     def __init__(self, denom: str):
         self.denom = denom
         super().__init__(f"Storage full for denomination {denom}")
+
+
+class ForexError(CoinnectError):
+    """Forex-specific error."""
+
+    def __init__(self, message: str, code: str = "FOREX_ERROR"):
+        self.code = code
+        super().__init__(message)
+
+
+class ConnectivityError(CoinnectError):
+    """No internet connectivity."""
+
+    def __init__(self, message: str = "No internet connectivity"):
+        super().__init__(message)
+
+
+class RateExpiredError(ForexError):
+    """Exchange rate has expired."""
+
+    def __init__(self):
+        super().__init__("Exchange rate has expired", "RATE_EXPIRED")
+
+
+class RateUnavailableError(ForexError):
+    """Cannot fetch exchange rates."""
+
+    def __init__(self, message: str = "Exchange rates unavailable"):
+        super().__init__(message, "RATE_UNAVAILABLE")

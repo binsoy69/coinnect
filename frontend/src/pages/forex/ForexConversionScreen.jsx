@@ -10,7 +10,7 @@ import { isForeignToPhp, MOCK_EXCHANGE_RATES } from "../../constants/forexData";
 
 export default function ForexConversionScreen() {
   const navigate = useNavigate();
-  const { forex, getForexConfig } = useForex();
+  const { forex, getForexConfig, backendRates } = useForex();
   const config = getForexConfig();
 
   if (!config) {
@@ -23,6 +23,7 @@ export default function ForexConversionScreen() {
   };
 
   const isForeignIn = isForeignToPhp(forex.serviceType);
+  const rates = backendRates || MOCK_EXCHANGE_RATES;
 
   // Calculate conversion based on actual inserted amount
   const insertedAmount = forex.moneyInserted;
@@ -30,13 +31,13 @@ export default function ForexConversionScreen() {
 
   if (isForeignIn) {
     // Foreign to PHP
-    const rate = MOCK_EXCHANGE_RATES[forex.fromCurrency];
+    const rate = rates[forex.fromCurrency];
     convertedAmount = Math.round(insertedAmount * rate * 1000) / 1000; // 3 decimal places
     fromCurrency = forex.fromCurrency;
     toCurrency = "PHP";
   } else {
     // PHP to Foreign
-    const rate = 1 / MOCK_EXCHANGE_RATES[forex.toCurrency];
+    const rate = 1 / rates[forex.toCurrency];
     convertedAmount = Math.round(insertedAmount * rate * 10000) / 10000; // 4 decimal places
     fromCurrency = "PHP";
     toCurrency = forex.toCurrency;
