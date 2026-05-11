@@ -246,6 +246,11 @@ credentials/
 *.p12
 *.pfx
 
+# Healthcheck local configuration
+healthcheck/backend/.env
+healthcheck/frontend/.env
+healthcheck/frontend/.env.local
+
 # System service files (generated)
 *.service
 

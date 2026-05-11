@@ -417,6 +417,7 @@ Install required libraries for both Arduino controllers:
 
 ```bash
 arduino-cli lib install ArduinoJson
+arduino-cli lib install AccelStepper
 arduino-cli lib install Servo
 ```
 
@@ -448,7 +449,20 @@ arduino-cli upload --port /dev/ttyACM0 --fqbn arduino:avr:mega .
 
 ### 6.3 Verify Firmware Communication
 
-Test basic communication with both Arduinos:
+Run the non-actuating smoke checks first:
+
+```bash
+cd /home/pi/coinnect
+python scripts/firmware_smoke.py
+```
+
+Run actuator checks only after wiring is verified one subsystem at a time:
+
+```bash
+python scripts/firmware_smoke.py --actuate
+```
+
+You can also test basic communication manually:
 
 **Test Arduino #1 (Bill Controller):**
 ```bash

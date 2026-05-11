@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply box-border;
+  }
+
+  body {
+    @apply m-0 min-h-screen bg-surface-light text-gray-950 antialiased;
+    font-family: Inter, system-ui, -apple-system, sans-serif;
+  }
+
+  button,
+  input {
+    font: inherit;
+  }
+
+  #root {
+    @apply min-h-screen w-full;
+  }
+}
