@@ -10,7 +10,8 @@ Run from `healthcheck/backend` with the existing backend package on
 
 ```bash
 cd healthcheck/backend
-PYTHONPATH=../../backend HEALTHCHECK_PIN=123456 USE_MOCK_SERIAL=true USE_MOCK_HARDWARE=true uvicorn healthcheck_api.main:app --reload --port 8010
+cp .env.example .env
+python -m uvicorn healthcheck_api.main:app --reload --port 8010
 ```
 
 Use real hardware by omitting the mock environment variables and ensuring the
@@ -20,6 +21,7 @@ main Coinnect backend is stopped.
 
 ```bash
 cd healthcheck/frontend
+cp .env.example .env
 npm install
 npm run dev
 ```
