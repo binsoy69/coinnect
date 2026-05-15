@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
 
 
@@ -41,12 +42,24 @@ class Settings(BaseSettings):
     use_mock_hardware: bool = False
 
     # Camera
-    camera_device: int = 0
+    camera_device: int = Field(
+        default=0,
+        validation_alias=AliasChoices("camera_device", "camera_index"),
+    )
 
     # YOLO ML models
-    yolo_auth_model_path: str = "models/auth.pt"
+    yolo_auth_model_path: str = Field(
+        default="models/auth.pt",
+        validation_alias=AliasChoices("yolo_auth_model_path", "yolo_model_path"),
+    )
     yolo_denom_model_path: str = "models/denom.pt"
-    yolo_confidence_threshold: float = 0.7
+    yolo_confidence_threshold: float = Field(
+        default=0.7,
+        validation_alias=AliasChoices(
+            "yolo_confidence_threshold",
+            "ml_confidence_threshold",
+        ),
+    )
 
     # Bill acceptor motor speeds (PWM duty cycle %)
     bill_pull_speed: int = 60
@@ -87,7 +100,12 @@ class Settings(BaseSettings):
     yolo_auth_model_path_eur: str = "models/auth_eur.pt"
     yolo_denom_model_path_eur: str = "models/denom_eur.pt"
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
+        "populate_by_name": True,
+    }
 
 
 @lru_cache
