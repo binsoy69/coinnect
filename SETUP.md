@@ -48,6 +48,10 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+On a Raspberry Pi using real GPIO hardware, rerun `pip install -r requirements.txt`
+inside the activated backend virtualenv after pulling dependency updates. The Pi
+GPIO compatibility package is installed only on Linux ARM platforms.
+
 ### 3. Configure Environment
 
 Copy the example environment file:
@@ -176,6 +180,20 @@ Ready to proceed to:
 ### Port already in use
 - Frontend: Vite will automatically use next available port
 - Backend: Change port with `uvicorn app.main:app --port 8001`
+
+### `No module named 'RPi'` on Raspberry Pi
+This means the backend virtualenv cannot import an `RPi.GPIO` provider while
+`USE_MOCK_HARDWARE=false`.
+
+```bash
+cd ~/coinnect/backend
+source venv/bin/activate
+pip install -r requirements.txt
+python -c "import RPi.GPIO as GPIO; print('GPIO import ok')"
+```
+
+For development without physical GPIO hardware, set `USE_MOCK_HARDWARE=true`
+in `backend/.env`.
 
 ## Additional Resources
 

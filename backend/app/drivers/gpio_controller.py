@@ -92,7 +92,18 @@ class RPiGPIOController(GPIOControllerBase):
         await self._loop.run_in_executor(None, self._setup_pins)
 
     def _setup_pins(self) -> None:
-        import RPi.GPIO as GPIO
+        try:
+            import RPi.GPIO as GPIO
+        except ModuleNotFoundError as exc:
+            if not (exc.name and exc.name.startswith("RPi")):
+                raise
+            raise RuntimeError(
+                "RPi.GPIO is required when USE_MOCK_HARDWARE=false. "
+                "On the Raspberry Pi, activate backend/venv and run "
+                "`pip install -r requirements.txt` to install rpi-lgpio, "
+                "or set USE_MOCK_HARDWARE=true for mock hardware startup."
+            ) from exc
+
         self._gpio = GPIO
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
