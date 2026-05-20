@@ -202,6 +202,9 @@ $RECYCLE.BIN/
 # Application Specific
 # ===========================================
 
+# External support checkouts
+vendor/
+
 # Logs
 logs/
 *.log

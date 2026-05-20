@@ -61,7 +61,7 @@
 | USB 3.0   | 1080p Camera        | Bill authentication            |
 | USB 2.0   | Arduino Mega #1     | Bill Controller (/dev/ttyUSB0) |
 | USB 2.0   | Arduino Mega #2     | Coin & Security (/dev/ttyACM0) |
-| USB 2.0   | Thermal Printer     | Receipt printing               |
+| Bluetooth | Paperang P1 Printer | Receipt printing               |
 | HDMI      | Touchscreen Display | 10-15" display                 |
 | USB       | Touchscreen Touch   | Touch input                    |
 

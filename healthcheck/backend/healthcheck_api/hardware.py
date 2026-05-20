@@ -12,6 +12,7 @@ from app.drivers.bill_controller import BillController
 from app.drivers.coin_security_controller import CoinSecurityController
 from app.drivers.serial_manager import SerialConnection
 from app.services.machine_status import MachineStatus
+from healthcheck_api.paperang import paperang_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,10 @@ class HardwareContext:
             "device": self.settings.camera_device,
             "error": self.camera_error,
         }
+
+    @property
+    def printer_snapshot(self) -> dict:
+        return paperang_snapshot(self.settings)
 
     async def shutdown(self) -> None:
         if self.camera is not None:

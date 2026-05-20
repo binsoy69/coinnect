@@ -224,8 +224,9 @@ _Goal: Create Python drivers that can talk to "Mock" Arduino, allowing developme
 **Deferred to Phase 3 (Partial):**
 
 - [ ] **Receipt Printer Driver**
-  - [ ] Implement ESC/POS protocol driver for thermal printer.
-  - [ ] Create receipt templates (transaction receipt, claim ticket).
+  - [ ] Implement Paperang P1 Bluetooth receipt printer driver.
+  - [ ] Render receipt and claim-ticket templates as 384-dot-wide monochrome bitmap images.
+  - [ ] Support configured printer MAC address, print density, and feed controls.
   - [ ] **Test**: `pytest tests/unit/test_printer_driver.py`.
 - [x] **Claim Ticket System (Partial)**
   - [x] Generate unique alphanumeric claim codes (in `DispenseOrchestrator`).
@@ -424,7 +425,7 @@ _Goal: Enable basic remote visibility into kiosk health and operations._
 
 **Hardware Drivers:**
 
-- [ ] `[BE-005]` Implement ESC/POS receipt printer driver
+- [ ] `[BE-005]` Implement Paperang P1 Bluetooth receipt printer driver with bitmap receipt and claim-ticket templates
 - [x] `[BE-006]` Implement consumables monitoring (slot counters, dispenser levels, coin counts)
 - [x] `[BE-007]` Implement claim ticket generation system (alphanumeric codes for partial dispense)
 - [x] `[BE-008]` Add storage slot fullness tracking and alerts

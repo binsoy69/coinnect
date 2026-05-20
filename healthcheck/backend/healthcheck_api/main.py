@@ -107,6 +107,7 @@ def register_routes(app: FastAPI) -> None:
             serial=hardware.serial_snapshot,
             gpio=hardware.gpio_snapshot,
             camera=hardware.camera_snapshot,
+            printer=hardware.printer_snapshot,
             busy=runner.busy,
             recent_run_count=len(runner.recent_runs),
         )

@@ -17,6 +17,12 @@ python -m uvicorn healthcheck_api.main:app --reload --port 8010
 Use real hardware by omitting the mock environment variables and ensuring the
 main Coinnect backend is stopped.
 
+The Paperang P1 printer check prints a small sample receipt. Before using it on
+the Raspberry Pi, install the Paperang dependencies, clone
+`tinyprinter/python-paperang` into `vendor/python-paperang`, and set
+`PAPERANG_MAC_ADDRESS` in `healthcheck/backend/.env` when the printer MAC is
+known.
+
 ## Frontend
 
 ```bash

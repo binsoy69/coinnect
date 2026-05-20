@@ -18,7 +18,7 @@ class TestDefinition(BaseModel):
     id: str
     label: str
     component: str
-    kind: Literal["connectivity", "sensor", "actuator", "camera", "status"]
+    kind: Literal["connectivity", "sensor", "actuator", "camera", "status", "printer"]
     description: str
     caution: Optional[str] = None
 
@@ -34,6 +34,7 @@ class HealthcheckStatus(BaseModel):
     serial: dict
     gpio: dict
     camera: dict
+    printer: dict
     busy: bool
     recent_run_count: int
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))

@@ -88,7 +88,7 @@ flowchart TB
 Responsibilities:
 
 - User flow: select service (cash-in/cash-out/conversion), confirm amounts, show progress/errors.
-- Receipt output via thermal printer.
+- Receipt output via Paperang P1 Bluetooth thermal printer.
 - **Access Control:** Reading RFID cards for technician/admin authentication.
 - Operator/maintenance screens (status, inventory, diagnostics, audit export).
 
@@ -156,8 +156,8 @@ Suggested modules (logical):
 - **Connectivity Manager**: online/offline detection, queued API calls, retry/backoff.
 - **Security Supervisor**: manages RFID usage, consumes tamper events, triggers lockdown, governs maintenance mode.
 - **Telemetry/Logging**: local logs + basic cloud telemetry (health status, transaction summaries, alerts) when online.
-- **Receipt Printer Driver**: ESC/POS protocol driver for thermal receipt printing.
-- **Consumables Monitor**: tracks receipt paper level, storage slot fullness, dispenser levels; triggers remote alerts to technician.
+- **Receipt Printer Driver**: Paperang P1 Bluetooth driver that renders receipts and claim tickets as monochrome bitmap images before printing.
+- **Consumables Monitor**: tracks storage slot fullness and dispenser levels; receipt paper status is operator-checked unless future Paperang-specific telemetry is added.
 - **Claim Ticket Generator**: creates unique claim codes for partial dispense failures.
 
 ### Arduino Mega #1 (Bill Controller)
@@ -288,14 +288,14 @@ Recommended design boundaries (hardware + software):
 
 The system monitors and reports on:
 
-- **Receipt paper level**: Low paper sensor triggers alert.
+- **Receipt paper**: Operator-checked for Paperang P1; no USB/ESC/POS paper sensor is assumed.
 - **Storage slot fullness**: Estimated count per slot, alert at threshold.
 - **Dispenser levels**: Bill/coin counts per denomination, low inventory alerts.
 
 ### Remote Alerts
 
 - Push notifications to technician (mobile app or dashboard) for:
-  - Low consumables (paper, inventory)
+  - Low consumables (operator-reported Paperang paper, inventory)
   - Hardware faults (jams, sensor failures)
   - Security events (tamper, lockdown)
   - Transaction anomalies (high failure rate)
@@ -375,10 +375,12 @@ Frontend                    Backend                     Arduino #1
 
 ### Receipt Printer
 
-- **Protocol**: ESC/POS over USB or Serial.
-- **Hardware**: Standard 80mm thermal receipt printer.
-- **Connection**: USB to Raspberry Pi.
-- **Features**: Text formatting, alignment, cut command, logo printing (optional).
+- **Protocol**: Paperang P1 Bluetooth protocol via `tinyprinter/python-paperang`.
+- **Hardware**: Paperang P1 Bluetooth thermal printer.
+- **Connection**: Raspberry Pi Bluetooth; configure `PAPERANG_MAC_ADDRESS` when known to avoid discovery delays.
+- **Rendering**: Receipts and claim tickets are rendered client-side as 384-dot-wide monochrome bitmap images before printing.
+- **Features**: Print density and feed length are handled through Paperang commands. Do not assume ESC/POS cut commands, USB status reporting, or USB paper sensors.
+- **Configuration**: Future backend driver should use `PAPERANG_ENABLED`, `PAPERANG_MAC_ADDRESS`, and optional `PAPERANG_DENSITY` environment settings.
 
 ### Camera (Bill Authentication)
 
@@ -409,7 +411,7 @@ Confirmed decisions incorporated into this document:
 11. **Bill Authentication Failure:** Always reject uncertain bills; return to user for retry.
 12. **Jam Recovery:** Manual only; lockdown until technician clears.
 13. **Camera Hardware:** USB webcam (UVC-compatible) for easier replacement.
-14. **Receipt Printer:** Standard thermal printer using ESC/POS protocol.
+14. **Receipt Printer:** Paperang P1 Bluetooth thermal printer using bitmap-based printing.
 15. **Forex Rate Management:** Fetch from external API, cache locally with 24-hour expiry.
 16. **Deployment Environment:** Indoor climate-controlled (20-25°C, low humidity).
 17. **Session Timeout:** Smart timeout with stage-aware durations.

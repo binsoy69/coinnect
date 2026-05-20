@@ -12,7 +12,7 @@
 
 The Coinnect kiosk uses a **hybrid controller architecture** with **dual Arduino Megas**:
 
-- **Raspberry Pi 4/5**: Handles time-critical bill authentication (camera + ML), user interface, API communications, and thermal printing
+- **Raspberry Pi 4/5**: Handles time-critical bill authentication (camera + ML), user interface, API communications, and Paperang P1 Bluetooth receipt printing
 - **Arduino Mega #1 (Bill Controller)**: Handles bill sorting and bill dispensing systems
 - **Arduino Mega #2 (Coin & Security Controller)**: Handles coin acceptance, coin dispensing, and security components
 
@@ -60,7 +60,7 @@ This dual-Arduino design provides:
 │  │ • UV LED Strip (GPIO + MOSFET)                                            │   │
 │  │ • White LED (GPIO + MOSFET)                                               │   │
 │  │ • Touchscreen Display (HDMI + USB)                                        │   │
-│  │ • Thermal Printer (USB)                                                   │   │
+│  │ • Paperang P1 Printer (Bluetooth)                                         │   │
 │  └──────────────────────────────────────────────────────────────────────────┘   │
 └───────────────────────────────────────────────────┬─────────────────────────────┘
                                                     │
@@ -204,7 +204,7 @@ This dual-Arduino design provides:
 | Coin Dispensing | Arduino Mega #2 | 4 Servo Motors                                        |
 | Security        | Arduino Mega #2 | 2 Shock Sensors, 1 Solenoid, 1 Keypad, LEDs           |
 | User Interface  | Raspberry Pi    | Touchscreen (HDMI+USB)                                |
-| Printing        | Raspberry Pi    | Thermal Printer (USB)                                 |
+| Printing        | Raspberry Pi    | Paperang P1 thermal printer (Bluetooth)               |
 | Power           | -               | ATX Power Supply                                      |
 
 ---

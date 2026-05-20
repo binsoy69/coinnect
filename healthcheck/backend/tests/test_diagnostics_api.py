@@ -9,6 +9,7 @@ async def test_component_registry_contains_expected_groups(authed_client):
     assert {
         "connectivity",
         "rpi_bill_acceptor",
+        "paperang_printer",
         "bill_controller",
         "coin_security",
     }.issubset(group_ids)
@@ -62,3 +63,16 @@ async def test_mock_serial_dispense_and_security_commands_pass(authed_client):
     assert security_resp.status_code == 200
     assert security_resp.json()["status"] == "passed"
     assert "locked" in security_resp.json()["response"]
+
+
+async def test_mock_paperang_sample_receipt_passes_without_bluetooth(authed_client):
+    _app, client = authed_client
+
+    resp = await client.post("/api/v1/tests/paperang_sample_receipt/run")
+
+    assert resp.status_code == 200
+    result = resp.json()
+    assert result["status"] == "passed"
+    assert result["response"]["mock"] is True
+    assert result["response"]["printed"] is False
+    assert result["response"]["width"] == 384

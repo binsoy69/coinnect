@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     # Mock hardware (GPIO, camera, ML)
     use_mock_hardware: bool = False
 
+    # Paperang P1 receipt printer
+    paperang_mac_address: str = ""
+    paperang_repo_path: str = "vendor/python-paperang"
+    paperang_density: int | None = None
+    paperang_feed_lines: int = 120
+    paperang_print_timeout_seconds: int = 60
+
     # Camera
     camera_device: int = Field(
         default=0,

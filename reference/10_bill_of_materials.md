@@ -106,8 +106,8 @@ This document lists all electronic and electrical components required for the Co
 | Item                | Specification     | Qty | Unit Price (₱) | Total (₱) | Notes            |
 | ------------------- | ----------------- | --- | -------------- | --------- | ---------------- |
 | Touchscreen Display | 10" IPS, HDMI+USB | 1   | 4,500          | 4,500     | Main UI          |
-| Thermal Printer     | 58mm or 80mm, USB | 1   | 1,500          | 1,500     | Receipt printing |
-| Thermal Paper Roll  | 58mm x 30m        | 5   | 30             | 150       | Consumable       |
+| Paperang P1 Printer | Bluetooth thermal | 1   | 1,500          | 1,500     | Receipt printing |
+| Thermal Paper Roll  | Paperang-compatible | 5   | 30             | 150       | Consumable       |
 | **Subtotal**        |                   |     |                | **6,150** |                  |
 
 ### 10.2.8 Lighting (Bill Acceptor)

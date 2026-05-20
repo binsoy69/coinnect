@@ -52,6 +52,46 @@ On a Raspberry Pi using real GPIO hardware, rerun `pip install -r requirements.t
 inside the activated backend virtualenv after pulling dependency updates. The Pi
 GPIO compatibility package is installed only on Linux ARM platforms.
 
+For the Paperang P1 receipt printer, install the Raspberry Pi Bluetooth and image
+processing packages before testing the printer:
+
+```bash
+sudo apt update
+sudo apt install -y \
+  build-essential \
+  python3-dev \
+  python3-venv \
+  python3-bluez \
+  python3-numpy \
+  python3-scipy \
+  python3-skimage \
+  python3-numba \
+  python3-pil \
+  python3-pilkit \
+  libbluetooth-dev \
+  libhidapi-dev
+```
+
+Clone the tested Paperang support library near the kiosk checkout:
+
+```bash
+mkdir -p vendor
+git clone https://github.com/tinyprinter/python-paperang.git vendor/python-paperang
+```
+
+For a manual printer check, follow the support repository's test flow from that
+checkout after Bluetooth is enabled and the printer is powered on:
+
+```bash
+cd vendor/python-paperang
+python3 testprint.py
+```
+
+The future backend printer driver should keep printer settings in `backend/.env`.
+Use `PAPERANG_MAC_ADDRESS` when the printer MAC address is known, `PAPERANG_ENABLED`
+to enable receipt printing, and `PAPERANG_DENSITY` if print density needs tuning.
+Do not hardcode the MAC address in source code.
+
 ### 3. Configure Environment
 
 Copy the example environment file:

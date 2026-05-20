@@ -7,8 +7,9 @@ Coinnect is a unified kiosk for multiple financial services. It combines bill ac
 
 **System Architecture**
 - Raspberry Pi 4/5
-- Handles bill authentication (camera + ML), UI, API communication, and thermal printing
+- Handles bill authentication (camera + ML), UI, API communication, and Paperang P1 Bluetooth receipt printing
 - Directly controls the bill acceptor motor and sensors
+- Receipt printer integration targets Paperang P1 over Raspberry Pi Bluetooth. Render receipts and claim tickets as 384-dot-wide monochrome bitmap images, configure the MAC address through `PAPERANG_MAC_ADDRESS`, and do not assume ESC/POS cut/status commands.
 - Arduino Mega #1 (Bill Controller)
 - Bill sorting (stepper + A4988)
 - Bill dispensing (12 L298N units, 24 DC motors, 12 IR sensors)

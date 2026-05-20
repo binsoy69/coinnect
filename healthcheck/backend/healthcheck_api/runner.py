@@ -11,6 +11,10 @@ from app.core.errors import TimeoutError as HardwareTimeoutError
 
 from healthcheck_api.hardware import HardwareContext
 from healthcheck_api.models import ComponentGroup, TestDefinition, TestRunResult
+from healthcheck_api.paperang import (
+    PaperangDiagnosticError,
+    PaperangHealthcheckPrinter,
+)
 from healthcheck_api.registry import build_component_groups, flatten_tests
 
 TestHandler = Callable[[], Awaitable[dict]]
@@ -102,6 +106,7 @@ class DiagnosticsRunner:
             "rpi_uv_led": self._rpi_uv_led,
             "rpi_white_led": self._rpi_white_led,
             "rpi_camera_capture": self._rpi_camera_capture,
+            "paperang_sample_receipt": self._paperang_sample_receipt,
             "bill_home_sorter": self._bill_home_sorter,
             "bill_sort_status": self._bill_sort_status,
             "coin_security_status": self._coin_security_status,
@@ -200,6 +205,10 @@ class DiagnosticsRunner:
             "shape": list(shape) if shape is not None else None,
         }
 
+    async def _paperang_sample_receipt(self) -> dict:
+        printer = PaperangHealthcheckPrinter(self._hardware.settings)
+        return await printer.print_sample_receipt()
+
     async def _bill_home_sorter(self) -> dict:
         return (await self._hardware.bill_controller.home()).model_dump()
 
@@ -287,4 +296,6 @@ class DiagnosticsRunner:
             return "TIMEOUT"
         if isinstance(exc, TimeoutError):
             return "TIMEOUT"
+        if isinstance(exc, PaperangDiagnosticError):
+            return "PRINTER_ERROR"
         return None

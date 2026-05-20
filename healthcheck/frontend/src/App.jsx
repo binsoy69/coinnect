@@ -11,6 +11,7 @@ import {
   LockKeyhole,
   LogOut,
   Play,
+  Printer,
   Radio,
   RefreshCw,
   Server,
@@ -34,6 +35,7 @@ const KIND_ICONS = {
   actuator: Zap,
   camera: Camera,
   status: LockKeyhole,
+  printer: Printer,
 };
 
 function App() {

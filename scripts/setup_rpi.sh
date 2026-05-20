@@ -74,10 +74,28 @@ sudo apt upgrade -y
 header "Step 2: Installing System Dependencies"
 
 info "Installing Python and development tools..."
-sudo apt install -y python3.11 python3-pip python3-venv git
+sudo apt install -y \
+    python3.11 \
+    python3-pip \
+    python3-venv \
+    python3-dev \
+    git \
+    build-essential
 
 info "Installing OpenCV and ML dependencies (for YOLO)..."
 sudo apt install -y python3-opencv libatlas-base-dev
+
+info "Installing Paperang P1 Bluetooth printer dependencies..."
+sudo apt install -y \
+    python3-bluez \
+    python3-numpy \
+    python3-scipy \
+    python3-skimage \
+    python3-numba \
+    python3-pil \
+    python3-pilkit \
+    libbluetooth-dev \
+    libhidapi-dev
 
 info "Installing Arduino CLI for firmware uploading..."
 sudo apt install -y arduino arduino-cli
@@ -114,6 +132,18 @@ pip install --upgrade pip
 info "Installing Python dependencies..."
 info "This may take 15-30 minutes (ultralytics and dependencies are large)..."
 pip install -r backend/requirements.txt
+
+PAPERANG_PATH="$(pwd)/vendor/python-paperang"
+if [ ! -d "$PAPERANG_PATH" ]; then
+    info "Cloning Paperang P1 support library..."
+    mkdir -p "$(dirname "$PAPERANG_PATH")"
+    if ! git clone https://github.com/tinyprinter/python-paperang.git "$PAPERANG_PATH"; then
+        warn "Could not clone python-paperang. You can retry manually after setup:"
+        warn "  git clone https://github.com/tinyprinter/python-paperang.git $PAPERANG_PATH"
+    fi
+else
+    info "Paperang support library already exists at $PAPERANG_PATH"
+fi
 
 info "Python environment set up successfully!"
 
@@ -212,12 +242,14 @@ info "Coinnect has been set up successfully!"
 echo
 info "Next steps:"
 echo "  1. Edit backend/.env with your configuration"
-echo "  2. Set up udev rules for USB devices (see INSTRUCTIONS.md Section 4)"
-echo "  3. Upload Arduino firmware (see INSTRUCTIONS.md Section 6)"
-echo "  4. Log out and back in (for group permissions to take effect)"
-echo "  5. Start the service: sudo systemctl start coinnect.service"
-echo "  6. Check status: sudo systemctl status coinnect.service"
-echo "  7. View logs: sudo journalctl -u coinnect.service -f"
+echo "  2. Add PAPERANG_MAC_ADDRESS to backend/.env if you know the printer MAC"
+echo "  3. Pair or test the Paperang P1 over Raspberry Pi Bluetooth (vendor/python-paperang/testprint.py)"
+echo "  4. Set up udev rules for USB devices (see INSTRUCTIONS.md Section 4)"
+echo "  5. Upload Arduino firmware (see INSTRUCTIONS.md Section 6)"
+echo "  6. Log out and back in (for group permissions to take effect)"
+echo "  7. Start the service: sudo systemctl start coinnect.service"
+echo "  8. Check status: sudo systemctl status coinnect.service"
+echo "  9. View logs: sudo journalctl -u coinnect.service -f"
 echo
 warn "⚠️  IMPORTANT: Log out and back in before starting the service!"
 echo

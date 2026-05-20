@@ -60,7 +60,7 @@
 
 6.  **User Interface**
     - Interactive touchscreen display.
-    - Thermal printer for transaction receipts.
+    - Paperang P1 Bluetooth thermal printer for transaction receipts.
 
 ## Current Status
 

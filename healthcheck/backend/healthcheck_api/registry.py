@@ -126,6 +126,21 @@ def build_component_groups() -> list[ComponentGroup]:
             ],
         ),
         ComponentGroup(
+            id="paperang_printer",
+            label="Paperang Printer",
+            description="Bluetooth receipt printer checks for the Paperang P1.",
+            tests=[
+                TestDefinition(
+                    id="paperang_sample_receipt",
+                    label="Print Sample Receipt",
+                    component="Paperang P1",
+                    kind="printer",
+                    description="Print a small Coinnect sample receipt over Bluetooth.",
+                    caution="Physically prints on the Paperang P1.",
+                ),
+            ],
+        ),
+        ComponentGroup(
             id="bill_controller",
             label="Bill Sorting and Dispensing",
             description="Sorter rail and bill dispenser command-level checks.",
