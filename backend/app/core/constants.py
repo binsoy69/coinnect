@@ -38,6 +38,7 @@ class SortSlot(int, Enum):
 class ErrorCode(str, Enum):
     PARSE_ERROR = "PARSE_ERROR"
     UNKNOWN_CMD = "UNKNOWN_CMD"
+    INVALID_PARAM = "INVALID_PARAM"
     INVALID_DENOM = "INVALID_DENOM"
     INVALID_COUNT = "INVALID_COUNT"
     NOT_HOMED = "NOT_HOMED"

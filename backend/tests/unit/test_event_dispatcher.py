@@ -67,6 +67,30 @@ class TestCoinInEvent:
         assert call_args.type == WSEventType.COIN_INSERTED
         assert call_args.payload["denom"] == 10
 
+    async def test_coin_in_routes_to_active_transaction(
+        self, event_queue, machine_status, ws_manager
+    ):
+        transaction_orchestrator = AsyncMock()
+        transaction_orchestrator.has_active_transaction = True
+        transaction_orchestrator.handle_coin_inserted = AsyncMock()
+        dispatcher = EventDispatcher(
+            event_queue,
+            machine_status,
+            ws_manager,
+            transaction_orchestrator=transaction_orchestrator,
+        )
+        event_data = {
+            "event": "COIN_IN", "denom": 20, "total": 20,
+            "_controller": "COIN_SECURITY",
+        }
+
+        await dispatcher._handle_event(event_data)
+
+        transaction_orchestrator.handle_coin_inserted.assert_awaited_once_with(
+            denom=20,
+            total=20,
+        )
+
 
 class TestTamperEvent:
     async def test_tamper_updates_security(
@@ -128,7 +152,7 @@ class TestReadyEvent:
         self, dispatcher, event_queue, machine_status, ws_manager
     ):
         event_data = {
-            "event": "READY", "version": "2.0.0",
+            "event": "READY", "version": "2.1.0",
             "controller": "COIN_SECURITY",
             "_controller": "COIN_SECURITY",
         }

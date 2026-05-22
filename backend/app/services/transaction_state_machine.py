@@ -102,6 +102,10 @@ class TransactionStateMachine:
     def transaction_id(self) -> str:
         return self._id
 
+    @property
+    def transaction_type(self) -> str:
+        return self._type
+
     def is_in_state(self, state: TransactionState) -> bool:
         return self._state == state
 

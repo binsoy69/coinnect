@@ -112,6 +112,7 @@ async def test_app():
     coin_controller.coin_dispense = AsyncMock(
         side_effect=lambda denom, count: MagicMock(dispensed=count)
     )
+    coin_controller.set_coin_acceptor_enabled = AsyncMock()
 
     # Service layer -----------------------------------------------------
     bill_acceptor = BillAcceptor(
@@ -122,7 +123,7 @@ async def test_app():
         bill_controller, coin_controller, machine_status, ws_manager,
     )
     transaction_orchestrator = TransactionOrchestrator(
-        bill_acceptor, dispense_orchestrator, machine_status,
+        bill_acceptor, dispense_orchestrator, coin_controller, machine_status,
         ws_manager, session_factory,
     )
 
@@ -313,7 +314,8 @@ class TestSimulateInsert:
         assert resp.status_code == 404
 
     async def test_simulate_coin_insert_updates_amount(self, client):
-        start = (await _start_transaction(client)).json()
+        payload = {**START_PAYLOAD, "type": "coin-to-bill"}
+        start = (await _start_transaction(client, payload)).json()
         tx_id = start["transaction_id"]
 
         resp = await client.post(

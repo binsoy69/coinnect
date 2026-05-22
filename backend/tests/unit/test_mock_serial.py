@@ -112,6 +112,45 @@ class TestMockSerialSimpleMode:
         assert resp["status"] == "OK"
         assert "previous_total" in resp
 
+    def test_coin_acceptor_enable(self, coin_mock):
+        resp = self._send_and_read(
+            coin_mock, {"cmd": "COIN_ACCEPTOR_ENABLE", "enabled": True}
+        )
+        assert resp == {"status": "OK", "enabled": True}
+
+        status = self._send_and_read(coin_mock, {"cmd": "COIN_STATUS"})
+        assert status["acceptor_enabled"] is True
+
+    def test_coin_acceptor_enable_invalid_param(self, coin_mock):
+        resp = self._send_and_read(
+            coin_mock, {"cmd": "COIN_ACCEPTOR_ENABLE", "enabled": "yes"}
+        )
+        assert resp["status"] == "ERROR"
+        assert resp["code"] == "INVALID_PARAM"
+
+    def test_coin_sorter_position(self, coin_mock):
+        resp = self._send_and_read(
+            coin_mock, {"cmd": "COIN_SORTER_POSITION", "position": "RIGHT"}
+        )
+        assert resp["status"] == "OK"
+        assert resp["sorter_position"] == "RIGHT"
+        assert resp["sorter_angle"] == 120
+
+    def test_coin_sorter_position_invalid_param(self, coin_mock):
+        resp = self._send_and_read(
+            coin_mock, {"cmd": "COIN_SORTER_POSITION", "position": "PHP_1"}
+        )
+        assert resp["status"] == "ERROR"
+        assert resp["code"] == "INVALID_PARAM"
+
+    def test_coin_status_defaults(self, coin_mock):
+        resp = self._send_and_read(coin_mock, {"cmd": "COIN_STATUS"})
+        assert resp["status"] == "OK"
+        assert resp["acceptor_enabled"] is False
+        assert resp["sorter_position"] == "CENTER"
+        assert resp["sorter_angle"] == 81
+        assert resp["session_total"] == 0
+
     def test_security_lock(self, coin_mock):
         resp = self._send_and_read(coin_mock, {"cmd": "SECURITY_LOCK"})
         assert resp["status"] == "OK"
@@ -143,6 +182,7 @@ class TestMockSerialSimpleMode:
     def test_version_coin(self, coin_mock):
         resp = self._send_and_read(coin_mock, {"cmd": "VERSION"})
         assert resp["controller"] == "COIN_SECURITY"
+        assert resp["version"] == "2.1.0"
 
     def test_unknown_command(self, bill_mock):
         resp = self._send_and_read(bill_mock, {"cmd": "NONEXISTENT"})
