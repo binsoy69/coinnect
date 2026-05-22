@@ -113,6 +113,12 @@ class DiagnosticsRunner:
             "coin_security_lock": self._coin_security_lock,
             "coin_security_unlock": self._coin_security_unlock,
             "coin_reset": self._coin_reset,
+            "coin_status": self._coin_status,
+            "coin_acceptor_enable_on": self._coin_acceptor_enable_on,
+            "coin_acceptor_enable_off": self._coin_acceptor_enable_off,
+            "coin_sorter_center": self._coin_sorter_position_handler("CENTER"),
+            "coin_sorter_left": self._coin_sorter_position_handler("LEFT"),
+            "coin_sorter_right": self._coin_sorter_position_handler("RIGHT"),
             "coin_acceptor_listen": self._coin_acceptor_listen,
             "coin_tamper_listen": self._coin_tamper_listen,
         }
@@ -247,6 +253,27 @@ class DiagnosticsRunner:
     async def _coin_reset(self) -> dict:
         return (await self._hardware.coin_controller.coin_reset()).model_dump()
 
+    async def _coin_status(self) -> dict:
+        return (await self._hardware.coin_controller.coin_status()).model_dump()
+
+    async def _coin_acceptor_enable_on(self) -> dict:
+        return (
+            await self._hardware.coin_controller.set_coin_acceptor_enabled(True)
+        ).model_dump()
+
+    async def _coin_acceptor_enable_off(self) -> dict:
+        return (
+            await self._hardware.coin_controller.set_coin_acceptor_enabled(False)
+        ).model_dump()
+
+    def _coin_sorter_position_handler(self, position: str) -> TestHandler:
+        async def handler() -> dict:
+            return (
+                await self._hardware.coin_controller.set_coin_sorter_position(position)
+            ).model_dump()
+
+        return handler
+
     def _coin_dispense_handler(self, denom: int) -> TestHandler:
         async def handler() -> dict:
             return (
@@ -256,7 +283,11 @@ class DiagnosticsRunner:
         return handler
 
     async def _coin_acceptor_listen(self) -> dict:
-        return await self._wait_for_event("COIN_IN", timeout=10.0)
+        await self._hardware.coin_controller.set_coin_acceptor_enabled(True)
+        try:
+            return await self._wait_for_event("COIN_IN", timeout=10.0)
+        finally:
+            await self._hardware.coin_controller.set_coin_acceptor_enabled(False)
 
     async def _coin_tamper_listen(self) -> dict:
         return await self._wait_for_event("TAMPER", timeout=10.0)

@@ -1,6 +1,6 @@
 from typing import Dict, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 
 from app.core.constants import BillDenom, ErrorCode
 
@@ -46,6 +46,23 @@ class CoinChangeCommand(BaseModel):
 
 class CoinResetCommand(BaseModel):
     cmd: Literal["COIN_RESET"] = "COIN_RESET"
+
+
+class CoinAcceptorEnableCommand(BaseModel):
+    cmd: Literal["COIN_ACCEPTOR_ENABLE"] = "COIN_ACCEPTOR_ENABLE"
+    enabled: StrictBool
+
+
+class CoinStatusCommand(BaseModel):
+    cmd: Literal["COIN_STATUS"] = "COIN_STATUS"
+
+
+CoinSorterPosition = Literal["CENTER", "LEFT", "RIGHT"]
+
+
+class CoinSorterPositionCommand(BaseModel):
+    cmd: Literal["COIN_SORTER_POSITION"] = "COIN_SORTER_POSITION"
+    position: CoinSorterPosition
 
 
 class SecurityLockCommand(BaseModel):
@@ -117,6 +134,25 @@ class CoinChangeResponse(BaseModel):
 class CoinResetResponse(BaseModel):
     status: Literal["OK"]
     previous_total: int
+
+
+class CoinAcceptorEnableResponse(BaseModel):
+    status: Literal["OK"]
+    enabled: bool
+
+
+class CoinStatusResponse(BaseModel):
+    status: Literal["OK"]
+    acceptor_enabled: bool
+    sorter_position: CoinSorterPosition
+    sorter_angle: int
+    session_total: int
+
+
+class CoinSorterPositionResponse(BaseModel):
+    status: Literal["OK"]
+    sorter_position: CoinSorterPosition
+    sorter_angle: int
 
 
 class SecurityLockResponse(BaseModel):

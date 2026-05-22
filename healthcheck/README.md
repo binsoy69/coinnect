@@ -17,6 +17,11 @@ python -m uvicorn healthcheck_api.main:app --reload --port 8010
 Use real hardware by omitting the mock environment variables and ensuring the
 main Coinnect backend is stopped.
 
+The coin/security diagnostics include `COIN_STATUS`, active-HIGH coin acceptor
+enable checks on Mega #2 `D24`, and sorter servo movement checks on `D7` for
+`CENTER=81`, `LEFT=45`, and `RIGHT=120`. Run the enable and sorter checks only
+after confirming the sorter linkage and acceptor enable wiring are safe.
+
 The Paperang P1 printer check prints a small sample receipt. Before using it on
 the Raspberry Pi, install the Paperang dependencies, clone
 `tinyprinter/python-paperang` into `vendor/python-paperang`, and set

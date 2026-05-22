@@ -25,6 +25,7 @@ from app.models.events import WSEvent, WSEventType
 from app.services.bill_acceptor import BillAcceptor
 from app.services.change_calculator import calculate_change
 from app.services.dispense_orchestrator import DispenseOrchestrator
+from app.drivers.coin_security_controller import CoinSecurityController
 from app.services.machine_status import MachineStatus
 from app.services.transaction_state_machine import TransactionStateMachine
 
@@ -41,12 +42,14 @@ class TransactionOrchestrator:
         self,
         bill_acceptor: BillAcceptor,
         dispense_orchestrator: DispenseOrchestrator,
+        coin_controller: CoinSecurityController | None,
         machine_status: MachineStatus,
         ws_manager: ConnectionManager,
         db_session_factory: async_sessionmaker,
     ):
         self._bill_acceptor = bill_acceptor
         self._dispenser = dispense_orchestrator
+        self._coin_controller = coin_controller
         self._status = machine_status
         self._ws = ws_manager
         self._db_factory = db_session_factory
@@ -104,6 +107,8 @@ class TransactionOrchestrator:
             )
         except Exception as e:
             raise TransactionError("", f"Cannot dispense requested amount: {e}")
+
+        await self._set_coin_acceptor_enabled(transaction_type == "coin-to-bill")
 
         # Create transaction
         tx_id = str(uuid.uuid4())
@@ -211,6 +216,9 @@ class TransactionOrchestrator:
         """
         tx = self._require_active_transaction()
 
+        if tx.transaction_type != "coin-to-bill":
+            return await self.get_transaction_state(tx.transaction_id)
+
         if not tx.is_in_state(TransactionState.WAITING_FOR_BILL):
             return await self.get_transaction_state(tx.transaction_id)
 
@@ -242,6 +250,7 @@ class TransactionOrchestrator:
         # Check if enough money
         if db_record and db_record.inserted_amount >= db_record.total_due:
             await tx.transition_to(TransactionState.WAITING_FOR_CONFIRMATION)
+            await self._set_coin_acceptor_enabled(False)
 
         return await self.get_transaction_state(tx.transaction_id)
 
@@ -258,6 +267,8 @@ class TransactionOrchestrator:
                 tx.transaction_id,
                 f"Cannot confirm in state {tx.state.value}",
             )
+
+        await self._set_coin_acceptor_enabled(False)
 
         session = self._active_session
         db_record = await self._get_db_record(session, tx.transaction_id)
@@ -454,7 +465,13 @@ class TransactionOrchestrator:
 
     async def _cleanup_active(self) -> None:
         """Clean up the active transaction and session."""
+        await self._set_coin_acceptor_enabled(False)
         if self._active_session:
             await self._active_session.close()
             self._active_session = None
         self._active_tx = None
+
+    async def _set_coin_acceptor_enabled(self, enabled: bool) -> None:
+        if self._coin_controller is None:
+            return
+        await self._coin_controller.set_coin_acceptor_enabled(enabled)

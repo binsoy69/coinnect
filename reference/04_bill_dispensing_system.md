@@ -350,8 +350,8 @@ Using Option D (ENA/ENB tied HIGH with jumpers):
 │   8    │   $50       │   D50    D51    D52    D53    │  D50-53 also SPI (avoid)   │
 │   9    │   $100      │   A8     A9     A10    A11    │  Using analog as digital   │
 │   10   │   €5        │   A12    A13    A14    A15    │  Using analog as digital   │
-│   11   │   €10       │   D6     D7     D8     D9     │                            │
-│   12   │   €20       │   D10    D11    D12    D13    │                            │
+│   11   │   €10       │   D7     D8     D9     D10    │                            │
+│   12   │   €20       │   D11    D12    D13    -      │  3-pin simplified control  │
 └────────┴─────────────┴────────────────────────────────┴────────────────────────────┘
 
 Note: D50-D53 are SPI pins. If SPI is not needed, they can be used.

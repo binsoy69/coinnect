@@ -15,6 +15,7 @@ Coinnect is a unified kiosk for multiple financial services. It combines bill ac
 - Bill dispensing (12 L298N units, 24 DC motors, 12 IR sensors)
 - Arduino Mega #2 (Coin + Security Controller)
 - Coin acceptor (pulse input)
+- Coin acceptor enable gate and three-position sorter servo
 - Coin dispensers (4 servos)
 - Security (shock sensors, solenoid lock, keypad, LEDs)
 
@@ -32,7 +33,7 @@ Message formats:
 Command routing:
 - Sorting: `SORT`, `HOME`, `SORT_STATUS` -> Arduino #1
 - Dispense bills: `DISPENSE`, `DISPENSE_STATUS` -> Arduino #1
-- Coin: `COIN_DISPENSE`, `COIN_CHANGE`, `COIN_RESET` -> Arduino #2
+- Coin: `COIN_DISPENSE`, `COIN_CHANGE`, `COIN_RESET`, `COIN_STATUS`, `COIN_ACCEPTOR_ENABLE`, `COIN_SORTER_POSITION` -> Arduino #2
 - Security: `SECURITY_LOCK`, `SECURITY_UNLOCK`, `SECURITY_STATUS` -> Arduino #2
 - System: `PING`, `VERSION`, `RESET` -> either
 
@@ -68,6 +69,8 @@ Arduino Mega #1 (bill sorting + dispensing):
 
 Arduino Mega #2 (coin + security):
 - D18: Coin acceptor pulse (INT5)
+- D24: Coin acceptor enable (active HIGH; default disabled/fail-closed)
+- D7: Coin sorter servo signal (CENTER=81, LEFT=45, RIGHT=120; PHP_1/PHP_5 left, PHP_10/PHP_20 right)
 - D44/D45/D46/D6: Servo PWM for coin dispensers
 - D19/D20: Shock sensors (INT4/INT3)
 - D21: Solenoid lock relay
@@ -86,7 +89,7 @@ Arduino Mega #2 (coin + security):
 
 **Error Codes and Status Conventions**
 Common error codes from serial protocol:
-- `PARSE_ERROR`, `UNKNOWN_CMD`, `INVALID_DENOM`, `INVALID_COUNT`, `NOT_HOMED`
+- `PARSE_ERROR`, `UNKNOWN_CMD`, `INVALID_PARAM`, `INVALID_DENOM`, `INVALID_COUNT`, `NOT_HOMED`
 - `JAM`, `EMPTY`, `TIMEOUT`, `MOTOR_FAULT`, `LOCKED_OUT`
 Bill dispense specific:
 - `INVALID_UNIT`, `UNKNOWN_DENOM`, `JAM_OR_EMPTY`, `MOTOR_FAULT`

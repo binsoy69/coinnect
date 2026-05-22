@@ -5,11 +5,13 @@
 // Coinnect Mega #2 firmware: coin accept/dispense + security.
 // Serial protocol: newline-delimited JSON at 115200 baud.
 
-static const char *FIRMWARE_VERSION = "2.0.0";
+static const char *FIRMWARE_VERSION = "2.1.0";
 static const char *CONTROLLER_ID = "COIN_SECURITY";
 
-// Coin acceptor and dispenser pins.
+// Coin acceptor, sorter, and dispenser pins.
 static const uint8_t COIN_PULSE_PIN = 18;  // INT5
+static const uint8_t COIN_SORTER_SERVO_PIN = 7;
+static const uint8_t COIN_ACCEPTOR_ENABLE_PIN = 24;
 static const uint8_t SERVO_PHP_1_PIN = 44;
 static const uint8_t SERVO_PHP_5_PIN = 45;
 static const uint8_t SERVO_PHP_10_PIN = 46;
@@ -32,6 +34,13 @@ static const uint8_t SERVO_OPEN_DEG = 90;
 static const unsigned long SERVO_OPEN_TIME_MS = 150;
 static const unsigned long SERVO_SETTLE_TIME_MS = 100;
 
+// Three-position coin sorter servo.
+static const uint8_t COIN_SORTER_CENTER_DEG = 81;
+static const uint8_t COIN_SORTER_LEFT_DEG = 45;
+static const uint8_t COIN_SORTER_RIGHT_DEG = 120;
+static const unsigned long COIN_SORTER_SETTLE_MS = 250;
+static const unsigned long COIN_SORTER_HOLD_MS = 500;
+
 // Pulse train interpretation: value pulses. 1/5/10/20 pulses map to PHP value.
 static const unsigned long COIN_PULSE_DEBOUNCE_MS = 15;
 static const unsigned long COIN_TRAIN_DONE_MS = 150;
@@ -41,6 +50,7 @@ Servo servoPhp1;
 Servo servoPhp5;
 Servo servoPhp10;
 Servo servoPhp20;
+Servo coinSorterServo;
 
 struct CoinDispenser {
   Servo *servo;
@@ -60,6 +70,8 @@ static const uint8_t COIN_DISPENSER_COUNT =
 static String inputLine;
 static bool doorLocked = true;
 static bool tamperLatched = false;
+static volatile bool coinAcceptorEnabled = false;
+static const char *coinSorterPosition = "CENTER";
 static int coinSessionTotal = 0;
 
 static volatile uint8_t coinPulseCount = 0;
@@ -133,6 +145,53 @@ void setServoClosed(uint8_t index) {
   coinDispensers[index].servo->write(SERVO_CLOSED_DEG);
 }
 
+uint8_t sorterAngleForPosition(const char *position) {
+  if (strcmp(position, "LEFT") == 0) {
+    return COIN_SORTER_LEFT_DEG;
+  }
+  if (strcmp(position, "RIGHT") == 0) {
+    return COIN_SORTER_RIGHT_DEG;
+  }
+  return COIN_SORTER_CENTER_DEG;
+}
+
+bool isValidSorterPosition(const char *position) {
+  return strcmp(position, "CENTER") == 0 || strcmp(position, "LEFT") == 0 ||
+         strcmp(position, "RIGHT") == 0;
+}
+
+const char *sorterPositionForDenom(int denom) {
+  if (denom == 1 || denom == 5) {
+    return "LEFT";
+  }
+  if (denom == 10 || denom == 20) {
+    return "RIGHT";
+  }
+  return "CENTER";
+}
+
+void setCoinSorterPosition(const char *position) {
+  coinSorterPosition = position;
+  coinSorterServo.write(sorterAngleForPosition(position));
+  delay(COIN_SORTER_SETTLE_MS);
+}
+
+void clearCoinPulseTrain() {
+  noInterrupts();
+  coinPulseCount = 0;
+  lastCoinPulseMs = 0;
+  lastCoinInterruptMs = 0;
+  interrupts();
+}
+
+void setCoinAcceptorEnabled(bool enabled) {
+  coinAcceptorEnabled = enabled;
+  digitalWrite(COIN_ACCEPTOR_ENABLE_PIN, enabled ? HIGH : LOW);
+  if (!enabled) {
+    clearCoinPulseTrain();
+  }
+}
+
 void lockDoor(bool emitEvent) {
   digitalWrite(SOLENOID_PIN, LOCK_RELAY_LOCKED_LEVEL);
   digitalWrite(LED_RED_PIN, HIGH);
@@ -164,12 +223,17 @@ void blinkTamperLed() {
 
 void handleTamper(const char *sensor) {
   tamperLatched = true;
+  setCoinAcceptorEnabled(false);
+  setCoinSorterPosition("CENTER");
   lockDoor(true);
   blinkTamperLed();
   sendTamperEvent(sensor);
 }
 
 void coinPulseISR() {
+  if (!coinAcceptorEnabled) {
+    return;
+  }
   const unsigned long now = millis();
   if (now - lastCoinInterruptMs >= COIN_PULSE_DEBOUNCE_MS) {
     if (coinPulseCount < 250) {
@@ -223,6 +287,11 @@ void serviceCoinPulseTrain() {
   uint8_t pulses = 0;
   const unsigned long now = millis();
 
+  if (!coinAcceptorEnabled) {
+    clearCoinPulseTrain();
+    return;
+  }
+
   noInterrupts();
   const bool trainReady =
       coinPulseCount > 0 && (now - lastCoinPulseMs >= COIN_TRAIN_DONE_MS);
@@ -242,7 +311,14 @@ void serviceCoinPulseTrain() {
   }
 
   coinSessionTotal += denom;
+  setCoinAcceptorEnabled(false);
+  setCoinSorterPosition(sorterPositionForDenom(denom));
   sendCoinInEvent(denom);
+  delay(COIN_SORTER_HOLD_MS);
+  setCoinSorterPosition("CENTER");
+  if (!tamperLatched) {
+    setCoinAcceptorEnabled(true);
+  }
 }
 
 bool dispenseSingleCoin(uint8_t dispenserIndex) {
@@ -312,6 +388,8 @@ void handleReset() {
 
   coinSessionTotal = 0;
   tamperLatched = false;
+  setCoinAcceptorEnabled(false);
+  setCoinSorterPosition("CENTER");
   lockDoor(true);
 
   StaticJsonDocument<64> doc;
@@ -405,13 +483,58 @@ void handleCoinReset() {
   const int previousTotal = coinSessionTotal;
   coinSessionTotal = 0;
 
-  noInterrupts();
-  coinPulseCount = 0;
-  interrupts();
+  setCoinAcceptorEnabled(false);
+  setCoinSorterPosition("CENTER");
 
   StaticJsonDocument<96> doc;
   doc["status"] = "OK";
   doc["previous_total"] = previousTotal;
+  sendDocument(doc);
+}
+
+void handleCoinAcceptorEnable(JsonDocument &cmdDoc) {
+  if (!cmdDoc["enabled"].is<bool>()) {
+    sendError("INVALID_PARAM");
+    return;
+  }
+
+  const bool enabled = cmdDoc["enabled"];
+  if (enabled && tamperLatched) {
+    sendError("LOCKED_OUT");
+    return;
+  }
+
+  setCoinAcceptorEnabled(enabled);
+
+  StaticJsonDocument<96> doc;
+  doc["status"] = "OK";
+  doc["enabled"] = (bool)coinAcceptorEnabled;
+  sendDocument(doc);
+}
+
+void handleCoinStatus() {
+  StaticJsonDocument<160> doc;
+  doc["status"] = "OK";
+  doc["acceptor_enabled"] = (bool)coinAcceptorEnabled;
+  doc["sorter_position"] = coinSorterPosition;
+  doc["sorter_angle"] = sorterAngleForPosition(coinSorterPosition);
+  doc["session_total"] = coinSessionTotal;
+  sendDocument(doc);
+}
+
+void handleCoinSorterPosition(JsonDocument &cmdDoc) {
+  const char *position = cmdDoc["position"] | "";
+  if (!isValidSorterPosition(position)) {
+    sendError("INVALID_PARAM");
+    return;
+  }
+
+  setCoinSorterPosition(position);
+
+  StaticJsonDocument<128> doc;
+  doc["status"] = "OK";
+  doc["sorter_position"] = coinSorterPosition;
+  doc["sorter_angle"] = sorterAngleForPosition(coinSorterPosition);
   sendDocument(doc);
 }
 
@@ -460,6 +583,12 @@ void dispatchCommand(const String &line) {
     handleCoinChange(cmdDoc);
   } else if (strcmp(cmd, "COIN_RESET") == 0) {
     handleCoinReset();
+  } else if (strcmp(cmd, "COIN_ACCEPTOR_ENABLE") == 0) {
+    handleCoinAcceptorEnable(cmdDoc);
+  } else if (strcmp(cmd, "COIN_STATUS") == 0) {
+    handleCoinStatus();
+  } else if (strcmp(cmd, "COIN_SORTER_POSITION") == 0) {
+    handleCoinSorterPosition(cmdDoc);
   } else if (strcmp(cmd, "SECURITY_LOCK") == 0) {
     handleSecurityLock();
   } else if (strcmp(cmd, "SECURITY_UNLOCK") == 0) {
@@ -491,11 +620,13 @@ void handleSerialInput() {
 }
 
 void setupCoinServos() {
+  coinSorterServo.attach(COIN_SORTER_SERVO_PIN);
   servoPhp1.attach(SERVO_PHP_1_PIN);
   servoPhp5.attach(SERVO_PHP_5_PIN);
   servoPhp10.attach(SERVO_PHP_10_PIN);
   servoPhp20.attach(SERVO_PHP_20_PIN);
 
+  setCoinSorterPosition("CENTER");
   for (uint8_t i = 0; i < COIN_DISPENSER_COUNT; i++) {
     setServoClosed(i);
   }
@@ -516,6 +647,8 @@ void setup() {
   inputLine.reserve(256);
 
   pinMode(COIN_PULSE_PIN, INPUT_PULLUP);
+  pinMode(COIN_ACCEPTOR_ENABLE_PIN, OUTPUT);
+  setCoinAcceptorEnabled(false);
   setupCoinServos();
   setupSecurityPins();
 

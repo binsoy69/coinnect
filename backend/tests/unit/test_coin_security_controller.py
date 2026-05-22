@@ -53,6 +53,65 @@ class TestCoinReset:
         assert resp.previous_total == 150
 
 
+class TestCoinAcceptorEnable:
+    async def test_enable_coin_acceptor(self, controller, mock_serial_manager):
+        mock_serial_manager.send_coin_command.return_value = {
+            "status": "OK", "enabled": True
+        }
+
+        resp = await controller.set_coin_acceptor_enabled(True)
+
+        assert resp.enabled is True
+        mock_serial_manager.send_coin_command.assert_awaited_once_with(
+            {"cmd": "COIN_ACCEPTOR_ENABLE", "enabled": True}
+        )
+
+    async def test_disable_coin_acceptor(self, controller, mock_serial_manager):
+        mock_serial_manager.send_coin_command.return_value = {
+            "status": "OK", "enabled": False
+        }
+
+        resp = await controller.set_coin_acceptor_enabled(False)
+
+        assert resp.enabled is False
+        mock_serial_manager.send_coin_command.assert_awaited_once_with(
+            {"cmd": "COIN_ACCEPTOR_ENABLE", "enabled": False}
+        )
+
+
+class TestCoinSorterPosition:
+    async def test_set_sorter_position(self, controller, mock_serial_manager):
+        mock_serial_manager.send_coin_command.return_value = {
+            "status": "OK",
+            "sorter_position": "LEFT",
+            "sorter_angle": 45,
+        }
+
+        resp = await controller.set_coin_sorter_position("LEFT")
+
+        assert resp.sorter_position == "LEFT"
+        assert resp.sorter_angle == 45
+        mock_serial_manager.send_coin_command.assert_awaited_once_with(
+            {"cmd": "COIN_SORTER_POSITION", "position": "LEFT"}
+        )
+
+    async def test_coin_status(self, controller, mock_serial_manager):
+        mock_serial_manager.send_coin_command.return_value = {
+            "status": "OK",
+            "acceptor_enabled": False,
+            "sorter_position": "CENTER",
+            "sorter_angle": 81,
+            "session_total": 0,
+        }
+
+        resp = await controller.coin_status()
+
+        assert resp.acceptor_enabled is False
+        assert resp.sorter_position == "CENTER"
+        assert resp.sorter_angle == 81
+        assert resp.session_total == 0
+
+
 class TestSecurityLock:
     async def test_lock(self, controller, mock_serial_manager):
         mock_serial_manager.send_coin_command.return_value = {
@@ -89,7 +148,7 @@ class TestSystem:
 
     async def test_version(self, controller, mock_serial_manager):
         mock_serial_manager.send_coin_command.return_value = {
-            "status": "OK", "version": "2.0.0", "controller": "COIN_SECURITY"
+            "status": "OK", "version": "2.1.0", "controller": "COIN_SECURITY"
         }
         resp = await controller.version()
         assert resp.controller == "COIN_SECURITY"

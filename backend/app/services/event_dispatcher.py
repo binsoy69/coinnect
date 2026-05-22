@@ -6,6 +6,7 @@ Runs as an asyncio task during application lifetime.
 
 import asyncio
 import logging
+from typing import Any
 
 from app.api.ws import ConnectionManager
 from app.models.events import WSEvent, WSEventType
@@ -27,12 +28,17 @@ class EventDispatcher:
         event_queue: asyncio.Queue,
         machine_status: MachineStatus,
         ws_manager: ConnectionManager,
+        transaction_orchestrator: Any = None,
     ):
         self._queue = event_queue
         self._status = machine_status
         self._ws = ws_manager
+        self._transaction_orchestrator = transaction_orchestrator
         self._running = False
         self._task = None
+
+    def set_transaction_orchestrator(self, transaction_orchestrator: Any) -> None:
+        self._transaction_orchestrator = transaction_orchestrator
 
     async def start(self) -> None:
         self._running = True
@@ -87,6 +93,14 @@ class EventDispatcher:
     async def _handle_coin_in(self, data: dict) -> None:
         parsed = CoinInEvent(**data)
         self._status.increment_coin(f"PHP_{parsed.denom}", 1)
+        if (
+            self._transaction_orchestrator is not None
+            and self._transaction_orchestrator.has_active_transaction
+        ):
+            await self._transaction_orchestrator.handle_coin_inserted(
+                denom=parsed.denom,
+                total=parsed.total,
+            )
         await self._ws.broadcast(WSEvent(
             type=WSEventType.COIN_INSERTED,
             payload={"denom": parsed.denom, "total": parsed.total},

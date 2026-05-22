@@ -96,10 +96,12 @@ async def lifespan(app: FastAPI):
     transaction_orchestrator = TransactionOrchestrator(
         bill_acceptor=bill_acceptor,
         dispense_orchestrator=dispense_orchestrator,
+        coin_controller=coin_controller,
         machine_status=machine_status,
         ws_manager=ws_manager,
         db_session_factory=get_session_factory(),
     )
+    event_dispatcher.set_transaction_orchestrator(transaction_orchestrator)
 
     # --- Phase 5: Forex services ---
     forex_rate_service = ForexRateService(settings, ws_manager)
@@ -128,6 +130,10 @@ async def lifespan(app: FastAPI):
 
     # Startup
     await serial_manager.startup()
+    try:
+        await coin_controller.set_coin_acceptor_enabled(False)
+    except Exception as exc:
+        logger.warning("Could not disable coin acceptor on startup: %s", exc)
     await event_dispatcher.start()
 
     # Recover any transactions interrupted by crash/power loss

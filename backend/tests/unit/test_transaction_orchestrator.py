@@ -112,6 +112,13 @@ def mock_dispense_orchestrator():
 
 
 @pytest.fixture
+def mock_coin_controller():
+    controller = AsyncMock()
+    controller.set_coin_acceptor_enabled = AsyncMock()
+    return controller
+
+
+@pytest.fixture
 async def db_session_factory():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
@@ -127,6 +134,7 @@ async def db_session_factory():
 def orchestrator(
     mock_bill_acceptor,
     mock_dispense_orchestrator,
+    mock_coin_controller,
     machine_status,
     ws_manager,
     db_session_factory,
@@ -134,6 +142,7 @@ def orchestrator(
     return TransactionOrchestrator(
         bill_acceptor=mock_bill_acceptor,
         dispense_orchestrator=mock_dispense_orchestrator,
+        coin_controller=mock_coin_controller,
         machine_status=machine_status,
         ws_manager=ws_manager,
         db_session_factory=db_session_factory,
@@ -149,6 +158,18 @@ async def _start_default_transaction(orchestrator, target_amount=100, fee=0):
     """Start a standard bill-to-bill transaction and return the state dict."""
     return await orchestrator.start_transaction(
         transaction_type="bill-to-bill",
+        target_amount=target_amount,
+        fee=fee,
+        selected_dispense_denoms=[100],
+    )
+
+
+async def _start_coin_to_bill_transaction(
+    orchestrator, target_amount=100, fee=0
+):
+    """Start a coin-to-bill transaction and return the state dict."""
+    return await orchestrator.start_transaction(
+        transaction_type="coin-to-bill",
         target_amount=target_amount,
         fee=fee,
         selected_dispense_denoms=[100],
@@ -184,6 +205,25 @@ class TestStartTransaction:
             record = await session.get(TransactionRecord, state["transaction_id"])
             assert record is not None
             assert record.type == "bill-to-bill"
+
+    async def test_coin_to_bill_enables_coin_acceptor(
+        self, orchestrator, mock_coin_controller
+    ):
+        await orchestrator.start_transaction(
+            transaction_type="coin-to-bill",
+            target_amount=100,
+            fee=0,
+            selected_dispense_denoms=[100],
+        )
+
+        mock_coin_controller.set_coin_acceptor_enabled.assert_awaited_with(True)
+
+    async def test_bill_transaction_disables_coin_acceptor(
+        self, orchestrator, mock_coin_controller
+    ):
+        await _start_default_transaction(orchestrator)
+
+        mock_coin_controller.set_coin_acceptor_enabled.assert_awaited_with(False)
 
     async def test_sets_has_active_transaction_flag(self, orchestrator):
         """After starting, has_active_transaction is True and id is set."""
@@ -266,7 +306,7 @@ class TestHandleBillInserted:
             denom_confidence=0.95,
         )
 
-        await _start_default_transaction(orchestrator, target_amount=200)
+        await _start_coin_to_bill_transaction(orchestrator, target_amount=200)
 
         state = await orchestrator.handle_bill_inserted()
 
@@ -328,7 +368,7 @@ class TestHandleBillInserted:
             denom_confidence=0.95,
         )
 
-        await _start_default_transaction(orchestrator, target_amount=200)
+        await _start_coin_to_bill_transaction(orchestrator, target_amount=200)
         await orchestrator.handle_bill_inserted()
         state = await orchestrator.handle_bill_inserted()
 
@@ -378,7 +418,7 @@ class TestHandleCoinInserted:
         self, orchestrator, ws_manager
     ):
         """A coin insertion increments the inserted_amount."""
-        await _start_default_transaction(orchestrator, target_amount=200)
+        await _start_coin_to_bill_transaction(orchestrator, target_amount=200)
 
         state = await orchestrator.handle_coin_inserted(denom=10, total=10)
 
@@ -388,7 +428,7 @@ class TestHandleCoinInserted:
         self, orchestrator, ws_manager
     ):
         """A COIN_INSERTED WebSocket event is broadcast on coin insertion."""
-        await _start_default_transaction(orchestrator, target_amount=200)
+        await _start_coin_to_bill_transaction(orchestrator, target_amount=200)
 
         # Reset call count after start (which emits its own events)
         ws_manager.broadcast.reset_mock()
@@ -399,11 +439,11 @@ class TestHandleCoinInserted:
         assert ws_manager.broadcast.call_count >= 1
 
     async def test_enough_coins_transition_to_waiting_for_confirmation(
-        self, orchestrator
+        self, orchestrator, mock_coin_controller
     ):
         """When enough coins are inserted, state transitions to
         WAITING_FOR_CONFIRMATION."""
-        await _start_default_transaction(orchestrator, target_amount=20)
+        await _start_coin_to_bill_transaction(orchestrator, target_amount=20)
 
         # Insert 10 PHP coins twice (10+10=20 >= 20)
         await orchestrator.handle_coin_inserted(denom=10, total=10)
@@ -411,6 +451,7 @@ class TestHandleCoinInserted:
 
         assert state["state"] == TransactionState.WAITING_FOR_CONFIRMATION.value
         assert state["inserted_amount"] == 20
+        mock_coin_controller.set_coin_acceptor_enabled.assert_awaited_with(False)
 
     async def test_raises_if_no_active_transaction(self, orchestrator):
         """handle_coin_inserted raises TransactionError when there is
@@ -420,7 +461,7 @@ class TestHandleCoinInserted:
 
     async def test_tracks_coin_denominations(self, orchestrator):
         """Inserted coin denominations are tracked correctly."""
-        await _start_default_transaction(orchestrator, target_amount=100)
+        await _start_coin_to_bill_transaction(orchestrator, target_amount=100)
 
         await orchestrator.handle_coin_inserted(denom=5, total=5)
         await orchestrator.handle_coin_inserted(denom=5, total=10)
@@ -429,6 +470,14 @@ class TestHandleCoinInserted:
         assert state["inserted_denominations"]["5"] == 2
         assert state["inserted_denominations"]["10"] == 1
         assert state["inserted_amount"] == 20
+
+    async def test_ignores_coin_events_for_bill_transactions(self, orchestrator):
+        await _start_default_transaction(orchestrator, target_amount=100)
+
+        state = await orchestrator.handle_coin_inserted(denom=10, total=10)
+
+        assert state["type"] == "bill-to-bill"
+        assert state["inserted_amount"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -452,7 +501,8 @@ class TestConfirmTransaction:
         await orchestrator.handle_bill_inserted()
 
     async def test_successful_dispense_completes_transaction(
-        self, orchestrator, mock_bill_acceptor, mock_dispense_orchestrator
+        self, orchestrator, mock_bill_acceptor, mock_dispense_orchestrator,
+        mock_coin_controller
     ):
         """confirm_transaction executes dispense and transitions to COMPLETE."""
         mock_dispense_orchestrator.execute_dispense.return_value = DispenseResult(
@@ -469,6 +519,7 @@ class TestConfirmTransaction:
         assert state["state"] == TransactionState.COMPLETE.value
         assert state["dispensed_amount"] == 100
         mock_dispense_orchestrator.execute_dispense.assert_called_once()
+        mock_coin_controller.set_coin_acceptor_enabled.assert_awaited_with(False)
 
     async def test_partial_dispense_transitions_to_error(
         self, orchestrator, mock_bill_acceptor, mock_dispense_orchestrator
@@ -550,6 +601,21 @@ class TestCancelTransaction:
 
         assert orchestrator.has_active_transaction is False
         assert orchestrator.active_transaction_id is None
+
+    async def test_cancel_disables_coin_acceptor(
+        self, orchestrator, mock_coin_controller
+    ):
+        await orchestrator.start_transaction(
+            transaction_type="coin-to-bill",
+            target_amount=100,
+            fee=0,
+            selected_dispense_denoms=[100],
+        )
+        mock_coin_controller.set_coin_acceptor_enabled.reset_mock()
+
+        await orchestrator.cancel_transaction()
+
+        mock_coin_controller.set_coin_acceptor_enabled.assert_awaited_once_with(False)
 
     async def test_raises_if_no_active_transaction(self, orchestrator):
         """cancel_transaction raises TransactionError when there is
