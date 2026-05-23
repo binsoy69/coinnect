@@ -52,5 +52,5 @@ a timeout fail-safe. If homing fails, `SORT_STATUS` reports `homed: false` and
 The coin/security controller keeps the coin acceptor disabled on boot. `D24`
 is the active-HIGH acceptor enable signal, and `D7` drives the three-position
 coin sorter servo: `CENTER=81`, `LEFT=45`, and `RIGHT=120`. PHP 1 and PHP 5
-coins sort left; PHP 10 and PHP 20 coins sort right. The safe smoke test reads
+coins sort right; PHP 10 and PHP 20 coins sort left. The safe smoke test reads
 `COIN_STATUS`; `--actuate` toggles the acceptor enable and moves the sorter.

@@ -29,10 +29,10 @@ static const uint8_t LOCK_RELAY_LOCKED_LEVEL = LOW;
 static const uint8_t LOCK_RELAY_UNLOCKED_LEVEL = HIGH;
 
 // Servo defaults for prototype coin gates.
-static const uint8_t SERVO_CLOSED_DEG = 0;
-static const uint8_t SERVO_OPEN_DEG = 90;
-static const unsigned long SERVO_OPEN_TIME_MS = 150;
-static const unsigned long SERVO_SETTLE_TIME_MS = 100;
+static const uint8_t SERVO_RESET_DEG = 0;
+static const uint8_t SERVO_PUSH_DEG = 180;
+static const unsigned long SERVO_STEP_TIME_MS = 1;
+static const unsigned long SERVO_CYCLE_SETTLE_MS = 300;
 
 // Three-position coin sorter servo.
 static const uint8_t COIN_SORTER_CENTER_DEG = 81;
@@ -55,13 +55,14 @@ Servo coinSorterServo;
 struct CoinDispenser {
   Servo *servo;
   int denom;
+  bool pushToResetFirst;
 };
 
 static CoinDispenser coinDispensers[] = {
-    {&servoPhp1, 1},
-    {&servoPhp5, 5},
-    {&servoPhp10, 10},
-    {&servoPhp20, 20},
+    {&servoPhp1, 1, true},
+    {&servoPhp5, 5, false},
+    {&servoPhp10, 10, false},
+    {&servoPhp20, 20, true},
 };
 
 static const uint8_t COIN_DISPENSER_COUNT =
@@ -141,8 +142,10 @@ int findCoinDispenser(int denom) {
   return -1;
 }
 
-void setServoClosed(uint8_t index) {
-  coinDispensers[index].servo->write(SERVO_CLOSED_DEG);
+void setDispenserRestPosition(uint8_t index) {
+  CoinDispenser &dispenser = coinDispensers[index];
+  dispenser.servo->write(dispenser.pushToResetFirst ? SERVO_PUSH_DEG
+                                                    : SERVO_RESET_DEG);
 }
 
 uint8_t sorterAngleForPosition(const char *position) {
@@ -162,10 +165,10 @@ bool isValidSorterPosition(const char *position) {
 
 const char *sorterPositionForDenom(int denom) {
   if (denom == 1 || denom == 5) {
-    return "LEFT";
+    return "RIGHT";
   }
   if (denom == 10 || denom == 20) {
-    return "RIGHT";
+    return "LEFT";
   }
   return "CENTER";
 }
@@ -327,11 +330,28 @@ bool dispenseSingleCoin(uint8_t dispenserIndex) {
     return false;
   }
 
-  Servo *servo = coinDispensers[dispenserIndex].servo;
-  servo->write(SERVO_OPEN_DEG);
-  delay(SERVO_OPEN_TIME_MS);
-  servo->write(SERVO_CLOSED_DEG);
-  delay(SERVO_SETTLE_TIME_MS);
+  CoinDispenser &dispenser = coinDispensers[dispenserIndex];
+  Servo *servo = dispenser.servo;
+  if (dispenser.pushToResetFirst) {
+    for (int pos = SERVO_PUSH_DEG; pos >= SERVO_RESET_DEG; pos--) {
+      servo->write(pos);
+      delay(SERVO_STEP_TIME_MS);
+    }
+    for (int pos = SERVO_RESET_DEG; pos <= SERVO_PUSH_DEG; pos++) {
+      servo->write(pos);
+      delay(SERVO_STEP_TIME_MS);
+    }
+  } else {
+    for (int pos = SERVO_RESET_DEG; pos <= SERVO_PUSH_DEG; pos++) {
+      servo->write(pos);
+      delay(SERVO_STEP_TIME_MS);
+    }
+    for (int pos = SERVO_PUSH_DEG; pos >= SERVO_RESET_DEG; pos--) {
+      servo->write(pos);
+      delay(SERVO_STEP_TIME_MS);
+    }
+  }
+  delay(SERVO_CYCLE_SETTLE_MS);
   return !tamperLatched;
 }
 
@@ -628,7 +648,7 @@ void setupCoinServos() {
 
   setCoinSorterPosition("CENTER");
   for (uint8_t i = 0; i < COIN_DISPENSER_COUNT; i++) {
-    setServoClosed(i);
+    setDispenserRestPosition(i);
   }
   delay(300);
 }

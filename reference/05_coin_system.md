@@ -144,10 +144,10 @@ Accepted coin pulses are decoded before the sorter servo moves:
 
 | Coin | Pulse Count | Sorter Position | Servo Angle |
 | ---- | ----------- | --------------- | ----------- |
-| PHP_1 | 1 | LEFT | 45 |
-| PHP_5 | 5 | LEFT | 45 |
-| PHP_10 | 10 | RIGHT | 120 |
-| PHP_20 | 20 | RIGHT | 120 |
+| PHP_1 | 1 | RIGHT | 120 |
+| PHP_5 | 5 | RIGHT | 120 |
+| PHP_10 | 10 | LEFT | 45 |
+| PHP_20 | 20 | LEFT | 45 |
 | Idle/Home | - | CENTER | 81 |
 
 The sorter servo signal is on `D7`. If the acceptor module enable input is not
