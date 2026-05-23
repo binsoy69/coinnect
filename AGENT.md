@@ -70,7 +70,7 @@ Arduino Mega #1 (bill sorting + dispensing):
 Arduino Mega #2 (coin + security):
 - D18: Coin acceptor pulse (INT5)
 - D24: Coin acceptor enable (active HIGH; default disabled/fail-closed)
-- D7: Coin sorter servo signal (CENTER=81, LEFT=45, RIGHT=120; PHP_1/PHP_5 left, PHP_10/PHP_20 right)
+- D7: Coin sorter servo signal (CENTER=81, LEFT=45, RIGHT=120; PHP_1/PHP_5 right, PHP_10/PHP_20 left)
 - D44/D45/D46/D6: Servo PWM for coin dispensers
 - D19/D20: Shock sensors (INT4/INT3)
 - D21: Solenoid lock relay

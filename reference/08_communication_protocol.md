@@ -103,7 +103,7 @@ Valid denominations: PHP_20, PHP_50, PHP_100, PHP_200, PHP_500, PHP_1000, USD_10
 **Event:** `{"event":"COIN_IN","denom":5,"total":150}`
 
 Sorter positions are `CENTER=81`, `LEFT=45`, and `RIGHT=120`. PHP 1 and PHP 5
-coins route left; PHP 10 and PHP 20 coins route right. The acceptor enable line
+coins route right; PHP 10 and PHP 20 coins route left. The acceptor enable line
 is active HIGH and defaults disabled.
 
 ### 8.3.4 Security Commands
