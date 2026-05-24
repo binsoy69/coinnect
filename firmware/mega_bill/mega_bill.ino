@@ -25,7 +25,10 @@ static const bool HOLD_SORTER_AFTER_MOVE = true;
 
 // Bill dispenser timing.
 static const unsigned long PUSHER_DURATION_MS = 200;
-static const unsigned long ROLLER_TIMEOUT_MS = 2000;
+static const uint8_t DISPENSE_RETRY_ATTEMPTS = 5;
+static const unsigned long ROLLER_SPINUP_MS = 500;
+static const unsigned long IR_DETECT_TIMEOUT_MS = 1000;
+static const unsigned long BILL_CLEAR_TIMEOUT_MS = 1000;
 static const unsigned long ROLLER_EXTRA_MS = 300;
 static const unsigned long INTER_BILL_DELAY_MS = 100;
 
@@ -161,6 +164,28 @@ bool isBillDetected(uint8_t unitIndex) {
   return digitalRead(dispensers[unitIndex].irSensorPin) == LOW;
 }
 
+bool waitForBillDetected(uint8_t unitIndex, unsigned long timeoutMs) {
+  const unsigned long startedAt = millis();
+  while (millis() - startedAt < timeoutMs) {
+    if (isBillDetected(unitIndex)) {
+      return true;
+    }
+    delay(10);
+  }
+  return false;
+}
+
+bool waitForBillCleared(uint8_t unitIndex, unsigned long timeoutMs) {
+  const unsigned long startedAt = millis();
+  while (millis() - startedAt < timeoutMs) {
+    if (!isBillDetected(unitIndex)) {
+      return true;
+    }
+    delay(10);
+  }
+  return false;
+}
+
 int findDispenserIndex(const char *denom) {
   if (denom == nullptr) {
     return -1;
@@ -251,37 +276,48 @@ int dispenseBills(uint8_t unitIndex, int count, const char **errorCode) {
   int dispensed = 0;
   *errorCode = nullptr;
 
-  for (int i = 0; i < count; i++) {
-    motorAForward(unitIndex);
-    delay(PUSHER_DURATION_MS);
-    stopMotorA(unitIndex);
+  // L298N ENA/ENB are held HIGH with hardware jumpers; firmware drives IN1-IN4 only.
+  motorBForward(unitIndex);
+  delay(ROLLER_SPINUP_MS);
 
-    motorBForward(unitIndex);
-    const unsigned long startedAt = millis();
+  for (int i = 0; i < count; i++) {
     bool detected = false;
-    while (millis() - startedAt < ROLLER_TIMEOUT_MS) {
-      if (isBillDetected(unitIndex)) {
+
+    for (uint8_t attempt = 0; attempt < DISPENSE_RETRY_ATTEMPTS; attempt++) {
+      motorAForward(unitIndex);
+      delay(PUSHER_DURATION_MS);
+      stopMotorA(unitIndex);
+
+      if (waitForBillDetected(unitIndex, IR_DETECT_TIMEOUT_MS)) {
         detected = true;
         break;
       }
-      delay(10);
     }
 
     if (!detected) {
+      stopMotorA(unitIndex);
       stopMotorB(unitIndex);
       *errorCode = "JAM";
       return dispensed;
     }
 
     delay(ROLLER_EXTRA_MS);
-    stopMotorB(unitIndex);
     dispensed++;
+
+    if (!waitForBillCleared(unitIndex, BILL_CLEAR_TIMEOUT_MS)) {
+      stopMotorA(unitIndex);
+      stopMotorB(unitIndex);
+      *errorCode = "JAM";
+      return dispensed;
+    }
 
     if (i < count - 1) {
       delay(INTER_BILL_DELAY_MS);
     }
   }
 
+  stopMotorA(unitIndex);
+  stopMotorB(unitIndex);
   return dispensed;
 }
 
