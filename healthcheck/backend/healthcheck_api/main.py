@@ -29,10 +29,48 @@ from healthcheck_api.models import (
 from healthcheck_api.runner import DiagnosticsBusyError, DiagnosticsRunner
 
 DEFAULT_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
+DEFAULT_CORS_ORIGINS = [
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:4174",
+    "http://127.0.0.1:4174",
+]
+DEFAULT_CORS_ORIGIN_REGEX = (
+    r"^https?://("
+    r"localhost|"
+    r"127\.0\.0\.1|"
+    r"10(?:\.\d{1,3}){3}|"
+    r"192\.168(?:\.\d{1,3}){2}|"
+    r"172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2}|"
+    r"169\.254(?:\.\d{1,3}){2}|"
+    r"[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.local"
+    r"):(?:5174|4174)$"
+)
 
 
 def healthcheck_env_file() -> Path:
     return Path(os.environ.get("HEALTHCHECK_ENV_FILE", DEFAULT_ENV_FILE))
+
+
+def parse_csv(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def healthcheck_cors_origins() -> list[str]:
+    return (
+        parse_csv(os.environ.get("HEALTHCHECK_CORS_ORIGINS"))
+        or parse_csv(os.environ.get("CORS_ORIGINS"))
+        or DEFAULT_CORS_ORIGINS
+    )
+
+
+def healthcheck_cors_origin_regex() -> str | None:
+    value = os.environ.get("HEALTHCHECK_CORS_ORIGIN_REGEX")
+    if value is None:
+        return DEFAULT_CORS_ORIGIN_REGEX
+    return value.strip() or None
 
 
 @asynccontextmanager
@@ -57,6 +95,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    load_dotenv(dotenv_path=healthcheck_env_file())
     app = FastAPI(
         title="Coinnect Health Check",
         version="0.1.0",
@@ -66,7 +105,8 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5174", "http://localhost:4174"],
+        allow_origins=healthcheck_cors_origins(),
+        allow_origin_regex=healthcheck_cors_origin_regex(),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
