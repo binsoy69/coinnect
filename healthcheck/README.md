@@ -11,6 +11,7 @@ Run from `healthcheck/backend` with the existing backend package on
 ```bash
 cd healthcheck/backend
 cp .env.example .env
+pip install -r requirements.txt
 python -m uvicorn healthcheck_api.main:app --reload --port 8010
 ```
 
@@ -26,7 +27,10 @@ The Paperang P1 printer check prints a small sample receipt. Before using it on
 the Raspberry Pi, install the Paperang dependencies, clone
 `tinyprinter/python-paperang` into `vendor/python-paperang`, and set
 `PAPERANG_MAC_ADDRESS` in `healthcheck/backend/.env` when the printer MAC is
-known.
+known. The `pip install -r requirements.txt` step installs the Python Bluetooth
+module needed by the vendored Paperang driver into the active virtualenv; the
+healthcheck backend will still fail with `No module named 'bluetooth'` if that
+command was skipped or run outside the virtualenv.
 
 ## Frontend
 
