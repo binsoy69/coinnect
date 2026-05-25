@@ -1,6 +1,7 @@
 import pytest
 
 from app.core.config import Settings
+from app.core.errors import SerialError
 from healthcheck_api.hardware import HardwareContext, PartialSerialManager
 from healthcheck_api.runner import DiagnosticsRunner
 
@@ -46,3 +47,32 @@ async def test_gpio_motor_test_cleans_up_after_failure(monkeypatch, env_value):
 
     assert result.status == "failed"
     assert gpio.stopped is True
+
+
+async def test_swapped_serial_ports_are_reported_before_actuation():
+    settings = Settings(
+        use_mock_serial=True,
+        serial_port_bill="MOCK_COIN",
+        serial_port_coin="MOCK_BILL",
+        mock_delay=0,
+        _env_file=None,
+    )
+    serial = PartialSerialManager(settings)
+
+    await serial.startup()
+    try:
+        snapshot = serial.snapshot()
+
+        assert snapshot["bill"]["error"] is not None
+        assert "expected BILL" in snapshot["bill"]["error"]
+        assert "got COIN_SECURITY" in snapshot["bill"]["error"]
+        assert snapshot["coin"]["error"] is not None
+        assert "expected COIN_SECURITY" in snapshot["coin"]["error"]
+        assert "got BILL" in snapshot["coin"]["error"]
+
+        with pytest.raises(SerialError):
+            await serial.send_coin_command(
+                {"cmd": "COIN_DISPENSE", "denom": 1, "count": 1}
+            )
+    finally:
+        await serial.shutdown()

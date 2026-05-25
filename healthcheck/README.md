@@ -17,6 +17,12 @@ python -m uvicorn healthcheck_api.main:app --reload --port 8010
 Use real hardware by omitting the mock environment variables and ensuring the
 main Coinnect backend is stopped.
 
+If actuator checks fail with `UNKNOWN_CMD`, first check the serial status panel
+or run the controller version checks. The bill port must report controller
+`BILL`, and the coin/security port must report `COIN_SECURITY`. If those are
+reversed, swap `SERIAL_PORT_BILL` and `SERIAL_PORT_COIN` or use stable udev
+aliases such as `/dev/coinnect_bill` and `/dev/coinnect_coin`.
+
 The Paperang P1 printer check prints a small sample receipt. Before using it on
 the Raspberry Pi, install the Paperang dependencies, clone
 `tinyprinter/python-paperang` into `vendor/python-paperang`, and set

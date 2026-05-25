@@ -149,6 +149,20 @@ class TestMockSerialSimpleMode:
         assert resp["status"] == "ERROR"
         assert resp["code"] == "UNKNOWN_CMD"
 
+    def test_bill_controller_rejects_coin_command(self, bill_mock):
+        resp = self._send_and_read(
+            bill_mock, {"cmd": "COIN_DISPENSE", "denom": 1, "count": 1}
+        )
+        assert resp["status"] == "ERROR"
+        assert resp["code"] == "UNKNOWN_CMD"
+
+    def test_coin_controller_rejects_bill_command(self, coin_mock):
+        resp = self._send_and_read(
+            coin_mock, {"cmd": "SORT", "denom": "PHP_20"}
+        )
+        assert resp["status"] == "ERROR"
+        assert resp["code"] == "UNKNOWN_CMD"
+
     def test_invalid_json(self, bill_mock):
         bill_mock.write(b"not json\n")
         line = bill_mock.readline()

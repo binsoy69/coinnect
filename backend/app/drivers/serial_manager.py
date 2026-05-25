@@ -211,6 +211,10 @@ class SerialConnection:
         )
 
     @property
+    def port_path(self) -> str:
+        return self._port_path
+
+    @property
     def mock_serial(self):
         """Access the underlying MockSerial instance (for testing only)."""
         return self._serial

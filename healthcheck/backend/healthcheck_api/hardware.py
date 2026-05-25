@@ -26,6 +26,7 @@ class PartialSerialManager:
         self.bill_connection: Optional[SerialConnection] = None
         self.coin_connection: Optional[SerialConnection] = None
         self._errors: dict[str, str] = {}
+        self._controllers: dict[str, str] = {}
 
     async def startup(self) -> None:
         self.bill_connection = SerialConnection(
@@ -47,8 +48,12 @@ class PartialSerialManager:
             mock_delay=self._settings.mock_delay,
         )
 
-        await self._connect_one("bill", self.bill_connection)
-        await self._connect_one("coin", self.coin_connection)
+        await self._connect_one(
+            "bill", self.bill_connection, ControllerType.BILL
+        )
+        await self._connect_one(
+            "coin", self.coin_connection, ControllerType.COIN_SECURITY
+        )
 
     async def shutdown(self) -> None:
         for connection in (self.bill_connection, self.coin_connection):
@@ -58,16 +63,32 @@ class PartialSerialManager:
     async def send_bill_command(
         self, command: dict, timeout: Optional[float] = None
     ) -> dict:
-        if not self.bill_connection or not self.bill_connection.is_connected:
+        if (
+            self._errors.get("bill")
+            or not self.bill_connection
+            or not self.bill_connection.is_connected
+        ):
             raise SerialError(self._unavailable_message("bill"))
         return await self.bill_connection.send_command(command, timeout)
 
     async def send_coin_command(
         self, command: dict, timeout: Optional[float] = None
     ) -> dict:
-        if not self.coin_connection or not self.coin_connection.is_connected:
+        if (
+            self._errors.get("coin")
+            or not self.coin_connection
+            or not self.coin_connection.is_connected
+        ):
             raise SerialError(self._unavailable_message("coin"))
         return await self.coin_connection.send_command(command, timeout)
+
+    def require_coin_controller(self) -> None:
+        if (
+            self._errors.get("coin")
+            or not self.coin_connection
+            or not self.coin_connection.is_connected
+        ):
+            raise SerialError(self._unavailable_message("coin"))
 
     def snapshot(self) -> dict:
         return {
@@ -75,21 +96,51 @@ class PartialSerialManager:
                 self.bill_connection,
                 self._settings.serial_port_bill,
                 self._errors.get("bill"),
+                self._controllers.get("bill"),
             ),
             "coin": self._connection_snapshot(
                 self.coin_connection,
                 self._settings.serial_port_coin,
                 self._errors.get("coin"),
+                self._controllers.get("coin"),
             ),
         }
 
-    async def _connect_one(self, name: str, connection: SerialConnection) -> None:
+    async def _connect_one(
+        self,
+        name: str,
+        connection: SerialConnection,
+        expected_controller: ControllerType,
+    ) -> None:
         try:
             await connection.connect()
+            controller = await self._identify_controller(connection)
+            self._controllers[name] = controller
+            if controller != expected_controller.value:
+                self._errors[name] = (
+                    f"expected {expected_controller.value} controller on "
+                    f"{connection.port_path}, got {controller or 'UNKNOWN'}"
+                )
+                logger.warning(
+                    "Healthcheck %s serial mismatch: %s",
+                    name,
+                    self._errors[name],
+                )
+                return
             self._errors.pop(name, None)
         except Exception as exc:
             self._errors[name] = str(exc)
             logger.warning("Healthcheck %s serial unavailable: %s", name, exc)
+
+    async def _identify_controller(self, connection: SerialConnection) -> str:
+        response = await connection.send_command({"cmd": "VERSION"})
+        if response.get("status") != "OK":
+            code = response.get("code", "UNKNOWN")
+            raise SerialError(
+                f"{connection.port_path} VERSION failed with {code}",
+                port=connection.port_path,
+            )
+        return str(response.get("controller") or "")
 
     def _unavailable_message(self, name: str) -> str:
         detail = self._errors.get(name, "not connected")
@@ -100,10 +151,12 @@ class PartialSerialManager:
         connection: Optional[SerialConnection],
         port: str,
         error: Optional[str],
+        controller: Optional[str],
     ) -> dict:
         return {
             "port": port,
             "connected": bool(connection and connection.is_connected),
+            "controller": controller,
             "error": error,
         }
 

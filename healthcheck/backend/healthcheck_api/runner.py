@@ -256,9 +256,11 @@ class DiagnosticsRunner:
         return handler
 
     async def _coin_acceptor_listen(self) -> dict:
+        self._hardware.serial_manager.require_coin_controller()
         return await self._wait_for_event("COIN_IN", timeout=10.0)
 
     async def _coin_tamper_listen(self) -> dict:
+        self._hardware.serial_manager.require_coin_controller()
         return await self._wait_for_event("TAMPER", timeout=10.0)
 
     async def _wait_for_event(self, event_name: str, timeout: float) -> dict:

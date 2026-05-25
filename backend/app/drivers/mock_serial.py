@@ -148,22 +148,31 @@ class MockSerial:
         if self.mock_delay > 0:
             self._apply_delay(cmd, cmd_json)
 
-        handlers = {
+        common_handlers = {
+            "PING": self._handle_ping,
+            "VERSION": self._handle_version,
+            "RESET": self._handle_reset,
+        }
+        bill_handlers = {
             "SORT": self._handle_sort,
             "HOME": self._handle_home,
             "SORT_STATUS": self._handle_sort_status,
             "DISPENSE": self._handle_dispense,
             "DISPENSE_STATUS": self._handle_dispense_status,
+        }
+        coin_handlers = {
             "COIN_DISPENSE": self._handle_coin_dispense,
             "COIN_CHANGE": self._handle_coin_change,
             "COIN_RESET": self._handle_coin_reset,
             "SECURITY_LOCK": self._handle_security_lock,
             "SECURITY_UNLOCK": self._handle_security_unlock,
             "SECURITY_STATUS": self._handle_security_status,
-            "PING": self._handle_ping,
-            "VERSION": self._handle_version,
-            "RESET": self._handle_reset,
         }
+        handlers = dict(common_handlers)
+        if self._controller == ControllerType.BILL:
+            handlers.update(bill_handlers)
+        else:
+            handlers.update(coin_handlers)
 
         handler = handlers.get(cmd)
         if handler is None:
