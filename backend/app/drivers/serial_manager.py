@@ -215,6 +215,10 @@ class SerialConnection:
         return self._port_path
 
     @property
+    def uses_mock(self) -> bool:
+        return self._use_mock
+
+    @property
     def mock_serial(self):
         """Access the underlying MockSerial instance (for testing only)."""
         return self._serial

@@ -16,6 +16,8 @@ from healthcheck_api.paperang import paperang_snapshot
 
 logger = logging.getLogger(__name__)
 
+ARDUINO_BOOT_SETTLE_SECONDS = 2.0
+
 
 class PartialSerialManager:
     """Serial manager that keeps diagnostics alive if one controller is missing."""
@@ -114,6 +116,8 @@ class PartialSerialManager:
     ) -> None:
         try:
             await connection.connect()
+            if not getattr(connection, "uses_mock", False):
+                await asyncio.sleep(ARDUINO_BOOT_SETTLE_SECONDS)
             controller = await self._identify_controller(connection)
             self._controllers[name] = controller
             if controller != expected_controller.value:

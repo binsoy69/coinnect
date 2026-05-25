@@ -1,7 +1,10 @@
 import pytest
 
 from app.core.config import Settings
+from app.core.constants import ControllerType
 from app.core.errors import SerialError
+from app.core.errors import TimeoutError as HardwareTimeoutError
+import healthcheck_api.hardware as hardware_module
 from healthcheck_api.hardware import HardwareContext, PartialSerialManager
 from healthcheck_api.runner import DiagnosticsRunner
 
@@ -24,6 +27,30 @@ class FakeCoinController:
     async def set_coin_acceptor_enabled(self, enabled: bool):
         self.enabled_calls.append(enabled)
         return {"status": "OK", "enabled": enabled}
+
+
+class BootResetSerialConnection:
+    port_path = "COM_TEST"
+    uses_mock = False
+    is_connected = True
+
+    def __init__(self):
+        self.ready = False
+
+    async def connect(self):
+        return None
+
+    async def disconnect(self):
+        return None
+
+    async def send_command(self, command: dict, timeout=None):
+        if not self.ready:
+            raise HardwareTimeoutError(command=command["cmd"], timeout=timeout or 5)
+        return {
+            "status": "OK",
+            "version": "2.1.0",
+            "controller": "COIN_SECURITY",
+        }
 
 
 @pytest.mark.parametrize(
@@ -85,6 +112,25 @@ async def test_swapped_serial_ports_are_reported_before_actuation():
             )
     finally:
         await serial.shutdown()
+
+
+async def test_real_serial_identity_probe_waits_for_arduino_boot(monkeypatch):
+    settings = Settings(use_mock_serial=False, _env_file=None)
+    serial = PartialSerialManager(settings)
+    connection = BootResetSerialConnection()
+
+    async def fake_sleep(seconds: float):
+        assert seconds >= 2.0
+        connection.ready = True
+
+    monkeypatch.setattr(hardware_module.asyncio, "sleep", fake_sleep)
+
+    await serial._connect_one(
+        "coin", connection, ControllerType.COIN_SECURITY
+    )
+
+    assert serial.snapshot()["coin"]["error"] is None
+    assert serial.snapshot()["coin"]["controller"] == "COIN_SECURITY"
 
 
 async def test_coin_acceptor_listen_disables_acceptor_after_timeout(monkeypatch):
