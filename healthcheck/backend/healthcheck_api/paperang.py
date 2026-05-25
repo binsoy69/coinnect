@@ -167,6 +167,18 @@ class PaperangHealthcheckPrinter:
         module = importlib.util.module_from_spec(spec)
         try:
             spec.loader.exec_module(module)
+        except ModuleNotFoundError as exc:
+            if exc.name == "bluetooth":
+                raise PaperangDiagnosticError(
+                    "Paperang Bluetooth dependency missing: the active Python "
+                    "environment cannot import `bluetooth`. On the Raspberry "
+                    "Pi, activate the kiosk virtualenv and run "
+                    "`pip install -r healthcheck/backend/requirements.txt`, "
+                    "then restart the healthcheck backend."
+                ) from exc
+            raise PaperangDiagnosticError(
+                f"Unable to import Paperang module: {exc}"
+            ) from exc
         except Exception as exc:
             raise PaperangDiagnosticError(
                 f"Unable to import Paperang module: {exc}"

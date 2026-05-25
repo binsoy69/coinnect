@@ -87,6 +87,15 @@ cd vendor/python-paperang
 python3 testprint.py
 ```
 
+If the healthcheck page reports `No module named 'bluetooth'`, install the
+healthcheck backend requirements into the same virtualenv used to run uvicorn:
+
+```bash
+source venv/bin/activate
+pip install -r healthcheck/backend/requirements.txt
+python -c "import bluetooth; print('bluetooth module available')"
+```
+
 The future backend printer driver should keep printer settings in `backend/.env`.
 Use `PAPERANG_MAC_ADDRESS` when the printer MAC address is known, `PAPERANG_ENABLED`
 to enable receipt printing, and `PAPERANG_DENSITY` if print density needs tuning.

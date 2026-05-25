@@ -121,12 +121,18 @@ def check_coin(args: argparse.Namespace) -> None:
             {"cmd": "PING"},
             {"cmd": "VERSION"},
             {"cmd": "SECURITY_STATUS"},
+            {"cmd": "COIN_STATUS"},
             {"cmd": "COIN_RESET"},
         ]:
             require_ok(probe.command(payload), payload["cmd"])
 
         if args.actuate:
             for payload in [
+                {"cmd": "COIN_ACCEPTOR_ENABLE", "enabled": True},
+                {"cmd": "COIN_ACCEPTOR_ENABLE", "enabled": False},
+                {"cmd": "COIN_SORTER_POSITION", "position": "LEFT"},
+                {"cmd": "COIN_SORTER_POSITION", "position": "RIGHT"},
+                {"cmd": "COIN_SORTER_POSITION", "position": "CENTER"},
                 {"cmd": "COIN_DISPENSE", "denom": 1, "count": 1},
                 {"cmd": "SECURITY_LOCK"},
                 {"cmd": "SECURITY_UNLOCK"},

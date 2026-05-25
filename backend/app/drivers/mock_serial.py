@@ -19,6 +19,12 @@ from app.core.constants import (
     ControllerType,
 )
 
+COIN_SORTER_ANGLES = {
+    "CENTER": 81,
+    "LEFT": 45,
+    "RIGHT": 120,
+}
+
 
 class MockSerial:
     def __init__(
@@ -50,6 +56,8 @@ class MockSerial:
         self._current_slot = 0
         self._locked = True
         self._coin_total = 0
+        self._coin_acceptor_enabled = False
+        self._coin_sorter_position = "CENTER"
         self._tamper_active = False
 
         # Fault injection
@@ -164,6 +172,9 @@ class MockSerial:
             "COIN_DISPENSE": self._handle_coin_dispense,
             "COIN_CHANGE": self._handle_coin_change,
             "COIN_RESET": self._handle_coin_reset,
+            "COIN_ACCEPTOR_ENABLE": self._handle_coin_acceptor_enable,
+            "COIN_STATUS": self._handle_coin_status,
+            "COIN_SORTER_POSITION": self._handle_coin_sorter_position,
             "SECURITY_LOCK": self._handle_security_lock,
             "SECURITY_UNLOCK": self._handle_security_unlock,
             "SECURITY_STATUS": self._handle_security_status,
@@ -278,7 +289,38 @@ class MockSerial:
     def _handle_coin_reset(self, cmd: dict) -> List[dict]:
         prev = self._coin_total
         self._coin_total = 0
+        self._coin_acceptor_enabled = False
+        self._coin_sorter_position = "CENTER"
         return [{"status": "OK", "previous_total": prev}]
+
+    def _handle_coin_acceptor_enable(self, cmd: dict) -> List[dict]:
+        enabled = cmd.get("enabled")
+        if type(enabled) is not bool:
+            return [{"status": "ERROR", "code": "INVALID_PARAM"}]
+
+        self._coin_acceptor_enabled = enabled
+        return [{"status": "OK", "enabled": enabled}]
+
+    def _handle_coin_status(self, cmd: dict) -> List[dict]:
+        return [{
+            "status": "OK",
+            "acceptor_enabled": self._coin_acceptor_enabled,
+            "sorter_position": self._coin_sorter_position,
+            "sorter_angle": COIN_SORTER_ANGLES[self._coin_sorter_position],
+            "session_total": self._coin_total,
+        }]
+
+    def _handle_coin_sorter_position(self, cmd: dict) -> List[dict]:
+        position = cmd.get("position", "")
+        if position not in COIN_SORTER_ANGLES:
+            return [{"status": "ERROR", "code": "INVALID_PARAM"}]
+
+        self._coin_sorter_position = position
+        return [{
+            "status": "OK",
+            "sorter_position": position,
+            "sorter_angle": COIN_SORTER_ANGLES[position],
+        }]
 
     def _handle_security_lock(self, cmd: dict) -> List[dict]:
         self._locked = True
@@ -301,9 +343,10 @@ class MockSerial:
         return [{"status": "OK", "message": "PONG"}]
 
     def _handle_version(self, cmd: dict) -> List[dict]:
+        version = "2.1.0" if self._controller == ControllerType.COIN_SECURITY else "2.0.0"
         return [{
             "status": "OK",
-            "version": "2.0.0",
+            "version": version,
             "controller": self._controller.value,
         }]
 
@@ -312,5 +355,7 @@ class MockSerial:
         self._current_position = 0
         self._current_slot = 0
         self._coin_total = 0
+        self._coin_acceptor_enabled = False
+        self._coin_sorter_position = "CENTER"
         self._tamper_active = False
         return [{"status": "OK"}]

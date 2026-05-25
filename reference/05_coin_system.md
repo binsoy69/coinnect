@@ -133,7 +133,28 @@ The coin acceptor outputs pulses to indicate which coin was accepted. Configure 
     Then multiply by denomination value in software.
 ```
 
-### 5.2.3 Wiring Diagram
+### 5.2.3 Acceptor Enable and Sorter Logic
+
+Current Mega #2 firmware keeps the coin acceptor disabled until the Raspberry Pi
+explicitly enables coin intake for a coin-to-bill transaction or maintenance
+diagnostic. The acceptor enable signal is on `D24`, is active HIGH, and returns
+LOW on boot, reset, coin reset, transaction cleanup, and tamper lockout.
+
+Accepted coin pulses are decoded before the sorter servo moves:
+
+| Coin | Pulse Count | Sorter Position | Servo Angle |
+| ---- | ----------- | --------------- | ----------- |
+| PHP_1 | 1 | RIGHT | 120 |
+| PHP_5 | 5 | RIGHT | 120 |
+| PHP_10 | 10 | LEFT | 45 |
+| PHP_20 | 20 | LEFT | 45 |
+| Idle/Home | - | CENTER | 81 |
+
+The sorter servo signal is on `D7`. If the acceptor module enable input is not
+5V Arduino-logic compatible, isolate or level-shift `D24` with a transistor,
+MOSFET, optocoupler, or relay interface per the module datasheet.
+
+### 5.2.4 Wiring Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -196,7 +217,7 @@ The coin acceptor outputs pulses to indicate which coin was accepted. Configure 
     └─────────┴───────────┘
 ```
 
-### 5.2.4 Coin Acceptor Arduino Code
+### 5.2.5 Coin Acceptor Arduino Code
 
 ```cpp
 // Coin Acceptor - Arduino Code
@@ -392,8 +413,9 @@ The coin dispenser uses servo motors to release coins one at a time from storage
     │    │   D44 (PWM) ────────► Servo 1 Signal (₱1)                        │  │
     │    │   D45 (PWM) ────────► Servo 2 Signal (₱5)                        │  │
     │    │   D46 (PWM) ────────► Servo 3 Signal (₱10)                       │  │
-    │    │   D2  (PWM) ────────► Servo 4 Signal (₱20)                       │  │
-    │    │                       (D2 if stepper uses D3-D5)                  │  │
+    │    │   D6  (PWM) ────────► Servo 4 Signal (₱20)                       │  │
+    │    │   D7  (PWM) ────────► Coin sorter servo                          │  │
+    │    │   D24        ───────► Coin acceptor enable (active HIGH)          │  │
     │    │                                                                   │  │
     │    │   GND ──────────────► Common Ground (connect to servo GND bus)   │  │
     │    │                                                                   │  │
@@ -425,25 +447,27 @@ The coin dispenser uses servo motors to release coins one at a time from storage
        - Verify with your specific servo datasheet
 ```
 
-### 5.3.3 Pin Assignment (Considering Sorting System)
+### 5.3.3 Coin Controller Pin Assignment
 
-Since the sorting system uses D2-D5, we need alternative PWM pins:
+Arduino Mega #2 owns all coin and security pins. Repeated pin numbers on Mega
+#1 are separate physical pins and do not conflict.
 
 ```
     REVISED PIN ASSIGNMENT:
     ═══════════════════════
 
-    Bill Sorting (Stepper):
-    - D2: STEP
-    - D3: DIR
-    - D4: ENABLE
-    - D5: Limit Switch
+    Coin Sorting:
+    - D7  (PWM): Coin sorter servo (CENTER=81, LEFT=45, RIGHT=120)
 
-    Coin Dispensing (Servos):
+    Coin Dispensing:
     - D44 (PWM): Servo 1 (₱1)
     - D45 (PWM): Servo 2 (₱5)
     - D46 (PWM): Servo 3 (₱10)
     - D6  (PWM): Servo 4 (₱20)
+
+    Coin Acceptor:
+    - D18 (INT5): Pulse input
+    - D24: Active-HIGH enable output
 
     Note: Arduino Mega PWM pins: 2-13, 44-46
 ```
@@ -683,6 +707,8 @@ void handleCoinCommand(String command) {
 | Pin | Function            | Notes          |
 | --- | ------------------- | -------------- |
 | D18 | Coin Acceptor Pulse | Interrupt INT5 |
+| D24 | Coin Acceptor Enable | Active HIGH, default LOW |
+| D7  | Coin Sorter Servo   | CENTER=81, LEFT=45, RIGHT=120 |
 | D44 | Servo 1 (₱1)        | PWM            |
 | D45 | Servo 2 (₱5)        | PWM            |
 | D46 | Servo 3 (₱10)       | PWM            |

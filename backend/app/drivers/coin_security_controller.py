@@ -5,9 +5,12 @@ import logging
 from app.core.errors import HardwareError
 from app.drivers.serial_manager import SerialManager
 from app.models.serial_messages import (
+    CoinAcceptorEnableResponse,
     CoinChangeResponse,
     CoinDispenseResponse,
     CoinResetResponse,
+    CoinSorterPositionResponse,
+    CoinStatusResponse,
     ErrorResponse,
     PingResponse,
     SecurityLockResponse,
@@ -47,6 +50,29 @@ class CoinSecurityController:
         """Reset the coin accumulator to zero. Returns previous total."""
         raw = await self._serial.send_coin_command({"cmd": "COIN_RESET"})
         return self._parse_or_raise(raw, CoinResetResponse)
+
+    async def set_coin_acceptor_enabled(
+        self, enabled: bool
+    ) -> CoinAcceptorEnableResponse:
+        """Enable or disable the coin acceptor gate signal on Arduino #2."""
+        raw = await self._serial.send_coin_command(
+            {"cmd": "COIN_ACCEPTOR_ENABLE", "enabled": enabled}
+        )
+        return self._parse_or_raise(raw, CoinAcceptorEnableResponse)
+
+    async def coin_status(self) -> CoinStatusResponse:
+        """Query acceptor enable state, sorter position, and session total."""
+        raw = await self._serial.send_coin_command({"cmd": "COIN_STATUS"})
+        return self._parse_or_raise(raw, CoinStatusResponse)
+
+    async def set_coin_sorter_position(
+        self, position: str
+    ) -> CoinSorterPositionResponse:
+        """Move the coin sorter servo to CENTER, LEFT, or RIGHT."""
+        raw = await self._serial.send_coin_command(
+            {"cmd": "COIN_SORTER_POSITION", "position": position}
+        )
+        return self._parse_or_raise(raw, CoinSorterPositionResponse)
 
     async def security_lock(self) -> SecurityLockResponse:
         """Engage the solenoid door lock."""

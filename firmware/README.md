@@ -5,7 +5,7 @@ Arduino CLI firmware for the dual-Mega architecture.
 ## Controllers
 
 1. **mega_bill**: Controls Bill Sorting (Stepper) and Dispensing (DC Motors).
-2. **mega_coin_security**: Controls Coin Acceptor, Coin Dispenser (Servos), and Security (Shock Sensors, Solenoid).
+2. **mega_coin_security**: Controls Coin Acceptor, Coin Sorter Servo, Coin Dispenser (Servos), and Security (Shock Sensors, Solenoid).
 
 ## Required Libraries
 
@@ -48,3 +48,9 @@ python scripts/firmware_smoke.py --actuate
 The bill controller emits `READY` on boot, then attempts sorter auto-home with
 a timeout fail-safe. If homing fails, `SORT_STATUS` reports `homed: false` and
 `SORT` returns `NOT_HOMED`.
+
+The coin/security controller keeps the coin acceptor disabled on boot. `D24`
+is the active-HIGH acceptor enable signal, and `D7` drives the three-position
+coin sorter servo: `CENTER=81`, `LEFT=45`, and `RIGHT=120`. PHP 1 and PHP 5
+coins sort right; PHP 10 and PHP 20 coins sort left. The safe smoke test reads
+`COIN_STATUS`; `--actuate` toggles the acceptor enable and moves the sorter.

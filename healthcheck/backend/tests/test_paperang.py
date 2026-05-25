@@ -81,3 +81,39 @@ async def test_paperang_vendor_import_failure_maps_to_printer_error(tmp_path):
     assert result.status == "failed"
     assert result.error_code == "PRINTER_ERROR"
     assert "Unable to import Paperang module" in result.error
+
+
+async def test_paperang_missing_bluetooth_dependency_has_setup_hint(tmp_path):
+    repo_path = tmp_path / "python-paperang"
+    repo_path.mkdir()
+    (repo_path / "hardware.py").write_text(
+        (
+            "raise ModuleNotFoundError("
+            "\"No module named 'bluetooth'\", name='bluetooth')\n"
+        ),
+        encoding="utf-8",
+    )
+    settings = Settings(
+        use_mock_serial=True,
+        use_mock_hardware=False,
+        paperang_repo_path=str(repo_path),
+        _env_file=None,
+    )
+    serial = PartialSerialManager(settings)
+    hardware = HardwareContext(
+        settings=settings,
+        serial_manager=serial,
+        bill_controller=object(),
+        coin_controller=object(),
+        machine_status=object(),
+        gpio=object(),
+        camera=object(),
+    )
+    runner = DiagnosticsRunner(hardware)
+
+    result = await runner.run("paperang_sample_receipt")
+
+    assert result.status == "failed"
+    assert result.error_code == "PRINTER_ERROR"
+    assert "Paperang Bluetooth dependency missing" in result.error
+    assert "pip install -r healthcheck/backend/requirements.txt" in result.error

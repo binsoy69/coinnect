@@ -112,6 +112,8 @@ Planned environment settings:
 
 **Arduino Mega #2 (Coin/Security):**
 - D18: Coin acceptor pulse (INT5)
+- D24: Coin acceptor enable (active HIGH; default disabled/fail-closed)
+- D7: Coin sorter servo signal (CENTER=81, LEFT=45, RIGHT=120)
 - D44-D46, D6: Servo PWM (coin dispensers)
 - D19-D20: Shock sensors (INT4/INT3)
 - D21: Solenoid lock relay
@@ -150,7 +152,7 @@ Planned environment settings:
 
 **Common Error Codes (Serial Protocol):**
 - `PARSE_ERROR`, `UNKNOWN_CMD`: Protocol/command issues
-- `INVALID_DENOM`, `INVALID_COUNT`: Parameter validation
+- `INVALID_PARAM`, `INVALID_DENOM`, `INVALID_COUNT`: Parameter validation
 - `NOT_HOMED`: Sorting mechanism not initialized
 - `JAM`, `EMPTY`, `TIMEOUT`, `MOTOR_FAULT`: Hardware faults
 - `LOCKED_OUT`: Security lockdown active

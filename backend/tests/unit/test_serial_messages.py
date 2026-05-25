@@ -2,8 +2,13 @@ import pytest
 from pydantic import ValidationError
 
 from app.models.serial_messages import (
+    CoinAcceptorEnableCommand,
+    CoinAcceptorEnableResponse,
     CoinChangeResponse,
     CoinDispenseCommand,
+    CoinSorterPositionCommand,
+    CoinStatusCommand,
+    CoinStatusResponse,
     CoinInEvent,
     DispenseCommand,
     DoorStateEvent,
@@ -47,6 +52,27 @@ class TestCommands:
         d = cmd.model_dump()
         assert d == {"cmd": "COIN_DISPENSE", "denom": 5, "count": 3}
 
+    def test_coin_acceptor_enable_command(self):
+        cmd = CoinAcceptorEnableCommand(enabled=True)
+        assert cmd.model_dump() == {
+            "cmd": "COIN_ACCEPTOR_ENABLE",
+            "enabled": True,
+        }
+
+    def test_coin_sorter_position_command(self):
+        cmd = CoinSorterPositionCommand(position="LEFT")
+        assert cmd.model_dump() == {
+            "cmd": "COIN_SORTER_POSITION",
+            "position": "LEFT",
+        }
+
+    def test_coin_sorter_position_rejects_invalid_position(self):
+        with pytest.raises(ValidationError):
+            CoinSorterPositionCommand(position="PHP_1")
+
+    def test_coin_status_command(self):
+        assert CoinStatusCommand().model_dump() == {"cmd": "COIN_STATUS"}
+
 
 class TestResponses:
     def test_sort_response(self):
@@ -73,6 +99,23 @@ class TestResponses:
         assert sum(
             int(k) * v for k, v in resp.breakdown.items()
         ) == 47
+
+    def test_coin_acceptor_enable_response(self):
+        resp = CoinAcceptorEnableResponse(status="OK", enabled=False)
+        assert resp.enabled is False
+
+    def test_coin_status_response(self):
+        resp = CoinStatusResponse(
+            status="OK",
+            acceptor_enabled=True,
+            sorter_position="RIGHT",
+            sorter_angle=120,
+            session_total=20,
+        )
+        assert resp.acceptor_enabled is True
+        assert resp.sorter_position == "RIGHT"
+        assert resp.sorter_angle == 120
+        assert resp.session_total == 20
 
     def test_error_response(self):
         resp = ErrorResponse(status="ERROR", code="JAM")
@@ -110,7 +153,7 @@ class TestEvents:
 
     def test_ready_event(self):
         evt = ReadyEvent(
-            event="READY", version="2.0.0", controller="COIN_SECURITY"
+            event="READY", version="2.1.0", controller="COIN_SECURITY"
         )
         assert evt.controller == "COIN_SECURITY"
 

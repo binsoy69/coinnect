@@ -13,6 +13,16 @@ async def test_component_registry_contains_expected_groups(authed_client):
         "bill_controller",
         "coin_security",
     }.issubset(group_ids)
+    coin_group = next(group for group in groups if group["id"] == "coin_security")
+    coin_test_ids = {test["id"] for test in coin_group["tests"]}
+    assert {
+        "coin_status",
+        "coin_acceptor_enable_on",
+        "coin_acceptor_enable_off",
+        "coin_sorter_center",
+        "coin_sorter_left",
+        "coin_sorter_right",
+    }.issubset(coin_test_ids)
 
 
 async def test_login_run_and_recent_results_flow(authed_client):
@@ -63,6 +73,30 @@ async def test_mock_serial_dispense_and_security_commands_pass(authed_client):
     assert security_resp.status_code == 200
     assert security_resp.json()["status"] == "passed"
     assert "locked" in security_resp.json()["response"]
+
+
+async def test_mock_serial_coin_sorter_and_acceptor_commands_pass(authed_client):
+    _app, client = authed_client
+
+    status_resp = await client.post("/api/v1/tests/coin_status/run")
+    assert status_resp.status_code == 200
+    assert status_resp.json()["status"] == "passed"
+    assert status_resp.json()["response"]["sorter_position"] == "CENTER"
+
+    enable_resp = await client.post("/api/v1/tests/coin_acceptor_enable_on/run")
+    assert enable_resp.status_code == 200
+    assert enable_resp.json()["status"] == "passed"
+    assert enable_resp.json()["response"]["enabled"] is True
+
+    right_resp = await client.post("/api/v1/tests/coin_sorter_right/run")
+    assert right_resp.status_code == 200
+    assert right_resp.json()["status"] == "passed"
+    assert right_resp.json()["response"]["sorter_angle"] == 120
+
+    disable_resp = await client.post("/api/v1/tests/coin_acceptor_enable_off/run")
+    assert disable_resp.status_code == 200
+    assert disable_resp.json()["status"] == "passed"
+    assert disable_resp.json()["response"]["enabled"] is False
 
 
 async def test_mock_paperang_sample_receipt_passes_without_bluetooth(authed_client):

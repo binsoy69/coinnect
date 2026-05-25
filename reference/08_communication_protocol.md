@@ -40,7 +40,8 @@ The Raspberry Pi communicates with **two Arduino Mega controllers** via separate
 | ----------------------------------------------- | -------------------- | ---------------- |
 | SORT, HOME, SORT_STATUS                         | #1 (Bill)            | /dev/ttyUSB0     |
 | DISPENSE, DISPENSE_STATUS                       | #1 (Bill)            | /dev/ttyUSB0     |
-| COIN_DISPENSE, COIN_CHANGE, COIN_RESET          | #2 (Coin & Security) | /dev/ttyACM0     |
+| COIN_DISPENSE, COIN_CHANGE, COIN_RESET, COIN_STATUS | #2 (Coin & Security) | /dev/ttyACM0     |
+| COIN_ACCEPTOR_ENABLE, COIN_SORTER_POSITION     | #2 (Coin & Security) | /dev/ttyACM0     |
 | SECURITY_LOCK, SECURITY_UNLOCK, SECURITY_STATUS | #2 (Coin & Security) | /dev/ttyACM0     |
 | PING, VERSION, RESET                            | Both                 | Individual ports |
 
@@ -95,8 +96,15 @@ Valid denominations: PHP_20, PHP_50, PHP_100, PHP_200, PHP_500, PHP_1000, USD_10
 | COIN_DISPENSE | `{"cmd":"COIN_DISPENSE","denom":5,"count":3}` | `{"status":"OK","dispensed":3}`                    |
 | COIN_CHANGE   | `{"cmd":"COIN_CHANGE","amount":47}`           | `{"status":"OK","breakdown":{"20":2,"5":1,"1":2}}` |
 | COIN_RESET    | `{"cmd":"COIN_RESET"}`                        | `{"status":"OK","previous_total":150}`             |
+| COIN_ACCEPTOR_ENABLE | `{"cmd":"COIN_ACCEPTOR_ENABLE","enabled":true}` | `{"status":"OK","enabled":true}`          |
+| COIN_STATUS   | `{"cmd":"COIN_STATUS"}`                       | `{"status":"OK","acceptor_enabled":false,"sorter_position":"CENTER","sorter_angle":81,"session_total":0}` |
+| COIN_SORTER_POSITION | `{"cmd":"COIN_SORTER_POSITION","position":"LEFT"}` | `{"status":"OK","sorter_position":"LEFT","sorter_angle":45}` |
 
 **Event:** `{"event":"COIN_IN","denom":5,"total":150}`
+
+Sorter positions are `CENTER=81`, `LEFT=45`, and `RIGHT=120`. PHP 1 and PHP 5
+coins route right; PHP 10 and PHP 20 coins route left. The acceptor enable line
+is active HIGH and defaults disabled.
 
 ### 8.3.4 Security Commands
 
@@ -117,10 +125,10 @@ Valid denominations: PHP_20, PHP_50, PHP_100, PHP_200, PHP_500, PHP_1000, USD_10
 | Command | Request             | Response                                                |
 | ------- | ------------------- | ------------------------------------------------------- |
 | PING    | `{"cmd":"PING"}`    | `{"status":"OK","message":"PONG"}`                      |
-| VERSION | `{"cmd":"VERSION"}` | `{"status":"OK","version":"2.0.0","controller":"BILL"}` |
+| VERSION | `{"cmd":"VERSION"}` | `{"status":"OK","version":"2.0.0","controller":"BILL"}` or `{"status":"OK","version":"2.1.0","controller":"COIN_SECURITY"}` |
 | RESET   | `{"cmd":"RESET"}`   | `{"status":"OK"}`                                       |
 
-**Event:** `{"event":"READY","version":"2.0.0","controller":"BILL"}`
+**Event:** `{"event":"READY","version":"2.0.0","controller":"BILL"}` or `{"event":"READY","version":"2.1.0","controller":"COIN_SECURITY"}`
 
 > **Note:** Each Arduino responds with its own controller identifier:
 >
@@ -135,6 +143,7 @@ Valid denominations: PHP_20, PHP_50, PHP_100, PHP_200, PHP_500, PHP_1000, USD_10
 | ------------- | ----------------------- |
 | PARSE_ERROR   | JSON parsing failed     |
 | UNKNOWN_CMD   | Unrecognized command    |
+| INVALID_PARAM | Parameter has wrong type or value |
 | INVALID_DENOM | Unknown denomination    |
 | INVALID_COUNT | Count out of range      |
 | NOT_HOMED     | Sorter not homed        |
