@@ -1,1 +1,6 @@
 -r ../../backend/requirements.txt
+
+# Required by vendor/python-paperang/hardware.py for Bluetooth RFCOMM access.
+# Install from the maintained source tree because the PyPI 0.23 sdist uses
+# packaging metadata that breaks with modern setuptools.
+PyBluez @ git+https://github.com/pybluez/pybluez.git@82cbba8a1ebd4c1e3442dfafd8581d58c50fa39e ; platform_system == "Linux"

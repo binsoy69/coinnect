@@ -131,7 +131,7 @@ pip install --upgrade pip
 
 info "Installing Python dependencies..."
 info "This may take 15-30 minutes (ultralytics and dependencies are large)..."
-pip install -r backend/requirements.txt
+pip install -r healthcheck/backend/requirements.txt
 
 PAPERANG_PATH="$(pwd)/vendor/python-paperang"
 if [ ! -d "$PAPERANG_PATH" ]; then
