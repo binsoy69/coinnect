@@ -8,9 +8,14 @@ from typing import Awaitable, Callable
 from app.core.constants import BillDenom
 from app.core.errors import HardwareError, SerialError
 from app.core.errors import TimeoutError as HardwareTimeoutError
+from app.services.bill_acceptor import BillAcceptor
 
 from healthcheck_api.hardware import HardwareContext
 from healthcheck_api.models import ComponentGroup, TestDefinition, TestRunResult
+from healthcheck_api.ml_diagnostics import (
+    BillModelDiagnosticError,
+    validate_bill_model_pair,
+)
 from healthcheck_api.paperang import (
     PaperangDiagnosticError,
     PaperangHealthcheckPrinter,
@@ -18,6 +23,7 @@ from healthcheck_api.paperang import (
 from healthcheck_api.registry import build_component_groups, flatten_tests
 
 TestHandler = Callable[[], Awaitable[dict]]
+CURRENCIES = {"php": "PHP", "usd": "USD", "eur": "EUR"}
 
 
 class DiagnosticsBusyError(Exception):
@@ -141,6 +147,26 @@ class DiagnosticsRunner:
             elif definition.id.startswith("coin_dispense_"):
                 denom = int(definition.id.removeprefix("coin_dispense_"))
                 handlers[definition.id] = self._coin_dispense_handler(denom)
+            elif definition.id.startswith("bill_ml_models_"):
+                currency = CURRENCIES[
+                    definition.id.removeprefix("bill_ml_models_")
+                ]
+                handlers[definition.id] = self._bill_ml_models_handler(currency)
+            elif definition.id.startswith("bill_image_auth_"):
+                currency = CURRENCIES[
+                    definition.id.removeprefix("bill_image_auth_")
+                ]
+                handlers[definition.id] = self._bill_image_auth_handler(currency)
+            elif definition.id.startswith("bill_image_denom_"):
+                currency = CURRENCIES[
+                    definition.id.removeprefix("bill_image_denom_")
+                ]
+                handlers[definition.id] = self._bill_image_denom_handler(currency)
+            elif definition.id.startswith("bill_acceptor_flow_"):
+                currency = CURRENCIES[
+                    definition.id.removeprefix("bill_acceptor_flow_")
+                ]
+                handlers[definition.id] = self._bill_acceptor_flow_handler(currency)
 
         return handlers
 
@@ -214,6 +240,87 @@ class DiagnosticsRunner:
     async def _paperang_sample_receipt(self) -> dict:
         printer = PaperangHealthcheckPrinter(self._hardware.settings)
         return await printer.print_sample_receipt()
+
+    def _bill_ml_models_handler(self, currency: str) -> TestHandler:
+        async def handler() -> dict:
+            return validate_bill_model_pair(self._hardware.settings, currency)
+
+        return handler
+
+    def _bill_image_auth_handler(self, currency: str) -> TestHandler:
+        async def handler() -> dict:
+            gpio = self._require_gpio()
+            camera = self._require_camera()
+            authenticator = self._require_authenticator()
+            self._set_authenticator_currency(currency)
+            try:
+                await gpio.uv_led_on()
+                await asyncio.sleep(self._hardware.settings.led_stabilization_delay)
+                frame = await camera.capture_frame()
+                result = await authenticator.authenticate(frame)
+                return {
+                    "currency": currency,
+                    "is_genuine": result.is_genuine,
+                    "confidence": result.confidence,
+                    "raw_label": result.raw_label,
+                    "image_shape": self._image_shape(frame),
+                }
+            finally:
+                await gpio.uv_led_off()
+
+        return handler
+
+    def _bill_image_denom_handler(self, currency: str) -> TestHandler:
+        async def handler() -> dict:
+            gpio = self._require_gpio()
+            camera = self._require_camera()
+            authenticator = self._require_authenticator()
+            self._set_authenticator_currency(currency)
+            try:
+                await gpio.white_led_on()
+                await asyncio.sleep(self._hardware.settings.led_stabilization_delay)
+                frame = await camera.capture_frame()
+                result = await authenticator.identify_denomination(frame)
+                return {
+                    "currency": currency,
+                    "denomination": (
+                        result.denomination.value
+                        if result.denomination is not None
+                        else None
+                    ),
+                    "confidence": result.confidence,
+                    "raw_label": result.raw_label,
+                    "image_shape": self._image_shape(frame),
+                }
+            finally:
+                await gpio.white_led_off()
+
+        return handler
+
+    def _bill_acceptor_flow_handler(self, currency: str) -> TestHandler:
+        async def handler() -> dict:
+            self._require_gpio()
+            self._require_camera()
+            self._require_authenticator()
+            acceptor = BillAcceptor(
+                gpio=self._hardware.gpio,
+                camera=self._hardware.camera,
+                authenticator=self._hardware.authenticator,
+                bill_controller=self._hardware.bill_controller,
+                machine_status=self._hardware.machine_status,
+                ws_manager=_NoopWebSocketManager(),
+                settings=self._hardware.settings,
+            )
+            acceptor.set_expected_currency(currency)
+            detected = await acceptor.wait_for_bill(
+                timeout=self._hardware.settings.bill_acceptance_timeout
+            )
+            if not detected:
+                raise TimeoutError("Timed out waiting for bill at entry IR")
+            result = await acceptor.accept_bill()
+            return result.model_dump(mode="json")
+
+        return handler
 
     async def _bill_home_sorter(self) -> dict:
         return (await self._hardware.bill_controller.home()).model_dump()
@@ -319,6 +426,28 @@ class DiagnosticsRunner:
             raise RuntimeError(f"Camera unavailable: {detail}")
         return self._hardware.camera
 
+    def _require_authenticator(self):
+        if (
+            self._hardware.authenticator is None
+            or self._hardware.authenticator_error
+        ):
+            detail = (
+                self._hardware.authenticator_error
+                or "Bill authenticator not initialized"
+            )
+            raise RuntimeError(f"Bill authenticator unavailable: {detail}")
+        return self._hardware.authenticator
+
+    def _set_authenticator_currency(self, currency: str) -> None:
+        authenticator = self._require_authenticator()
+        if hasattr(authenticator, "set_currency"):
+            authenticator.set_currency(currency)
+
+    @staticmethod
+    def _image_shape(frame) -> list[int] | None:
+        shape = getattr(frame, "shape", None)
+        return list(shape) if shape is not None else None
+
     @staticmethod
     def _error_code(exc: Exception) -> str | None:
         if isinstance(exc, HardwareError):
@@ -331,4 +460,11 @@ class DiagnosticsRunner:
             return "TIMEOUT"
         if isinstance(exc, PaperangDiagnosticError):
             return "PRINTER_ERROR"
+        if isinstance(exc, BillModelDiagnosticError):
+            return "MODEL_ERROR"
+        return None
+
+
+class _NoopWebSocketManager:
+    async def broadcast(self, _event) -> None:
         return None

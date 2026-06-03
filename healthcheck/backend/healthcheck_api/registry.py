@@ -26,6 +26,8 @@ COIN_DENOMS = [
     CoinDenom.PHP_20,
 ]
 
+CURRENCIES = ["PHP", "USD", "EUR"]
+
 
 def build_component_groups() -> list[ComponentGroup]:
     """Return the complete command-level v1 diagnostics surface."""
@@ -138,6 +140,80 @@ def build_component_groups() -> list[ComponentGroup]:
                     description="Print a small Coinnect sample receipt over Bluetooth.",
                     caution="Physically prints on the Paperang P1.",
                 ),
+            ],
+        ),
+        ComponentGroup(
+            id="bill_ml_models",
+            label="Bill ML Models",
+            description="Validate configured YOLO model files and class labels.",
+            tests=[
+                TestDefinition(
+                    id=f"bill_ml_models_{currency.lower()}",
+                    label=f"{currency} Model Pair",
+                    component=f"{currency} auth + denomination models",
+                    kind="ml",
+                    description=(
+                        f"Load configured {currency} bill authentication and "
+                        "denomination YOLO models and verify class labels."
+                    ),
+                )
+                for currency in CURRENCIES
+            ],
+        ),
+        ComponentGroup(
+            id="bill_image_recognition",
+            label="Bill Image Recognition",
+            description="Live camera checks for bill authentication and denomination.",
+            tests=[
+                *[
+                    TestDefinition(
+                        id=f"bill_image_auth_{currency.lower()}",
+                        label=f"{currency} Auth Image",
+                        component="Camera + UV LED + auth model",
+                        kind="ml",
+                        description=(
+                            f"Turn on UV light, capture a bill image, and run "
+                            f"the {currency} authentication model."
+                        ),
+                        caution="Turns on UV light. Place a bill in camera view first.",
+                    )
+                    for currency in CURRENCIES
+                ],
+                *[
+                    TestDefinition(
+                        id=f"bill_image_denom_{currency.lower()}",
+                        label=f"{currency} Denom Image",
+                        component="Camera + white LED + denomination model",
+                        kind="ml",
+                        description=(
+                            f"Turn on white light, capture a bill image, and run "
+                            f"the {currency} denomination model."
+                        ),
+                    )
+                    for currency in CURRENCIES
+                ],
+            ],
+        ),
+        ComponentGroup(
+            id="bill_acceptor_full_flow",
+            label="Bill Acceptor Full Flow",
+            description="End-to-end physical bill intake, recognition, and storage.",
+            tests=[
+                TestDefinition(
+                    id=f"bill_acceptor_flow_{currency.lower()}",
+                    label=f"{currency} Bill Acceptor Flow",
+                    component="IR sensors + conveyor + LEDs + ML + sorter",
+                    kind="ml",
+                    description=(
+                        f"Wait for a {currency} bill at entry IR, position it, "
+                        "authenticate it, identify denomination, then sort and store."
+                    ),
+                    caution=(
+                        "Moves the bill conveyor and sorter. Accepted genuine bills "
+                        "are stored and inventory is incremented."
+                    ),
+                )
+                for currency in CURRENCIES
             ],
         ),
         ComponentGroup(

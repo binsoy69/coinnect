@@ -18,7 +18,15 @@ class TestDefinition(BaseModel):
     id: str
     label: str
     component: str
-    kind: Literal["connectivity", "sensor", "actuator", "camera", "status", "printer"]
+    kind: Literal[
+        "connectivity",
+        "sensor",
+        "actuator",
+        "camera",
+        "status",
+        "printer",
+        "ml",
+    ]
     description: str
     caution: Optional[str] = None
 

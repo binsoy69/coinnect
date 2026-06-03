@@ -11,6 +11,7 @@ from app.core.errors import SerialError
 from app.drivers.bill_controller import BillController
 from app.drivers.coin_security_controller import CoinSecurityController
 from app.drivers.serial_manager import SerialConnection
+from app.ml.bill_authenticator import BillAuthenticatorBase, YOLOBillAuthenticator
 from app.services.machine_status import MachineStatus
 from healthcheck_api.paperang import paperang_snapshot
 
@@ -174,8 +175,10 @@ class HardwareContext:
     machine_status: MachineStatus
     gpio: object | None = None
     camera: object | None = None
+    authenticator: BillAuthenticatorBase | None = None
     gpio_error: str | None = None
     camera_error: str | None = None
+    authenticator_error: str | None = None
     _cleanup_callbacks: list = field(default_factory=list)
 
     @property
@@ -197,6 +200,16 @@ class HardwareContext:
             "mock": self.settings.use_mock_hardware,
             "device": self.settings.camera_device,
             "error": self.camera_error,
+        }
+
+    @property
+    def ml_snapshot(self) -> dict:
+        return {
+            "available": (
+                self.authenticator is not None and self.authenticator_error is None
+            ),
+            "mock": self.settings.use_mock_hardware,
+            "error": self.authenticator_error,
         }
 
     @property
@@ -236,15 +249,26 @@ async def create_hardware_context(settings: Settings) -> HardwareContext:
     if settings.use_mock_hardware:
         from app.drivers.mock_camera_controller import MockCameraController
         from app.drivers.mock_gpio_controller import MockGPIOController
+        from app.ml.mock_authenticator import MockBillAuthenticator
 
         context.gpio = MockGPIOController()
         context.camera = MockCameraController()
+        context.authenticator = MockBillAuthenticator()
     else:
         from app.drivers.camera_controller import USBCameraController
         from app.drivers.gpio_controller import RPiGPIOController
 
         context.gpio = RPiGPIOController()
         context.camera = USBCameraController(settings.camera_device)
+        context.authenticator = YOLOBillAuthenticator(
+            auth_model_path=settings.yolo_auth_model_path,
+            denom_model_path=settings.yolo_denom_model_path,
+            confidence_threshold=settings.yolo_confidence_threshold,
+            auth_model_path_usd=settings.yolo_auth_model_path_usd,
+            denom_model_path_usd=settings.yolo_denom_model_path_usd,
+            auth_model_path_eur=settings.yolo_auth_model_path_eur,
+            denom_model_path_eur=settings.yolo_denom_model_path_eur,
+        )
 
     try:
         await context.gpio.setup()
