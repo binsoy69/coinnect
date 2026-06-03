@@ -38,6 +38,62 @@ module needed by the vendored Paperang driver into the active virtualenv; the
 healthcheck backend will still fail with `No module named 'bluetooth'` if that
 command was skipped or run outside the virtualenv.
 
+## Bill ML and Live Bill Diagnostics
+
+The healthcheck backend uses `healthcheck/backend/.env` for model paths and
+live bill-flow settings. Copy `healthcheck/backend/.env.example` to `.env`, then
+set the model locations before running real ML diagnostics:
+
+```env
+CAMERA_DEVICE=0
+YOLO_AUTH_MODEL_PATH=../../backend/models/auth.pt
+YOLO_DENOM_MODEL_PATH=../../backend/models/denom.pt
+YOLO_AUTH_MODEL_PATH_USD=../../backend/models/auth_usd.pt
+YOLO_DENOM_MODEL_PATH_USD=../../backend/models/denom_usd.pt
+YOLO_AUTH_MODEL_PATH_EUR=../../backend/models/auth_eur.pt
+YOLO_DENOM_MODEL_PATH_EUR=../../backend/models/denom_eur.pt
+YOLO_CONFIDENCE_THRESHOLD=0.7
+```
+
+Relative model paths are resolved from the directory where `uvicorn` is started.
+The recommended command above starts the app from `healthcheck/backend`, so
+`../../backend/models/auth.pt` points to the shared backend model directory.
+Absolute paths also work.
+
+The diagnostics UI exposes three bill ML sections:
+
+- `Bill ML Models`: `bill_ml_models_php`, `bill_ml_models_usd`, and
+  `bill_ml_models_eur` load each configured auth/denomination model pair and
+  verify expected class labels. Auth models must expose `genuine` and `fake`.
+  Denomination models must expose the configured currency denominations.
+- `Bill Image Recognition`: `bill_image_auth_*` turns on the UV LED, captures
+  one camera frame, runs the selected auth model, and turns UV off.
+  `bill_image_denom_*` turns on the white LED, captures one camera frame, runs
+  the selected denomination model, and turns white off. Place a bill in camera
+  view before running these tests.
+- `Bill Acceptor Full Flow`: `bill_acceptor_flow_php`,
+  `bill_acceptor_flow_usd`, and `bill_acceptor_flow_eur` wait for the entry IR,
+  run the conveyor to the camera-position IR, authenticate under UV, reject fake
+  bills, identify genuine bills under white light, sort, store, and increment
+  inventory.
+
+The full-flow tests move hardware and store accepted genuine bills. Confirm the
+bill path, sorter, storage path, and serial controller status before running
+them on a real kiosk. These timings and speeds are configurable in
+`healthcheck/backend/.env`:
+
+```env
+BILL_PULL_SPEED=60
+BILL_EJECT_SPEED=80
+BILL_STORE_SPEED=70
+LED_STABILIZATION_DELAY=0.2
+BILL_ACCEPTANCE_TIMEOUT=10
+BILL_POSITION_TIMEOUT=5.0
+BILL_STORE_DURATION=2.0
+BILL_EJECT_DURATION=1.5
+STORAGE_SLOT_CAPACITY=100
+```
+
 ## Frontend
 
 ```bash

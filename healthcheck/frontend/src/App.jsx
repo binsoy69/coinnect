@@ -36,6 +36,7 @@ const KIND_ICONS = {
   camera: Camera,
   status: LockKeyhole,
   printer: Printer,
+  ml: Cpu,
 };
 
 function App() {

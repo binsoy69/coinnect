@@ -1,9 +1,13 @@
 import pytest
+from unittest.mock import AsyncMock
 
 from app.core.config import Settings
+from app.core.constants import BillDenom
 from app.core.constants import ControllerType
 from app.core.errors import SerialError
 from app.core.errors import TimeoutError as HardwareTimeoutError
+from app.ml.bill_authenticator import BillAuthResult
+from app.services.machine_status import MachineStatus
 import healthcheck_api.hardware as hardware_module
 from healthcheck_api.hardware import HardwareContext, PartialSerialManager
 from healthcheck_api.runner import DiagnosticsRunner
@@ -27,6 +31,81 @@ class FakeCoinController:
     async def set_coin_acceptor_enabled(self, enabled: bool):
         self.enabled_calls.append(enabled)
         return {"status": "OK", "enabled": enabled}
+
+
+class FakeGPIO:
+    def __init__(self):
+        self.entry_detected = True
+        self.position_detected = True
+        self.call_log = []
+
+    async def is_bill_at_entry(self):
+        self.call_log.append("is_bill_at_entry")
+        return self.entry_detected
+
+    async def is_bill_in_position(self):
+        self.call_log.append("is_bill_in_position")
+        return self.position_detected
+
+    async def motor_forward(self, speed: int):
+        self.call_log.append(f"motor_forward({speed})")
+
+    async def motor_reverse(self, speed: int):
+        self.call_log.append(f"motor_reverse({speed})")
+
+    async def motor_stop(self):
+        self.call_log.append("motor_stop")
+
+    async def uv_led_on(self):
+        self.call_log.append("uv_led_on")
+
+    async def uv_led_off(self):
+        self.call_log.append("uv_led_off")
+
+    async def white_led_on(self):
+        self.call_log.append("white_led_on")
+
+    async def white_led_off(self):
+        self.call_log.append("white_led_off")
+
+
+class FakeCamera:
+    def __init__(self):
+        self.capture_count = 0
+        self.error = None
+
+    async def capture_frame(self):
+        import numpy as np
+
+        if self.error:
+            raise self.error
+        self.capture_count += 1
+        return np.zeros((12, 16, 3), dtype=np.uint8)
+
+
+class FakeAuthenticator:
+    def __init__(self):
+        self.currency_calls = []
+        self.auth_result = BillAuthResult(
+            is_genuine=True,
+            confidence=0.91,
+            raw_label="genuine",
+        )
+        self.denom_result = BillAuthResult(
+            is_genuine=True,
+            confidence=0.87,
+            denomination=BillDenom.PHP_100,
+            raw_label="PHP_100",
+        )
+
+    def set_currency(self, currency: str):
+        self.currency_calls.append(currency)
+
+    async def authenticate(self, _image):
+        return self.auth_result
+
+    async def identify_denomination(self, _image):
+        return self.denom_result
 
 
 class BootResetSerialConnection:
@@ -168,3 +247,205 @@ async def test_coin_acceptor_listen_disables_acceptor_after_timeout(monkeypatch)
         assert coin_controller.enabled_calls == [True, False]
     finally:
         await serial.shutdown()
+
+
+async def test_live_bill_auth_turns_off_uv_led_and_returns_result():
+    settings = Settings(use_mock_serial=True, use_mock_hardware=True, _env_file=None)
+    serial = PartialSerialManager(settings)
+    gpio = FakeGPIO()
+    camera = FakeCamera()
+    authenticator = FakeAuthenticator()
+    hardware = HardwareContext(
+        settings=settings,
+        serial_manager=serial,
+        bill_controller=object(),
+        coin_controller=object(),
+        machine_status=object(),
+        gpio=gpio,
+        camera=camera,
+        authenticator=authenticator,
+    )
+    runner = DiagnosticsRunner(hardware)
+
+    result = await runner.run("bill_image_auth_php")
+
+    assert result.status == "passed"
+    assert result.response["currency"] == "PHP"
+    assert result.response["is_genuine"] is True
+    assert result.response["confidence"] == pytest.approx(0.91)
+    assert result.response["image_shape"] == [12, 16, 3]
+    assert authenticator.currency_calls == ["PHP"]
+    assert gpio.call_log[-1] == "uv_led_off"
+
+
+async def test_live_bill_denom_turns_off_white_led_and_returns_result():
+    settings = Settings(use_mock_serial=True, use_mock_hardware=True, _env_file=None)
+    serial = PartialSerialManager(settings)
+    gpio = FakeGPIO()
+    camera = FakeCamera()
+    authenticator = FakeAuthenticator()
+    hardware = HardwareContext(
+        settings=settings,
+        serial_manager=serial,
+        bill_controller=object(),
+        coin_controller=object(),
+        machine_status=object(),
+        gpio=gpio,
+        camera=camera,
+        authenticator=authenticator,
+    )
+    runner = DiagnosticsRunner(hardware)
+
+    result = await runner.run("bill_image_denom_php")
+
+    assert result.status == "passed"
+    assert result.response["currency"] == "PHP"
+    assert result.response["denomination"] == "PHP_100"
+    assert result.response["confidence"] == pytest.approx(0.87)
+    assert result.response["raw_label"] == "PHP_100"
+    assert gpio.call_log[-1] == "white_led_off"
+
+
+async def test_live_bill_auth_turns_off_uv_led_after_camera_failure():
+    settings = Settings(use_mock_serial=True, use_mock_hardware=True, _env_file=None)
+    serial = PartialSerialManager(settings)
+    gpio = FakeGPIO()
+    camera = FakeCamera()
+    camera.error = RuntimeError("capture failed")
+    hardware = HardwareContext(
+        settings=settings,
+        serial_manager=serial,
+        bill_controller=object(),
+        coin_controller=object(),
+        machine_status=object(),
+        gpio=gpio,
+        camera=camera,
+        authenticator=FakeAuthenticator(),
+    )
+    runner = DiagnosticsRunner(hardware)
+
+    result = await runner.run("bill_image_auth_php")
+
+    assert result.status == "failed"
+    assert "capture failed" in result.error
+    assert gpio.call_log[-1] == "uv_led_off"
+
+
+async def test_full_bill_acceptor_flow_waits_for_entry_then_stores_bill():
+    settings = Settings(
+        use_mock_serial=True,
+        use_mock_hardware=True,
+        led_stabilization_delay=0,
+        bill_position_timeout=0.01,
+        bill_store_duration=0,
+        bill_eject_duration=0,
+        _env_file=None,
+    )
+    serial = PartialSerialManager(settings)
+    gpio = FakeGPIO()
+    camera = FakeCamera()
+    authenticator = FakeAuthenticator()
+    bill_controller = AsyncMock()
+    bill_controller.sort = AsyncMock()
+    machine_status = MachineStatus(settings)
+    hardware = HardwareContext(
+        settings=settings,
+        serial_manager=serial,
+        bill_controller=bill_controller,
+        coin_controller=object(),
+        machine_status=machine_status,
+        gpio=gpio,
+        camera=camera,
+        authenticator=authenticator,
+    )
+    runner = DiagnosticsRunner(hardware)
+
+    result = await runner.run("bill_acceptor_flow_php")
+
+    assert result.status == "passed"
+    assert result.response["success"] is True
+    assert result.response["denomination"] == "PHP_100"
+    assert gpio.call_log[0] == "is_bill_at_entry"
+    assert "motor_forward(60)" in gpio.call_log
+    bill_controller.sort.assert_awaited_once_with(BillDenom.PHP_100)
+    assert machine_status.snapshot().consumables.bill_storage_counts["PHP_100"] == 1
+
+
+async def test_full_bill_acceptor_flow_rejects_fake_bill_without_sorting():
+    settings = Settings(
+        use_mock_serial=True,
+        use_mock_hardware=True,
+        led_stabilization_delay=0,
+        bill_position_timeout=0.01,
+        bill_store_duration=0,
+        bill_eject_duration=0,
+        _env_file=None,
+    )
+    serial = PartialSerialManager(settings)
+    gpio = FakeGPIO()
+    camera = FakeCamera()
+    authenticator = FakeAuthenticator()
+    authenticator.auth_result = BillAuthResult(
+        is_genuine=False,
+        confidence=0.33,
+        raw_label="fake",
+    )
+    bill_controller = AsyncMock()
+    bill_controller.sort = AsyncMock()
+    hardware = HardwareContext(
+        settings=settings,
+        serial_manager=serial,
+        bill_controller=bill_controller,
+        coin_controller=object(),
+        machine_status=MachineStatus(settings),
+        gpio=gpio,
+        camera=camera,
+        authenticator=authenticator,
+    )
+    runner = DiagnosticsRunner(hardware)
+
+    result = await runner.run("bill_acceptor_flow_php")
+
+    assert result.status == "passed"
+    assert result.response["success"] is False
+    assert result.response["error"] == "NOT_GENUINE"
+    assert "motor_reverse(80)" in gpio.call_log
+    bill_controller.sort.assert_not_awaited()
+
+
+async def test_full_bill_acceptor_flow_camera_error_stops_motor_and_leds():
+    settings = Settings(
+        use_mock_serial=True,
+        use_mock_hardware=True,
+        led_stabilization_delay=0,
+        bill_position_timeout=0.01,
+        bill_store_duration=0,
+        bill_eject_duration=0,
+        _env_file=None,
+    )
+    serial = PartialSerialManager(settings)
+    gpio = FakeGPIO()
+    camera = FakeCamera()
+    camera.error = RuntimeError("camera fault")
+    bill_controller = AsyncMock()
+    bill_controller.sort = AsyncMock()
+    hardware = HardwareContext(
+        settings=settings,
+        serial_manager=serial,
+        bill_controller=bill_controller,
+        coin_controller=object(),
+        machine_status=MachineStatus(settings),
+        gpio=gpio,
+        camera=camera,
+        authenticator=FakeAuthenticator(),
+    )
+    runner = DiagnosticsRunner(hardware)
+
+    result = await runner.run("bill_acceptor_flow_php")
+
+    assert result.status == "passed"
+    assert "camera fault" in result.response["error"]
+    assert "motor_stop" in gpio.call_log
+    assert "uv_led_off" in gpio.call_log
+    assert "white_led_off" in gpio.call_log
+    bill_controller.sort.assert_not_awaited()

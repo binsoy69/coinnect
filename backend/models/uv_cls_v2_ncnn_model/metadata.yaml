@@ -1,0 +1,19 @@
+description: Ultralytics YOLO11n-cls model trained on /content/gdrive/MyDrive/yolo-img-cls-uv/PHP_UV
+author: Ultralytics
+date: '2025-08-26T14:30:09.315042'
+version: 8.3.186
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 1
+task: classify
+batch: 1
+imgsz:
+- 480
+- 480
+names:
+  0: fake
+  1: genuine
+args:
+  batch: 1
+  half: false
+channels: 3

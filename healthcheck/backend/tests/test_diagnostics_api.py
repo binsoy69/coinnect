@@ -10,6 +10,9 @@ async def test_component_registry_contains_expected_groups(authed_client):
         "connectivity",
         "rpi_bill_acceptor",
         "paperang_printer",
+        "bill_ml_models",
+        "bill_image_recognition",
+        "bill_acceptor_full_flow",
         "bill_controller",
         "coin_security",
     }.issubset(group_ids)
@@ -23,6 +26,37 @@ async def test_component_registry_contains_expected_groups(authed_client):
         "coin_sorter_left",
         "coin_sorter_right",
     }.issubset(coin_test_ids)
+    ml_group = next(group for group in groups if group["id"] == "bill_ml_models")
+    ml_test_ids = {test["id"] for test in ml_group["tests"]}
+    assert {
+        "bill_ml_models_php",
+        "bill_ml_models_usd",
+        "bill_ml_models_eur",
+    }.issubset(ml_test_ids)
+    assert {test["kind"] for test in ml_group["tests"]} == {"ml"}
+
+    image_group = next(
+        group for group in groups if group["id"] == "bill_image_recognition"
+    )
+    image_test_ids = {test["id"] for test in image_group["tests"]}
+    assert {
+        "bill_image_auth_php",
+        "bill_image_auth_usd",
+        "bill_image_auth_eur",
+        "bill_image_denom_php",
+        "bill_image_denom_usd",
+        "bill_image_denom_eur",
+    }.issubset(image_test_ids)
+
+    flow_group = next(
+        group for group in groups if group["id"] == "bill_acceptor_full_flow"
+    )
+    flow_test_ids = {test["id"] for test in flow_group["tests"]}
+    assert {
+        "bill_acceptor_flow_php",
+        "bill_acceptor_flow_usd",
+        "bill_acceptor_flow_eur",
+    }.issubset(flow_test_ids)
 
 
 async def test_login_run_and_recent_results_flow(authed_client):
@@ -110,3 +144,15 @@ async def test_mock_paperang_sample_receipt_passes_without_bluetooth(authed_clie
     assert result["response"]["mock"] is True
     assert result["response"]["printed"] is False
     assert result["response"]["width"] == 384
+
+
+async def test_mock_live_bill_auth_test_returns_result(authed_client):
+    _app, client = authed_client
+
+    resp = await client.post("/api/v1/tests/bill_image_auth_php/run")
+
+    assert resp.status_code == 200
+    result = resp.json()
+    assert result["status"] == "passed"
+    assert result["response"]["currency"] == "PHP"
+    assert result["response"]["raw_label"] == "genuine"
