@@ -56,7 +56,7 @@ This dual-Arduino design provides:
 │  ┌──────────────────────────────────────────────────────────────────────────┐   │
 │  │ • USB Camera (Bill Authentication)                                        │   │
 │  │ • Bill Acceptor Motor (via L298N on GPIO)                                 │   │
-│  │ • Bill Acceptor IR Sensors x2 (GPIO Input)                                │   │
+│  │ • Bill Acceptor Entry IR Sensor (GPIO Input)                              │   │
 │  │ • UV LED Strip (GPIO + MOSFET)                                            │   │
 │  │ • White LED (GPIO + MOSFET)                                               │   │
 │  │ • Touchscreen Display (HDMI + USB)                                        │   │
@@ -126,8 +126,8 @@ This dual-Arduino design provides:
        │                     └──────────┬──────────┘                    │
        │                                │                               │
        │                     ┌──────────┴──────────┐                    │
-       │                     │ IR Sensor 2 Detects │                    │
-       │                     │ Bill in Position    │                    │
+       │                     │ Timed motor pull    │                    │
+       │                     │ positions bill      │                    │
        │                     └──────────┬──────────┘                    │
        │                                │                               │
        │                     ┌──────────┴──────────┐                    │
@@ -197,7 +197,7 @@ This dual-Arduino design provides:
 
 | Subsystem       | Controller      | Components                                            |
 | --------------- | --------------- | ----------------------------------------------------- |
-| Bill Acceptor   | Raspberry Pi    | 1 DC Motor, 2 IR Sensors, 1 Camera, UV LED, White LED |
+| Bill Acceptor   | Raspberry Pi    | 1 DC Motor, 1 IR Sensor, 1 Camera, UV LED, White LED |
 | Bill Sorting    | Arduino Mega #1 | 1 Stepper Motor, 1 A4988, 1 Limit Switch              |
 | Bill Dispensing | Arduino Mega #1 | 24 DC Motors, 12 L298N, 12 IR Sensors                 |
 | Coin Acceptor   | Arduino Mega #2 | 1 CH-926 Module                                       |

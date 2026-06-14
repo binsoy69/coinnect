@@ -107,9 +107,8 @@ class TestFullBillAcceptFlow:
         results = []
 
         for denom in denominations:
-            # Reset sensor state so each bill can be positioned
+            # Reset entry sensor state so each bill can be detected
             mock_gpio.set_bill_at_entry(True)
-            mock_gpio.set_bill_in_position(True)
 
             mock_authenticator.set_accept_next()
             mock_authenticator.set_next_denomination(denom)
@@ -195,67 +194,34 @@ class TestBillRejectionFlow:
 
 
 class TestBillPositioning:
-    """Tests verifying sensor-driven positioning timeouts."""
+    """Tests verifying timed bill positioning."""
 
     @pytest.mark.asyncio
-    async def test_bill_not_detected_timeout(
-        self, mock_gpio, mock_camera, mock_authenticator, test_settings,
-        machine_status, ws_manager
+    async def test_wait_for_bill_returns_false_without_entry_detection(
+        self, bill_acceptor, mock_gpio
     ):
-        """If no bill is detected at the entry sensor, wait_for_bill should
-        return False, and accept_bill should time out at positioning."""
+        """If no bill is detected at the entry sensor, wait_for_bill times out."""
         mock_gpio.set_bill_at_entry(False)
-        mock_gpio.set_bill_in_position(False)
-        mock_gpio.simulate_jam = True  # Prevent auto-position on motor forward
 
-        serial = MockSerial(port="MOCK_BILL", baudrate=115200, timeout=1.0)
-        sm = SerialManager(test_settings)
-        bill_controller = BillController(sm)
-        bill_controller.sort = AsyncMock()
-        acceptor = BillAcceptor(
-            mock_gpio,
-            mock_camera,
-            mock_authenticator,
-            bill_controller,
-            machine_status,
-            ws_manager,
-            test_settings,
-        )
+        result = await bill_acceptor.wait_for_bill(timeout=0.01)
 
-        result = await acceptor.accept_bill()
-
-        assert result.success is False
-        assert result.error == "TIMEOUT_POSITION"
+        assert result is False
 
     @pytest.mark.asyncio
-    async def test_bill_detected_but_not_positioned(
-        self, mock_gpio, mock_camera, mock_authenticator, test_settings,
-        machine_status, ws_manager
+    async def test_accept_bill_runs_motor_before_authentication(
+        self, bill_acceptor, mock_gpio, mock_authenticator
     ):
-        """If a bill is at entry but never reaches the camera position,
-        accept_bill should time out during positioning."""
+        """Once triggered, accept_bill uses calibrated timing before imaging."""
         mock_gpio.set_bill_at_entry(True)
-        mock_gpio.set_bill_in_position(False)
-        mock_gpio.simulate_jam = True  # Prevent position from ever becoming True
+        mock_authenticator.set_accept_next()
 
-        serial = MockSerial(port="MOCK_BILL", baudrate=115200, timeout=1.0)
-        sm = SerialManager(test_settings)
-        bill_controller = BillController(sm)
-        bill_controller.sort = AsyncMock()
-        acceptor = BillAcceptor(
-            mock_gpio,
-            mock_camera,
-            mock_authenticator,
-            bill_controller,
-            machine_status,
-            ws_manager,
-            test_settings,
-        )
+        result = await bill_acceptor.accept_bill()
 
-        result = await acceptor.accept_bill()
-
-        assert result.success is False
-        assert result.error == "TIMEOUT_POSITION"
+        assert result.success is True
+        assert "motor_forward(60)" in mock_gpio.call_log
+        first_stop = mock_gpio.call_log.index("motor_stop")
+        uv_on = mock_gpio.call_log.index("uv_led_on")
+        assert first_stop < uv_on
 
 
 # ---------------------------------------------------------------------------
@@ -274,7 +240,6 @@ class TestBillAcceptorSafetyShutdown:
         """If the camera raises an error during capture, the motor should be
         stopped as part of the safe shutdown procedure."""
         mock_gpio.set_bill_at_entry(True)
-        mock_gpio.set_bill_in_position(True)
 
         # Use a camera mock that raises on capture
         camera = MockCameraController()
@@ -314,7 +279,6 @@ class TestBillAcceptorSafetyShutdown:
         """After a camera error, both the UV LED and white LED should be
         turned off as part of safe shutdown."""
         mock_gpio.set_bill_at_entry(True)
-        mock_gpio.set_bill_in_position(True)
 
         camera = MockCameraController()
         camera._initialized = True

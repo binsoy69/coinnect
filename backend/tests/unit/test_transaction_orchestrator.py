@@ -44,7 +44,7 @@ def test_settings():
         log_level="DEBUG",
         db_url="sqlite+aiosqlite:///:memory:",
         led_stabilization_delay=0.0,
-        bill_position_timeout=0.5,
+        bill_pull_duration=0.0,
         bill_store_duration=0.0,
         bill_eject_duration=0.0,
         bill_acceptance_timeout=1,

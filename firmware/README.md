@@ -22,6 +22,8 @@ arduino-cli lib install Servo
 ```bash
 arduino-cli compile --fqbn arduino:avr:mega firmware/mega_bill
 arduino-cli compile --fqbn arduino:avr:mega firmware/mega_coin_security
+arduino-cli compile --fqbn arduino:avr:mega firmware/test_shock_sensor
+arduino-cli compile --fqbn arduino:avr:mega firmware/test_solenoid
 ```
 
 ## Upload
@@ -29,7 +31,13 @@ arduino-cli compile --fqbn arduino:avr:mega firmware/mega_coin_security
 ```bash
 arduino-cli upload --port /dev/ttyUSB0 --fqbn arduino:avr:mega firmware/mega_bill
 arduino-cli upload --port /dev/ttyACM0 --fqbn arduino:avr:mega firmware/mega_coin_security
+arduino-cli upload --port /dev/ttyACM0 --fqbn arduino:avr:mega firmware/test_shock_sensor
+arduino-cli upload --port /dev/ttyACM0 --fqbn arduino:avr:mega firmware/test_solenoid
 ```
+
+Upload only one sketch at a time to the coin/security Mega. The `test_*`
+sketches are bench tools and replace the production `mega_coin_security`
+firmware until the production sketch is uploaded again.
 
 ## Smoke Test
 
@@ -54,3 +62,16 @@ is the active-HIGH acceptor enable signal, and `D7` drives the three-position
 coin sorter servo: `CENTER=81`, `LEFT=45`, and `RIGHT=120`. PHP 1 and PHP 5
 coins sort right; PHP 10 and PHP 20 coins sort left. The safe smoke test reads
 `COIN_STATUS`; `--actuate` toggles the acceptor enable and moves the sorter.
+
+## Hardware Bench Tests
+
+`firmware/test_shock_sensor` tests the production shock sensor pins D19 and
+D20. The SW-420 sensing element is normally closed at rest, while module `DO`
+is HIGH at idle/no vibration and falls LOW on vibration. The sketch uses
+`INPUT_PULLUP`, falling-edge interrupts, and prints current levels plus tamper
+events at 115200 baud.
+
+`firmware/test_solenoid` tests the production solenoid relay pin D21 and LEDs
+D22/D23. It boots locked/off with D21 LOW, red LED on, and green LED off.
+Actuation is serial-command only: send `LOCK`, `UNLOCK`, `PULSE`, `STATUS`, or
+`HELP` at 115200 baud. `PULSE` energizes D21 briefly and then returns locked.

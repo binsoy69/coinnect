@@ -123,8 +123,8 @@ The security system protects the kiosk from unauthorized access and tampering.
            │     │     │
            │     │     │
            │     │     └───────────────► Digital Output
-           │     │                       (HIGH = no vibration)
-           │     │                       (LOW = vibration detected)
+           │     │                       Module DO: HIGH = no vibration
+           │     │                       Module DO: LOW  = vibration detected
            │     │
            │     └─────────────────────► GND
            │
@@ -134,8 +134,9 @@ The security system protects the kiosk from unauthorized access and tampering.
     OPERATING PRINCIPLE:
     ════════════════════
 
-    The SW-420 contains a spring-loaded conductive element
-    that makes/breaks contact when vibration occurs.
+    The SW-420 contains a spring-loaded conductive element that is normally
+    closed at rest and opens/makes contact changes when vibration occurs. The
+    module comparator exposes this as an active-low digital output.
 
     Normal State:      Triggered:
     ┌─────────┐       ┌─────────┐
@@ -146,6 +147,11 @@ The security system protects the kiosk from unauthorized access and tampering.
      Contact           Contact
      Closed            Open
 ```
+
+Firmware reads the SW-420 module `DO` pin, not a separate fail-safe NC loop.
+`DO` is HIGH when idle/no vibration and falls LOW when vibration is detected.
+A disconnected `DO` wire can read HIGH because of pull-up behavior, so this
+design does not treat a broken wire as tamper.
 
 ### 6.3.2 Shock Sensor Wiring
 
@@ -556,6 +562,7 @@ void setup() {
     Serial.begin(115200);
 
     // Pin modes
+    // SW-420 module DO idles HIGH and falls LOW when vibration is detected.
     pinMode(SHOCK_A_PIN, INPUT_PULLUP);
     pinMode(SHOCK_B_PIN, INPUT_PULLUP);
     pinMode(SOLENOID_PIN, OUTPUT);
@@ -567,7 +574,7 @@ void setup() {
     digitalWrite(LED_RED_PIN, HIGH);   // Red ON
     digitalWrite(LED_GREEN_PIN, LOW);  // Green OFF
 
-    // Attach interrupts for shock sensors
+    // Attach interrupts for active-low module DO signals
     attachInterrupt(digitalPinToInterrupt(SHOCK_A_PIN), shockISR_A, FALLING);
     attachInterrupt(digitalPinToInterrupt(SHOCK_B_PIN), shockISR_B, FALLING);
 

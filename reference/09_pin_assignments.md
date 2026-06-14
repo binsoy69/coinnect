@@ -16,8 +16,8 @@
 | GPIO17 | 11 | L298N IN1 | Output | Bill acceptor motor direction |
 | GPIO27 | 13 | L298N IN2 | Output | Bill acceptor motor direction |
 | GPIO22 | 15 | L298N ENA | Output PWM | Bill acceptor motor speed |
-| GPIO5 | 29 | IR Sensor 1 | Input | Bill entry, pull-up enabled |
-| GPIO6 | 31 | IR Sensor 2 | Input | Bill position, pull-up enabled |
+| GPIO5 | 29 | Entry IR Sensor | Input | Bill entry, pull-up enabled |
+| GPIO6 | 31 | Unused | - | Available spare GPIO |
 | GPIO23 | 16 | UV LED Control | Output | Relay or MOSFET driver |
 | GPIO24 | 18 | White LED Control | Output | MOSFET driver |
 | 3.3V | 1, 17 | Sensor Power | Power | IR sensor VCC |
@@ -110,12 +110,17 @@ drive it through a transistor, optocoupler, or level shifter instead of wiring
 
 | Pin | Function | Type | Notes |
 | --- | -------- | ---- | ----- |
-| D19 | Shock Sensor A | Input interrupt | `INT4`, LOW = vibration detected |
-| D20 | Shock Sensor B | Input interrupt | `INT3`, LOW = vibration detected |
+| D19 | Shock Sensor A | Input interrupt | `INT4`, SW-420 NC module DO, HIGH idle / LOW vibration |
+| D20 | Shock Sensor B | Input interrupt | `INT3`, SW-420 NC module DO, HIGH idle / LOW vibration |
 | D21 | Solenoid Relay | Output | Lock control |
 | D22 | Red Status LED | Output | Fault/lockdown indicator |
 | D23 | Green Status LED | Output | Ready/normal indicator |
 | A0-A6 | Keypad Matrix | I/O | 4 rows + 3 columns |
+
+Shock sensors use the SW-420 module digital output. The sensing element is
+normally closed at rest, but firmware reads module `DO`: HIGH means idle/no
+vibration, LOW means vibration/tamper. Inputs use `INPUT_PULLUP` and detect
+tamper on the falling edge. This is not a fail-safe broken-wire NC loop.
 
 ---
 

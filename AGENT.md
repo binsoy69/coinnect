@@ -58,8 +58,8 @@ Raspberry Pi (bill acceptor):
 - GPIO17: L298N IN1 (motor direction)
 - GPIO27: L298N IN2 (motor direction)
 - GPIO22: L298N ENA (PWM)
-- GPIO5: IR Sensor 1 (bill entry)
-- GPIO6: IR Sensor 2 (bill position)
+- GPIO5: IR sensor (bill entry)
+- GPIO6: unused by bill acceptor
 - GPIO23: UV LED control (relay)
 - GPIO24: White LED control (MOSFET)
 
@@ -79,7 +79,8 @@ Arduino Mega #2 (coin + security):
 
 **Logic Levels and Sensor Behavior**
 - IR obstacle sensors (bill acceptor + dispensers): LOW means obstacle detected (bill present)
-- SW-420 shock sensors: LOW means vibration detected
+- SW-420 shock sensors: normally closed sensing element; module DO is HIGH at rest/no vibration and LOW when vibration is detected
+- Shock sensor firmware uses `INPUT_PULLUP` and falling-edge interrupts; this is not a fail-safe broken-wire NC loop
 
 **Timing Expectations (Typical)**
 - Bill acceptance (RPi-controlled): ~3-6s typical, 10s max

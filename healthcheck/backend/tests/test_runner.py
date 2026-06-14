@@ -36,16 +36,11 @@ class FakeCoinController:
 class FakeGPIO:
     def __init__(self):
         self.entry_detected = True
-        self.position_detected = True
         self.call_log = []
 
     async def is_bill_at_entry(self):
         self.call_log.append("is_bill_at_entry")
         return self.entry_detected
-
-    async def is_bill_in_position(self):
-        self.call_log.append("is_bill_in_position")
-        return self.position_detected
 
     async def motor_forward(self, speed: int):
         self.call_log.append(f"motor_forward({speed})")
@@ -336,7 +331,7 @@ async def test_full_bill_acceptor_flow_waits_for_entry_then_stores_bill():
         use_mock_serial=True,
         use_mock_hardware=True,
         led_stabilization_delay=0,
-        bill_position_timeout=0.01,
+        bill_pull_duration=0,
         bill_store_duration=0,
         bill_eject_duration=0,
         _env_file=None,
@@ -367,6 +362,8 @@ async def test_full_bill_acceptor_flow_waits_for_entry_then_stores_bill():
     assert result.response["denomination"] == "PHP_100"
     assert gpio.call_log[0] == "is_bill_at_entry"
     assert "motor_forward(60)" in gpio.call_log
+    assert gpio.call_log.index("motor_stop") < gpio.call_log.index("uv_led_on")
+    assert camera.capture_count == 2
     bill_controller.sort.assert_awaited_once_with(BillDenom.PHP_100)
     assert machine_status.snapshot().consumables.bill_storage_counts["PHP_100"] == 1
 
@@ -376,7 +373,7 @@ async def test_full_bill_acceptor_flow_rejects_fake_bill_without_sorting():
         use_mock_serial=True,
         use_mock_hardware=True,
         led_stabilization_delay=0,
-        bill_position_timeout=0.01,
+        bill_pull_duration=0,
         bill_store_duration=0,
         bill_eject_duration=0,
         _env_file=None,
@@ -418,7 +415,7 @@ async def test_full_bill_acceptor_flow_camera_error_stops_motor_and_leds():
         use_mock_serial=True,
         use_mock_hardware=True,
         led_stabilization_delay=0,
-        bill_position_timeout=0.01,
+        bill_pull_duration=0,
         bill_store_duration=0,
         bill_eject_duration=0,
         _env_file=None,

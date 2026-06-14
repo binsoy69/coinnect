@@ -73,7 +73,7 @@ The diagnostics UI exposes three bill ML sections:
   view before running these tests.
 - `Bill Acceptor Full Flow`: `bill_acceptor_flow_php`,
   `bill_acceptor_flow_usd`, and `bill_acceptor_flow_eur` wait for the entry IR,
-  run the conveyor to the camera-position IR, authenticate under UV, reject fake
+  run the conveyor for `BILL_PULL_DURATION`, authenticate under UV, reject fake
   bills, identify genuine bills under white light, sort, store, and increment
   inventory.
 
@@ -88,7 +88,7 @@ BILL_EJECT_SPEED=80
 BILL_STORE_SPEED=70
 LED_STABILIZATION_DELAY=0.2
 BILL_ACCEPTANCE_TIMEOUT=10
-BILL_POSITION_TIMEOUT=5.0
+BILL_PULL_DURATION=1.5
 BILL_STORE_DURATION=2.0
 BILL_EJECT_DURATION=1.5
 STORAGE_SLOT_CAPACITY=100

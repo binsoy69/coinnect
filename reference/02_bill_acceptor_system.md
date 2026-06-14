@@ -16,7 +16,7 @@ The bill acceptor system is entirely controlled by the Raspberry Pi to minimize 
 
 - 1x DC Motor (12V) - Bill conveyor
 - 1x L298N Motor Driver
-- 2x IR Obstacle Sensors (FC-51)
+- 1x IR Obstacle Sensor (FC-51) for bill entry detection
 - 1x USB Camera (1080p minimum)
 - 1x UV LED Strip (365-395nm)
 - 1x Single White LED
@@ -43,8 +43,7 @@ The bill acceptor system is entirely controlled by the Raspberry Pi to minimize 
                          │ GPIO27 ────────────────►│─── L298N IN2 (Motor Dir 2)
                          │ GPIO22 ────────────────►│─── L298N ENA (PWM Enable)
                          │                         │
-                         │ GPIO5  ◄────────────────│─── IR Sensor 1 (Bill Entry)
-                         │ GPIO6  ◄────────────────│─── IR Sensor 2 (Position)
+                         │ GPIO5  ◄────────────────│─── IR Sensor (Bill Entry)
                          │                         │
                          │ GPIO23 ────────────────►│─── UV LED (via Relay)
                          │ GPIO24 ────────────────►│─── White LED (via MOSFET)
@@ -73,10 +72,6 @@ The bill acceptor system is entirely controlled by the Raspberry Pi to minimize 
     │      ║              │  ROLLER │     │  PANEL  │                          │
     │      ║              └─────────┘     └─────────┘                          │
     │      ║                                   │                               │
-    │      ║                              ┌────┴────┐                          │
-    │      ║                              │  IR #2  │                          │
-    │      ║                              │(Position│                          │
-    │      ║                              └─────────┘                          │
     │                                                                          │
     └──────────────────────────────────────────────────────────────────────────┘
 ```
@@ -119,17 +114,10 @@ The bill acceptor system is entirely controlled by the Raspberry Pi to minimize 
 ```
                     IR OBSTACLE SENSOR
 
-    Sensor #1 (Bill Entry)              Sensor #2 (Bill Position)
-    ┌─────────────────────┐             ┌─────────────────────┐
-    │                     │             │                     │
-    │                     │             │                     │
-    │  VCC ───── 5V       │             │  VCC ───── 5V       │
-    │  GND ───── GND      │             │  GND ───── GND      │
-    │  OUT ───── GPIO5    │             │  OUT ───── GPIO6    │
-    │                     │             │                     │
-    │   [Sensitivity Pot] │             │   [Sensitivity Pot] │
-    │         ◯           │             │         ◯           │
-    └─────────────────────┘             └─────────────────────┘
+    Entry Sensor (Bill Entry)
+    VCC -> 5V or 3.3V, depending on sensor module output compatibility
+    GND -> RPi GND
+    OUT -> GPIO5
 
 
     OUTPUT LOGIC:
@@ -273,8 +261,7 @@ The bill acceptor system is entirely controlled by the Raspberry Pi to minimize 
     │  │   5V   ────► (Available)                                            │    │
     │  │   GND  ────► Common Ground                                          │    │
     │  │                                                                      │    │
-    │  │   GPIO5  ◄── IR Sensor 1 OUT (Bill Entry)                           │    │
-    │  │   GPIO6  ◄── IR Sensor 2 OUT (Bill Position)                        │    │
+    │  │   GPIO5  ◄── IR Sensor OUT (Bill Entry)                             │    │
     │  │                                                                      │    │
     │  │   GPIO17 ──► L298N IN1                                              │    │
     │  │   GPIO27 ──► L298N IN2                                              │    │
@@ -308,7 +295,7 @@ MOTOR_IN2 = 27
 MOTOR_ENA = 22  # PWM pin
 
 IR_ENTRY = 5
-IR_POSITION = 6
+BILL_PULL_DURATION = 1.5  # Calibrate for entry-to-camera travel time
 
 UV_LED = 23
 WHITE_LED = 24
@@ -321,9 +308,8 @@ GPIO.setup(MOTOR_IN1, GPIO.OUT)
 GPIO.setup(MOTOR_IN2, GPIO.OUT)
 GPIO.setup(MOTOR_ENA, GPIO.OUT)
 
-# IR sensors (input with pull-up)
+# Entry IR sensor (input with pull-up)
 GPIO.setup(IR_ENTRY, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-GPIO.setup(IR_POSITION, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
 # LED control
 GPIO.setup(UV_LED, GPIO.OUT)
@@ -384,10 +370,6 @@ def white_led_off():
 def is_bill_at_entry():
     """Check if bill is detected at entry slot"""
     return GPIO.input(IR_ENTRY) == GPIO.LOW  # LOW = detected
-
-def is_bill_in_position():
-    """Check if bill is in camera position"""
-    return GPIO.input(IR_POSITION) == GPIO.LOW
 ```
 
 ### 2.5.5 Main Bill Acceptance Sequence
@@ -406,20 +388,11 @@ def accept_bill():
 
     print("Bill detected at entry")
 
-    # Pull bill into position
+    # Pull bill into camera position using calibrated timing.
     motor_forward(speed=60)
-
-    # Wait for bill to reach camera position
-    timeout = time.time() + 5  # 5 second timeout
-    while not is_bill_in_position():
-        if time.time() > timeout:
-            motor_stop()
-            return (False, None, "TIMEOUT_POSITION")
-        time.sleep(0.01)
-
-    # Stop motor when bill is in position
+    time.sleep(BILL_PULL_DURATION)  # e.g. 1.5s; calibrate per mechanism
     motor_stop()
-    print("Bill in position")
+    print("Bill positioned by calibrated motor timing")
 
     # AUTHENTICATION PHASE
     uv_led_on()
@@ -478,7 +451,7 @@ def accept_bill():
 | Operation                 | Typical Duration | Maximum        |
 | ------------------------- | ---------------- | -------------- |
 | Bill entry detection      | Instant          | 10ms           |
-| Motor pull to position    | 1-2 seconds      | 3 seconds      |
+| Motor pull to position    | Calibrated (default 1.5s) | 3 seconds |
 | UV LED stabilization      | 200ms            | 300ms          |
 | Camera capture            | 50-100ms         | 200ms          |
 | YOLO inference (auth)     | 100-300ms        | 500ms          |
@@ -493,12 +466,10 @@ def accept_bill():
 
 | Error Code             | Description                               | Recovery Action           |
 | ---------------------- | ----------------------------------------- | ------------------------- |
-| `TIMEOUT_POSITION`     | Bill didn't reach camera position in time | Reverse motor, eject bill |
 | `NOT_GENUINE`          | Authentication model rejected bill        | Reverse motor, eject bill |
 | `UNKNOWN_DENOMINATION` | Denomination model couldn't identify      | Reverse motor, eject bill |
 | `SORTER_TIMEOUT`       | Arduino didn't respond with READY         | Log error, eject bill     |
 | `CAMERA_ERROR`         | Camera capture failed                     | Retry once, then eject    |
-| `MOTOR_STUCK`          | IR sensor not changing state              | Alert maintenance         |
 
 ---
 

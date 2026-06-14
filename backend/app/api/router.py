@@ -66,8 +66,6 @@ async def _handle_ws_action(
                 gpio = bill_acceptor._gpio
                 if hasattr(gpio, "set_bill_at_entry"):
                     gpio.set_bill_at_entry(True)
-                if hasattr(gpio, "set_bill_in_position"):
-                    gpio.set_bill_in_position(True)
                 await orchestrator.handle_bill_inserted()
             except Exception as e:
                 logger.error(f"WS SIMULATE_BILL_INSERT error: {e}")
@@ -100,8 +98,6 @@ async def _handle_ws_action(
                 gpio = bill_acceptor._gpio
                 if hasattr(gpio, "set_bill_at_entry"):
                     gpio.set_bill_at_entry(True)
-                if hasattr(gpio, "set_bill_in_position"):
-                    gpio.set_bill_in_position(True)
                 await forex_orchestrator.handle_bill_inserted()
             except Exception as e:
                 logger.error(f"WS SIMULATE_FOREX_BILL_INSERT error: {e}")

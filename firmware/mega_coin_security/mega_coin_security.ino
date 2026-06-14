@@ -17,9 +17,10 @@ static const uint8_t SERVO_PHP_5_PIN = 45;
 static const uint8_t SERVO_PHP_10_PIN = 46;
 static const uint8_t SERVO_PHP_20_PIN = 6;
 
-// Security pins.
-static const uint8_t SHOCK_A_PIN = 19;  // INT4
-static const uint8_t SHOCK_B_PIN = 20;  // INT3
+// Security pins. SW-420 modules use a normally closed sensing element, but
+// the module DO line idles HIGH and falls LOW when vibration is detected.
+static const uint8_t SHOCK_A_PIN = 19;  // INT4, active-low DO
+static const uint8_t SHOCK_B_PIN = 20;  // INT3, active-low DO
 static const uint8_t SOLENOID_PIN = 21;
 static const uint8_t LED_RED_PIN = 22;
 static const uint8_t LED_GREEN_PIN = 23;
@@ -654,6 +655,7 @@ void setupCoinServos() {
 }
 
 void setupSecurityPins() {
+  // Pull-ups keep module DO at a stable HIGH when idle/no vibration.
   pinMode(SHOCK_A_PIN, INPUT_PULLUP);
   pinMode(SHOCK_B_PIN, INPUT_PULLUP);
   pinMode(SOLENOID_PIN, OUTPUT);
@@ -673,6 +675,7 @@ void setup() {
   setupSecurityPins();
 
   attachInterrupt(digitalPinToInterrupt(COIN_PULSE_PIN), coinPulseISR, FALLING);
+  // Tamper is detected when the normally closed SW-420 module DO falls LOW.
   attachInterrupt(digitalPinToInterrupt(SHOCK_A_PIN), shockAISR, FALLING);
   attachInterrupt(digitalPinToInterrupt(SHOCK_B_PIN), shockBISR, FALLING);
 

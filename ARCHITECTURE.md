@@ -184,7 +184,7 @@ Responsibilities:
 1. User selects cash-in and provider (e.g., GCash/Maya); enters account reference.
 2. RPi starts a transaction session locally (ledger "pending").
 3. User inserts bill(s).
-4. RPi bill acceptor subsystem detects entry/position, captures images under controlled lighting, runs ML authentication + denomination.
+4. RPi bill acceptor subsystem detects bill entry, runs the acceptor motor for a calibrated duration, captures images under controlled lighting, and runs ML authentication + denomination.
 5. If accepted, RPi commands Arduino #1 to align the correct sorting slot.
 6. Arduino #1 signals READY; RPi drives acceptor motor to route bill into the aligned slot.
 7. RPi updates local inventory and session total; UI displays updated amount.

@@ -16,6 +16,10 @@ async def test_component_registry_contains_expected_groups(authed_client):
         "bill_controller",
         "coin_security",
     }.issubset(group_ids)
+    rpi_group = next(group for group in groups if group["id"] == "rpi_bill_acceptor")
+    rpi_test_ids = {test["id"] for test in rpi_group["tests"]}
+    assert "rpi_ir_entry" in rpi_test_ids
+    assert "rpi_ir_position" not in rpi_test_ids
     coin_group = next(group for group in groups if group["id"] == "coin_security")
     coin_test_ids = {test["id"] for test in coin_group["tests"]}
     assert {

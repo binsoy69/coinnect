@@ -75,7 +75,7 @@ class Settings(BaseSettings):
 
     # Bill acceptor timing (seconds)
     led_stabilization_delay: float = 0.2
-    bill_position_timeout: float = 5.0
+    bill_pull_duration: float = 1.5
     bill_store_duration: float = 2.0
     bill_eject_duration: float = 1.5
 

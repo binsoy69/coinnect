@@ -106,7 +106,6 @@ class DiagnosticsRunner:
             "connectivity_coin_ping": self._coin_ping,
             "connectivity_coin_version": self._coin_version,
             "rpi_ir_entry": self._rpi_ir_entry,
-            "rpi_ir_position": self._rpi_ir_position,
             "rpi_conveyor_forward": self._rpi_conveyor_forward,
             "rpi_conveyor_reverse": self._rpi_conveyor_reverse,
             "rpi_uv_led": self._rpi_uv_led,
@@ -185,10 +184,6 @@ class DiagnosticsRunner:
     async def _rpi_ir_entry(self) -> dict:
         gpio = self._require_gpio()
         return {"detected": await gpio.is_bill_at_entry()}
-
-    async def _rpi_ir_position(self) -> dict:
-        gpio = self._require_gpio()
-        return {"detected": await gpio.is_bill_in_position()}
 
     async def _rpi_conveyor_forward(self) -> dict:
         gpio = self._require_gpio()

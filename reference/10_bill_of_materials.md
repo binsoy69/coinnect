@@ -60,7 +60,7 @@ This document lists all electronic and electrical components required for the Co
 
 | Item               | Specification    | Qty | Unit Price (₱) | Total (₱) | Notes                      |
 | ------------------ | ---------------- | --- | -------------- | --------- | -------------------------- |
-| IR Obstacle Sensor | FC-51 / KY-032   | 14  | 50             | 700       | 12 dispensers + 2 acceptor |
+| IR Obstacle Sensor | FC-51 / KY-032   | 13  | 50             | 650       | 12 dispensers + 1 acceptor |
 | USB Camera         | 1080p, autofocus | 1   | 800            | 800       | Bill authentication        |
 | Limit Switch       | Micro switch NO  | 1   | 30             | 30        | Sorter home                |
 | **Subtotal**       |                  |     |                | **1,530** |                            |

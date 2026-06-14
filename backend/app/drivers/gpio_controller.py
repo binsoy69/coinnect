@@ -1,6 +1,6 @@
 """GPIO controller for bill acceptor hardware.
 
-Controls the bill conveyor motor (L298N driver), IR sensors,
+Controls the bill conveyor motor (L298N driver), entry IR sensor,
 and LED lighting on the Raspberry Pi.
 """
 
@@ -39,10 +39,6 @@ class GPIOControllerBase(ABC):
         """Check if bill is detected at entry IR sensor (GPIO5)."""
 
     @abstractmethod
-    async def is_bill_in_position(self) -> bool:
-        """Check if bill is at camera position IR sensor (GPIO6)."""
-
-    @abstractmethod
     async def uv_led_on(self) -> None:
         """Turn on UV LED strip via relay (GPIO23)."""
 
@@ -66,8 +62,7 @@ class RPiGPIOController(GPIOControllerBase):
       GPIO17 -> L298N IN1 (motor direction 1)
       GPIO27 -> L298N IN2 (motor direction 2)
       GPIO22 -> L298N ENA (PWM enable)
-      GPIO5  -> IR sensor 1 (bill entry) - LOW = detected
-      GPIO6  -> IR sensor 2 (bill position) - LOW = detected
+      GPIO5  -> IR sensor (bill entry) - LOW = detected
       GPIO23 -> UV LED relay - HIGH = on
       GPIO24 -> White LED MOSFET - HIGH = on
     """
@@ -77,7 +72,6 @@ class RPiGPIOController(GPIOControllerBase):
     MOTOR_IN2 = 27
     MOTOR_ENA = 22
     IR_ENTRY = 5
-    IR_POSITION = 6
     UV_LED = 23
     WHITE_LED = 24
     PWM_FREQUENCY = 1000  # 1kHz PWM
@@ -115,9 +109,8 @@ class RPiGPIOController(GPIOControllerBase):
         self._pwm = GPIO.PWM(self.MOTOR_ENA, self.PWM_FREQUENCY)
         self._pwm.start(0)
 
-        # IR sensor inputs (with pull-up; LOW = detected)
+        # Entry IR sensor input (with pull-up; LOW = detected)
         GPIO.setup(self.IR_ENTRY, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        GPIO.setup(self.IR_POSITION, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
         # LED outputs
         GPIO.setup(self.UV_LED, GPIO.OUT, initial=GPIO.LOW)
@@ -156,12 +149,6 @@ class RPiGPIOController(GPIOControllerBase):
     async def is_bill_at_entry(self) -> bool:
         result = await self._loop.run_in_executor(
             None, self._gpio.input, self.IR_ENTRY
-        )
-        return result == self._gpio.LOW  # LOW = detected
-
-    async def is_bill_in_position(self) -> bool:
-        result = await self._loop.run_in_executor(
-            None, self._gpio.input, self.IR_POSITION
         )
         return result == self._gpio.LOW  # LOW = detected
 

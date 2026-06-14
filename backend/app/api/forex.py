@@ -210,8 +210,6 @@ async def simulate_forex_insert(
                 gpio = bill_acceptor._gpio
                 if hasattr(gpio, "set_bill_at_entry"):
                     gpio.set_bill_at_entry(True)
-                if hasattr(gpio, "set_bill_in_position"):
-                    gpio.set_bill_in_position(True)
             except (ValueError, KeyError):
                 raise HTTPException(status_code=400, detail=f"Invalid denomination: {denom}")
 

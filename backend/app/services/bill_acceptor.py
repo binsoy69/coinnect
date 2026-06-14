@@ -40,7 +40,7 @@ class BillAcceptor:
 
     Flow:
     1. Wait for bill at entry sensor
-    2. Pull bill to camera position
+    2. Pull bill to camera position for a calibrated duration
     3. UV capture + authenticate
     4. White capture + identify denomination
     5. Check storage capacity
@@ -111,7 +111,7 @@ class BillAcceptor:
             positioned = await self._position_bill()
             if not positioned:
                 await self._eject_bill()
-                return BillAcceptResult(error="TIMEOUT_POSITION")
+                return BillAcceptResult(error="POSITIONING_FAILED")
 
             # Step 2: UV authentication
             await self._broadcast(WSEventType.BILL_ACCEPTING, {"step": "authenticating"})
@@ -249,26 +249,17 @@ class BillAcceptor:
             return BillAcceptResult(error=str(e))
 
     async def _position_bill(self) -> bool:
-        """Pull bill from entry to camera position.
+        """Pull bill from entry to camera position using calibrated timing.
 
         Returns:
-            True if bill reached camera position, False on timeout.
+            True if the timed motor run completed.
         """
-        await self._gpio.motor_forward(self._settings.bill_pull_speed)
-
-        deadline = (
-            asyncio.get_event_loop().time()
-            + self._settings.bill_position_timeout
-        )
-        while asyncio.get_event_loop().time() < deadline:
-            if await self._gpio.is_bill_in_position():
-                await self._gpio.motor_stop()
-                return True
-            await asyncio.sleep(0.05)
-
-        await self._gpio.motor_stop()
-        logger.warning("Bill position timeout")
-        return False
+        try:
+            await self._gpio.motor_forward(self._settings.bill_pull_speed)
+            await asyncio.sleep(self._settings.bill_pull_duration)
+            return True
+        finally:
+            await self._gpio.motor_stop()
 
     async def _store_bill(self) -> None:
         """Motor forward to push bill into storage slot."""

@@ -34,7 +34,7 @@ def test_settings():
         db_url="sqlite+aiosqlite:///:memory:",
         # Zero delays for fast tests
         led_stabilization_delay=0.0,
-        bill_position_timeout=0.5,
+        bill_pull_duration=0.0,
         bill_store_duration=0.0,
         bill_eject_duration=0.0,
         bill_acceptance_timeout=1,
@@ -65,7 +65,6 @@ def ws_manager():
 def mock_gpio():
     gpio = MockGPIOController()
     gpio.set_bill_at_entry(True)
-    gpio.set_bill_in_position(True)
     return gpio
 
 

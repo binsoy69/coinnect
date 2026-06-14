@@ -81,13 +81,6 @@ def build_component_groups() -> list[ComponentGroup]:
                     description="Read the bill entry IR sensor.",
                 ),
                 TestDefinition(
-                    id="rpi_ir_position",
-                    label="Read Position IR",
-                    component="GPIO6",
-                    kind="sensor",
-                    description="Read the camera-position IR sensor.",
-                ),
-                TestDefinition(
                     id="rpi_conveyor_forward",
                     label="Conveyor Forward",
                     component="Bill acceptor motor",
@@ -202,11 +195,12 @@ def build_component_groups() -> list[ComponentGroup]:
                 TestDefinition(
                     id=f"bill_acceptor_flow_{currency.lower()}",
                     label=f"{currency} Bill Acceptor Flow",
-                    component="IR sensors + conveyor + LEDs + ML + sorter",
+                    component="Entry IR + timed conveyor + LEDs + ML + sorter",
                     kind="ml",
                     description=(
-                        f"Wait for a {currency} bill at entry IR, position it, "
-                        "authenticate it, identify denomination, then sort and store."
+                        f"Wait for a {currency} bill at entry IR, run the "
+                        "conveyor for the calibrated pull duration, authenticate "
+                        "it, identify denomination, then sort and store."
                     ),
                     caution=(
                         "Moves the bill conveyor and sorter. Accepted genuine bills "

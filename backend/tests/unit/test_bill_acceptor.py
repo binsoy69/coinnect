@@ -25,7 +25,6 @@ from app.services.bill_acceptor import BillAcceptor, BillAcceptResult
 def mock_gpio():
     gpio = MockGPIOController()
     gpio.set_bill_at_entry(True)
-    gpio.set_bill_in_position(True)
     return gpio
 
 
@@ -70,7 +69,7 @@ def test_settings():
         serial_port_bill="MOCK",
         serial_port_coin="MOCK",
         bill_acceptance_timeout=1,
-        bill_position_timeout=0.5,
+        bill_pull_duration=0.0,
         led_stabilization_delay=0.0,
         bill_pull_speed=60,
         bill_eject_speed=80,
@@ -283,20 +282,23 @@ class TestAcceptBillUnknownDenomination:
 
         assert "motor_reverse(80)" in mock_gpio.call_log
 
-class TestAcceptBillPositionTimeout:
-    """Bill position timeout (simulate_jam=True)."""
+class TestAcceptBillTimedPositioning:
+    """Bill positioning uses a calibrated motor run instead of a second IR."""
 
-    @pytest.fixture
-    def jam_gpio(self):
-        gpio = MockGPIOController(simulate_jam=True)
-        gpio.set_bill_at_entry(True)
-        # Do NOT set bill_in_position -- the jam will prevent it
-        return gpio
+    @pytest.mark.asyncio
+    async def test_positioning_runs_motor_then_authenticates(self, acceptor, mock_gpio):
+        result = await acceptor.accept_bill()
 
-    @pytest.fixture
-    def jam_acceptor(
+        assert result.success is True
+        assert "motor_forward(60)" in mock_gpio.call_log
+        first_stop = mock_gpio.call_log.index("motor_stop")
+        uv_on = mock_gpio.call_log.index("uv_led_on")
+        assert first_stop < uv_on
+
+    @pytest.mark.asyncio
+    async def test_positioning_uses_configured_pull_speed(
         self,
-        jam_gpio,
+        mock_gpio,
         mock_camera,
         mock_auth,
         mock_bill_controller,
@@ -304,8 +306,9 @@ class TestAcceptBillPositionTimeout:
         mock_ws_manager,
         test_settings,
     ):
-        return BillAcceptor(
-            gpio=jam_gpio,
+        test_settings.bill_pull_speed = 42
+        acceptor = BillAcceptor(
+            gpio=mock_gpio,
             camera=mock_camera,
             authenticator=mock_auth,
             bill_controller=mock_bill_controller,
@@ -314,36 +317,9 @@ class TestAcceptBillPositionTimeout:
             settings=test_settings,
         )
 
-    @pytest.mark.asyncio
-    async def test_position_timeout_returns_failure(self, jam_acceptor):
-        result = await jam_acceptor.accept_bill()
+        await acceptor.accept_bill()
 
-        assert result.success is False
-        assert result.error == "TIMEOUT_POSITION"
-
-    @pytest.mark.asyncio
-    async def test_position_timeout_does_not_authenticate(
-        self, jam_acceptor, mock_auth
-    ):
-        await jam_acceptor.accept_bill()
-
-        assert mock_auth.auth_call_count == 0
-        assert mock_auth.denom_call_count == 0
-
-    @pytest.mark.asyncio
-    async def test_position_timeout_does_not_sort(
-        self, jam_acceptor, mock_bill_controller
-    ):
-        await jam_acceptor.accept_bill()
-
-        mock_bill_controller.sort.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_position_timeout_ejects_bill(self, jam_acceptor, jam_gpio):
-        await jam_acceptor.accept_bill()
-
-        # Bill should be ejected after timeout
-        assert "motor_reverse(80)" in jam_gpio.call_log
+        assert "motor_forward(42)" in mock_gpio.call_log
 
 class TestAcceptBillStorageFull:
     """Storage full rejection."""
@@ -448,7 +424,7 @@ class TestWaitForBill:
             serial_port_bill="MOCK",
             serial_port_coin="MOCK",
             bill_acceptance_timeout=2,
-            bill_position_timeout=0.5,
+            bill_pull_duration=0.0,
             led_stabilization_delay=0.0,
             bill_store_duration=0.0,
             bill_eject_duration=0.0,
