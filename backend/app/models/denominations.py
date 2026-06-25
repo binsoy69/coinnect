@@ -9,11 +9,11 @@ _PHP_INT_TO_BILL: Dict[int, str] = {
 }
 
 _USD_INT_TO_BILL: Dict[int, str] = {
-    10: "USD_10", 50: "USD_50", 100: "USD_100",
+    10: "USD_10", 50: "USD_50",
 }
 
 _EUR_INT_TO_BILL: Dict[int, str] = {
-    5: "EUR_5", 10: "EUR_10", 20: "EUR_20",
+    5: "EUR_5", 10: "EUR_10",
 }
 
 _COIN_INT_TO_DENOM: Dict[int, str] = {

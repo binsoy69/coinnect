@@ -20,16 +20,16 @@ class TestBillDenom:
 
     def test_all_usd_denominations(self):
         usd_denoms = [d for d in BillDenom if d.value.startswith("USD")]
-        assert len(usd_denoms) == 3
+        assert len(usd_denoms) == 2
 
     def test_all_eur_denominations(self):
         eur_denoms = [d for d in BillDenom if d.value.startswith("EUR")]
-        assert len(eur_denoms) == 3
+        assert len(eur_denoms) == 2
 
     def test_string_format(self):
         assert BillDenom.PHP_100.value == "PHP_100"
         assert BillDenom.USD_50.value == "USD_50"
-        assert BillDenom.EUR_20.value == "EUR_20"
+        assert BillDenom.EUR_10.value == "EUR_10"
 
 
 class TestSlotMapping:

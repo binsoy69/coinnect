@@ -167,6 +167,7 @@ class MockSerial:
             "SORT_STATUS": self._handle_sort_status,
             "DISPENSE": self._handle_dispense,
             "DISPENSE_STATUS": self._handle_dispense_status,
+            "CONVEYOR": self._handle_conveyor,
         }
         coin_handlers = {
             "COIN_DISPENSE": self._handle_coin_dispense,
@@ -255,6 +256,12 @@ class MockSerial:
         except ValueError:
             return [{"status": "ERROR", "code": "INVALID_DENOM"}]
         return [{"status": "OK", "ready": True}]
+
+    def _handle_conveyor(self, cmd: dict) -> List[dict]:
+        target = cmd.get("target", "")
+        if target not in ("PHP", "FOREIGN"):
+            return [{"status": "ERROR", "code": "INVALID_PARAM"}]
+        return [{"status": "OK", "target": target}]
 
     # --- Coin & Security handlers (Arduino #2) ---
 

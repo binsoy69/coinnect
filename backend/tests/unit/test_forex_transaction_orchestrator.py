@@ -98,8 +98,8 @@ def mock_machine_status():
     snapshot.consumables.bill_dispenser_counts = {
         "PHP_1000": 50, "PHP_500": 50, "PHP_200": 50,
         "PHP_100": 100, "PHP_50": 100, "PHP_20": 200,
-        "USD_100": 20, "USD_50": 20, "USD_10": 50,
-        "EUR_20": 30, "EUR_10": 30, "EUR_5": 50,
+        "USD_50": 20, "USD_10": 50,
+        "EUR_10": 30, "EUR_5": 50,
     }
     snapshot.consumables.coin_counts = {
         "PHP_20": 200, "PHP_10": 200, "PHP_5": 200, "PHP_1": 500,

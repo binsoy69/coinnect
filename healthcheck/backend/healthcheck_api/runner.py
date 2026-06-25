@@ -126,6 +126,8 @@ class DiagnosticsRunner:
             "coin_sorter_right": self._coin_sorter_position_handler("RIGHT"),
             "coin_acceptor_listen": self._coin_acceptor_listen,
             "coin_tamper_listen": self._coin_tamper_listen,
+            "bill_conveyor_php": self._bill_conveyor_php,
+            "bill_conveyor_foreign": self._bill_conveyor_foreign,
         }
 
         for definition in self._tests.values():
@@ -408,6 +410,12 @@ class DiagnosticsRunner:
             )
             if data.get("event") == event_name:
                 return {"event": data}
+
+    async def _bill_conveyor_php(self) -> dict:
+        return (await self._hardware.bill_controller.run_conveyor("PHP")).model_dump()
+
+    async def _bill_conveyor_foreign(self) -> dict:
+        return (await self._hardware.bill_controller.run_conveyor("FOREIGN")).model_dump()
 
     def _require_gpio(self):
         if self._hardware.gpio is None or self._hardware.gpio_error:

@@ -92,12 +92,12 @@ def full_php_coin_inventory():
 
 @pytest.fixture
 def full_usd_bill_inventory():
-    return {"USD_100": 20, "USD_50": 20, "USD_10": 50}
+    return {"USD_50": 20, "USD_10": 50}
 
 
 @pytest.fixture
 def full_eur_bill_inventory():
-    return {"EUR_20": 30, "EUR_10": 30, "EUR_5": 50}
+    return {"EUR_10": 30, "EUR_5": 50}
 
 
 @pytest.fixture
@@ -106,8 +106,8 @@ def mixed_inventory():
     return {
         "PHP_1000": 50, "PHP_500": 50, "PHP_200": 50,
         "PHP_100": 100, "PHP_50": 100, "PHP_20": 200,
-        "USD_100": 20, "USD_50": 20, "USD_10": 50,
-        "EUR_20": 30, "EUR_10": 30, "EUR_5": 50,
+        "USD_50": 20, "USD_10": 50,
+        "EUR_10": 30, "EUR_5": 50,
     }
 
 

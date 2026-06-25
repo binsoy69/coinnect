@@ -8,8 +8,8 @@ import AdminInventoryScreen from "./AdminInventoryScreen";
 const inventory = {
   bill_dispenser_counts: {
     PHP_20: 1, PHP_50: 2, PHP_100: 3, PHP_200: 4, PHP_500: 5,
-    PHP_1000: 6, USD_10: 7, USD_50: 8, USD_100: 9,
-    EUR_5: 10, EUR_10: 11, EUR_20: 12,
+    PHP_1000: 6, USD_10: 7, USD_50: 8,
+    EUR_5: 10, EUR_10: 11,
   },
   coin_counts: { PHP_1: 10, PHP_5: 20, PHP_10: 30, PHP_20: 40 },
   bill_storage_counts: {

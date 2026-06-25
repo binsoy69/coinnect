@@ -14,6 +14,7 @@ from app.models.serial_messages import (
     SortResponse,
     SortStatusResponse,
     VersionResponse,
+    ConveyorResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,14 @@ class BillController:
 
     async def reset(self) -> None:
         await self._serial.send_bill_command({"cmd": "RESET"})
+
+    async def run_conveyor(self, target: str) -> ConveyorResponse:
+        """Run the specified conveyor motor (PHP or FOREIGN) for 1 second."""
+        raw = await self._serial.send_bill_command(
+            {"cmd": "CONVEYOR", "target": target},
+            timeout=3.0,
+        )
+        return self._parse_or_raise(raw, ConveyorResponse)
 
     @staticmethod
     def _parse_or_raise(raw: dict, success_model):

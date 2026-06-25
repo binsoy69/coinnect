@@ -52,13 +52,11 @@ _PHP_BILL_DENOMS = [
 ]
 
 _USD_BILL_DENOMS = [
-    (BillDenom.USD_100, 100),
     (BillDenom.USD_50, 50),
     (BillDenom.USD_10, 10),
 ]
 
 _EUR_BILL_DENOMS = [
-    (BillDenom.EUR_20, 20),
     (BillDenom.EUR_10, 10),
     (BillDenom.EUR_5, 5),
 ]

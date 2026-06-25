@@ -11,10 +11,8 @@ class BillDenom(str, Enum):
     PHP_1000 = "PHP_1000"
     USD_10 = "USD_10"
     USD_50 = "USD_50"
-    USD_100 = "USD_100"
     EUR_5 = "EUR_5"
     EUR_10 = "EUR_10"
-    EUR_20 = "EUR_20"
 
 
 class CoinDenom(int, Enum):
@@ -64,10 +62,8 @@ DENOM_TO_SLOT: Dict[BillDenom, SortSlot] = {
     BillDenom.PHP_1000: SortSlot.SLOT_6,
     BillDenom.USD_10: SortSlot.SLOT_7,
     BillDenom.USD_50: SortSlot.SLOT_7,
-    BillDenom.USD_100: SortSlot.SLOT_7,
     BillDenom.EUR_5: SortSlot.SLOT_8,
     BillDenom.EUR_10: SortSlot.SLOT_8,
-    BillDenom.EUR_20: SortSlot.SLOT_8,
 }
 
 # Slot -> stepper position (1/16 microstepping, steps from home)
@@ -92,10 +88,8 @@ BILL_DENOM_VALUES: Dict[BillDenom, int] = {
     BillDenom.PHP_1000: 1000,
     BillDenom.USD_10: 10,
     BillDenom.USD_50: 50,
-    BillDenom.USD_100: 100,
     BillDenom.EUR_5: 5,
     BillDenom.EUR_10: 10,
-    BillDenom.EUR_20: 20,
 }
 
 # Coin denomination -> integer PHP value
@@ -116,10 +110,8 @@ DISPENSER_UNITS: Dict[int, BillDenom] = {
     6: BillDenom.PHP_1000,
     7: BillDenom.USD_10,
     8: BillDenom.USD_50,
-    9: BillDenom.USD_100,
-    10: BillDenom.EUR_5,
-    11: BillDenom.EUR_10,
-    12: BillDenom.EUR_20,
+    9: BillDenom.EUR_5,
+    10: BillDenom.EUR_10,
 }
 
 
@@ -148,8 +140,8 @@ FOREX_PAIRS: Dict[ForexServiceType, tuple] = {
 CURRENCY_BILL_DENOMS: Dict[Currency, list] = {
     Currency.PHP: [BillDenom.PHP_20, BillDenom.PHP_50, BillDenom.PHP_100,
                    BillDenom.PHP_200, BillDenom.PHP_500, BillDenom.PHP_1000],
-    Currency.USD: [BillDenom.USD_10, BillDenom.USD_50, BillDenom.USD_100],
-    Currency.EUR: [BillDenom.EUR_5, BillDenom.EUR_10, BillDenom.EUR_20],
+    Currency.USD: [BillDenom.USD_10, BillDenom.USD_50],
+    Currency.EUR: [BillDenom.EUR_5, BillDenom.EUR_10],
 }
 
 # Bill denomination -> currency

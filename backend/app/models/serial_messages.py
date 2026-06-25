@@ -89,6 +89,11 @@ class ResetCommand(BaseModel):
     cmd: Literal["RESET"] = "RESET"
 
 
+class ConveyorCommand(BaseModel):
+    cmd: Literal["CONVEYOR"] = "CONVEYOR"
+    target: Literal["PHP", "FOREIGN"]
+
+
 # ============================================================================
 # Responses (Arduino -> RPi)
 # ============================================================================
@@ -186,6 +191,11 @@ class ErrorResponse(BaseModel):
     status: Literal["ERROR"]
     code: ErrorCode
     dispensed: Optional[int] = None
+
+
+class ConveyorResponse(BaseModel):
+    status: Literal["OK"]
+    target: Literal["PHP", "FOREIGN"]
 
 
 # ============================================================================

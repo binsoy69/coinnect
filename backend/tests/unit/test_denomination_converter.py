@@ -15,12 +15,12 @@ class TestFrontendToProtocol:
         assert result == {"PHP_100": 3, "PHP_50": 2}
 
     def test_usd_bills(self):
-        result = frontend_bills_to_protocol({10: 1, 100: 2}, currency="USD")
-        assert result == {"USD_10": 1, "USD_100": 2}
+        result = frontend_bills_to_protocol({10: 1, 50: 2}, currency="USD")
+        assert result == {"USD_10": 1, "USD_50": 2}
 
     def test_eur_bills(self):
-        result = frontend_bills_to_protocol({5: 4, 20: 1}, currency="EUR")
-        assert result == {"EUR_5": 4, "EUR_20": 1}
+        result = frontend_bills_to_protocol({5: 4, 10: 1}, currency="EUR")
+        assert result == {"EUR_5": 4, "EUR_10": 1}
 
     def test_unknown_denomination_skipped(self):
         result = frontend_bills_to_protocol({999: 1}, currency="PHP")
@@ -64,7 +64,7 @@ class TestDenomStringToValue:
         assert denom_string_to_value("USD_50") == 50
 
     def test_eur(self):
-        assert denom_string_to_value("EUR_20") == 20
+        assert denom_string_to_value("EUR_10") == 10
 
     def test_coin(self):
         assert denom_string_to_value("PHP_5") == 5

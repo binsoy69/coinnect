@@ -55,7 +55,7 @@ export default function VirtualKeypad({
       <div className="grid grid-cols-3 gap-2 lg:gap-4 max-w-md w-full mb-4 lg:mb-8">
         {keys.flat().map((key, index) => {
           if (key === "") {
-            return <div key={index} />;
+            return <div key={`empty-${index}`} />;
           }
 
           if (key === "backspace") {

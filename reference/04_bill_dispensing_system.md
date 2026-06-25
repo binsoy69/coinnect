@@ -472,33 +472,35 @@ struct DispenserUnit {
     String denomination;
 };
 
-// Define all 12 dispensers
-DispenserUnit dispensers[12] = {
+// Define all 10 dispensers
+DispenserUnit dispensers[10] = {
     // Unit 1: PHP 20
-    {22, 23, 24, 25, A0, "PHP_20"},
+    {10, 11, 12, 13, A0, "PHP_20"},
     // Unit 2: PHP 50
-    {26, 27, 28, 29, A1, "PHP_50"},
+    {14, 15, 16, 17, A1, "PHP_50"},
     // Unit 3: PHP 100
-    {30, 31, 32, 33, A2, "PHP_100"},
+    {18, 19, 20, 21, A2, "PHP_100"},
     // Unit 4: PHP 200
-    {34, 35, 36, 37, A3, "PHP_200"},
+    {22, 23, 24, 25, A3, "PHP_200"},
     // Unit 5: PHP 500
-    {38, 39, 40, 41, A4, "PHP_500"},
+    {26, 27, 28, 29, A4, "PHP_500"},
     // Unit 6: PHP 1000
-    {42, 43, 44, 45, A5, "PHP_1000"},
+    {30, 31, 32, 33, A5, "PHP_1000"},
     // Unit 7: USD 10
-    {46, 47, 48, 49, A6, "USD_10"},
+    {34, 35, 36, 37, A6, "USD_10"},
     // Unit 8: USD 50
-    {50, 51, 52, 53, A7, "USD_50"},
-    // Unit 9: USD 100
-    {A8, A9, A10, A11, 14, "USD_100"},
-    // Unit 10: EUR 5
-    {A12, A13, A14, A15, 15, "EUR_5"},
-    // Unit 11: EUR 10
-    {6, 7, 8, 9, 16, "EUR_10"},
-    // Unit 12: EUR 20
-    {10, 11, 12, 13, 17, "EUR_20"}
+    {38, 39, 40, 41, A7, "USD_50"},
+    // Unit 9: EUR 5
+    {42, 43, 44, 45, A8, "EUR_5"},
+    // Unit 10: EUR 10
+    {46, 47, 48, 49, A9, "EUR_10"}
 };
+
+// Conveyor motor control pins
+#define CONVEYOR_PHP_IN1     6
+#define CONVEYOR_PHP_IN2     7
+#define CONVEYOR_FOREIGN_IN1 8
+#define CONVEYOR_FOREIGN_IN2 9
 
 // Timing constants (milliseconds)
 #define PUSHER_DURATION     200

@@ -114,10 +114,9 @@ def test_validate_bill_model_pair_fails_for_wrong_currency_denom_labels(
         str(tmp_path / "auth_usd.pt"): {0: "genuine", 1: "fake"},
         str(tmp_path / "denom_usd.pt"): {
             0: "USD_10",
-            1: "USD_50",
-            2: "EUR_20",
+            1: "EUR_10",
         },
     }
 
-    with pytest.raises(BillModelDiagnosticError, match="missing labels.*USD_100"):
+    with pytest.raises(BillModelDiagnosticError, match="missing labels.*USD_50"):
         validate_bill_model_pair(settings, "USD")

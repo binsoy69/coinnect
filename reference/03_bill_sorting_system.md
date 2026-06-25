@@ -547,8 +547,8 @@ int denominationToSlot(String denom) {
     if (denom == "PHP_200")  return 4;
     if (denom == "PHP_500")  return 5;
     if (denom == "PHP_1000") return 6;
-    if (denom == "USD_10" || denom == "USD_50" || denom == "USD_100") return 7;
-    if (denom == "EUR_5" || denom == "EUR_10" || denom == "EUR_20")   return 8;
+    if (denom == "USD_10" || denom == "USD_50") return 7;
+    if (denom == "EUR_5" || denom == "EUR_10")   return 8;
     return -1;  // Unknown denomination
 }
 ```

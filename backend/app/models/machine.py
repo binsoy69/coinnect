@@ -44,8 +44,8 @@ class ConsumablesState(BaseModel):
         default_factory=lambda: {
             "PHP_20": 0, "PHP_50": 0, "PHP_100": 0,
             "PHP_200": 0, "PHP_500": 0, "PHP_1000": 0,
-            "USD_10": 0, "USD_50": 0, "USD_100": 0,
-            "EUR_5": 0, "EUR_10": 0, "EUR_20": 0,
+            "USD_10": 0, "USD_50": 0,
+            "EUR_5": 0, "EUR_10": 0,
         }
     )
     coin_counts: Dict[str, int] = Field(

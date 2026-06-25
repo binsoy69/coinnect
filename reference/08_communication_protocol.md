@@ -80,7 +80,7 @@ The Raspberry Pi communicates with **two Arduino Mega controllers** via separate
 | HOME        | `{"cmd":"HOME"}`                   | `{"status":"OK","position":0}`                           |
 | SORT_STATUS | `{"cmd":"SORT_STATUS"}`            | `{"status":"OK","position":14600,"slot":3,"homed":true}` |
 
-Valid denominations: PHP_20, PHP_50, PHP_100, PHP_200, PHP_500, PHP_1000, USD_10, USD_50, USD_100, EUR_5, EUR_10, EUR_20
+Valid denominations: PHP_20, PHP_50, PHP_100, PHP_200, PHP_500, PHP_1000, USD_10, USD_50, EUR_5, EUR_10
 
 ### 8.3.2 Bill Dispensing Commands
 
@@ -88,6 +88,7 @@ Valid denominations: PHP_20, PHP_50, PHP_100, PHP_200, PHP_500, PHP_1000, USD_10
 | --------------- | ------------------------------------------------ | ------------------------------- |
 | DISPENSE        | `{"cmd":"DISPENSE","denom":"PHP_100","count":2}` | `{"status":"OK","dispensed":2}` |
 | DISPENSE_STATUS | `{"cmd":"DISPENSE_STATUS","denom":"PHP_100"}`    | `{"status":"OK","ready":true}`  |
+| CONVEYOR        | `{"cmd":"CONVEYOR","target":"PHP"}`              | `{"status":"OK","target":"PHP"}`|
 
 ### 8.3.3 Coin System Commands
 

@@ -16,17 +16,17 @@ export const CURRENCY_SYMBOLS = {
 
 // Currency denominations per hardware spec
 export const FOREX_DENOMINATIONS = {
-  USD: [10, 50, 100], // USD bills accepted/dispensed
-  EUR: [5, 10, 20], // EUR bills accepted/dispensed
+  USD: [10, 50], // USD bills accepted/dispensed
+  EUR: [5, 10], // EUR bills accepted/dispensed
   PHP: [20, 50, 100, 200, 500, 1000], // PHP bills
 };
 
 // Amount options for selection (what user can choose to convert)
 export const FOREX_AMOUNT_OPTIONS = {
-  [FOREX_SERVICE_TYPES.USD_TO_PHP]: [5, 10, 100], // Select USD amount to convert
-  [FOREX_SERVICE_TYPES.PHP_TO_USD]: [5, 10, 100], // Select USD amount to receive
-  [FOREX_SERVICE_TYPES.EUR_TO_PHP]: [5, 10, 20], // Select EUR amount to convert
-  [FOREX_SERVICE_TYPES.PHP_TO_EUR]: [5, 10, 100], // Select EUR amount to receive
+  [FOREX_SERVICE_TYPES.USD_TO_PHP]: [10, 50], // Select USD amount to convert
+  [FOREX_SERVICE_TYPES.PHP_TO_USD]: [10, 50], // Select USD amount to receive
+  [FOREX_SERVICE_TYPES.EUR_TO_PHP]: [5, 10], // Select EUR amount to convert
+  [FOREX_SERVICE_TYPES.PHP_TO_EUR]: [5, 10], // Select EUR amount to receive
 };
 
 // Mock exchange rates (will be replaced by real API)
@@ -53,7 +53,7 @@ export const FOREX_CONFIG = {
     insertHeading: "Please Insert US Dollar Bill",
     insertNote:
       "Ensure your bill is in correct orientation and in good condition. Refer to the figure below.",
-    acceptedDenomNote: "($10, $50, $100 only)",
+    acceptedDenomNote: "($10, $50 only)",
   },
   [FOREX_SERVICE_TYPES.PHP_TO_USD]: {
     name: "PHP-to-USD",
@@ -90,7 +90,7 @@ export const FOREX_CONFIG = {
     insertHeading: "Please Insert Euro Bill",
     insertNote:
       "Ensure your bill is in correct orientation and in good condition. Refer to the figure below.",
-    acceptedDenomNote: "(€5, €10, €20 only)",
+    acceptedDenomNote: "(€5, €10 only)",
   },
   [FOREX_SERVICE_TYPES.PHP_TO_EUR]: {
     name: "PHP-to-EUR",

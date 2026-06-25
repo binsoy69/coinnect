@@ -64,21 +64,25 @@ signals and do not conflict.
 
 | Unit | Denomination | IN1 | IN2 | IN3 | IN4 | IR Sensor |
 | ---- | ------------ | --- | --- | --- | --- | --------- |
-| 1 | PHP_20 | D22 | D23 | D24 | D25 | A0 |
-| 2 | PHP_50 | D26 | D27 | D28 | D29 | A1 |
-| 3 | PHP_100 | D30 | D31 | D32 | D33 | A2 |
-| 4 | PHP_200 | D34 | D35 | D36 | D37 | A3 |
-| 5 | PHP_500 | D38 | D39 | D40 | D41 | A4 |
-| 6 | PHP_1000 | D42 | D43 | D44 | D45 | A5 |
-| 7 | USD_10 | D46 | D47 | D48 | D49 | A6 |
-| 8 | USD_50 | D50 | D51 | D52 | D53 | A7 |
-| 9 | USD_100 | A8 | A9 | A10 | A11 | D14 |
-| 10 | EUR_5 | A12 | A13 | A14 | A15 | D15 |
-| 11 | EUR_10 | D7 | D8 | D9 | D10 | D16 |
-| 12 | EUR_20 | D11 | D12 | D13 | - | D17 |
+| 1 | PHP_20 | D10 | D11 | D12 | D13 | A0 |
+| 2 | PHP_50 | D14 | D15 | D16 | D17 | A1 |
+| 3 | PHP_100 | D18 | D19 | D20 | D21 | A2 |
+| 4 | PHP_200 | D22 | D23 | D24 | D25 | A3 |
+| 5 | PHP_500 | D26 | D27 | D28 | D29 | A4 |
+| 6 | PHP_1000 | D30 | D31 | D32 | D33 | A5 |
+| 7 | USD_10 | D34 | D35 | D36 | D37 | A6 |
+| 8 | USD_50 | D38 | D39 | D40 | D41 | A7 |
+| 9 | EUR_5 | D42 | D43 | D44 | D45 | A8 |
+| 10 | EUR_10 | D46 | D47 | D48 | D49 | A9 |
 
-Unit 12 uses three motor direction pins in the current firmware. Analog pins
-`A0-A15` are used as digital I/O on Mega #1.
+### 9.3.3 Bill Dispense Conveyors
+
+| Conveyor | Driver Input | Arduino Mega #1 Pin | Notes |
+| -------- | ------------ | ------------------- | ----- |
+| PHP Conveyor | IN1 / IN2 | D6 / D7 | DC motor driven, stops after timeout |
+| Foreign Conveyor | IN3 / IN4 | D8 / D9 | DC motor driven, stops after timeout |
+
+Analog pins `A0-A9` are used as digital inputs for IR sensors on Mega #1. Low digital pins `D6-D9` are reserved for the conveyor motors.
 
 ---
 

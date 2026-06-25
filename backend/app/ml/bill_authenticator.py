@@ -27,10 +27,8 @@ LABEL_TO_DENOM: Dict[str, BillDenom] = {
     "PHP_1000": BillDenom.PHP_1000,
     "USD_10": BillDenom.USD_10,
     "USD_50": BillDenom.USD_50,
-    "USD_100": BillDenom.USD_100,
     "EUR_5": BillDenom.EUR_5,
     "EUR_10": BillDenom.EUR_10,
-    "EUR_20": BillDenom.EUR_20,
 }
 
 

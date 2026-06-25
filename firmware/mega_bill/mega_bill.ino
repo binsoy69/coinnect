@@ -14,6 +14,15 @@ static const uint8_t DIR_PIN = 3;
 static const uint8_t ENABLE_PIN = 4;
 static const uint8_t LIMIT_PIN = 5;
 
+// Conveyor motor pins (IN1-IN4 of single L298N driver controlling both conveyors)
+static const uint8_t CONVEYOR_PHP_IN1 = 6;
+static const uint8_t CONVEYOR_PHP_IN2 = 7;
+static const uint8_t CONVEYOR_FOREIGN_IN1 = 8;
+static const uint8_t CONVEYOR_FOREIGN_IN2 = 9;
+
+// Configurable conveyor run duration (in milliseconds)
+static const unsigned long CONVEYOR_DURATION_MS = 3000;
+
 // A4988 enable is active LOW. Negative speed is the documented home direction.
 static const long HOME_SPEED_STEPS_PER_SEC = -2500;
 static const long HOME_BACKOFF_STEPS = 800;
@@ -45,18 +54,16 @@ struct DispenserUnit {
 
 // Canonical pin map from reference/09_pin_assignments.md.
 static DispenserUnit dispensers[] = {
-    {22, 23, 24, 25, A0, "PHP_20"},
-    {26, 27, 28, 29, A1, "PHP_50"},
-    {30, 31, 32, 33, A2, "PHP_100"},
-    {34, 35, 36, 37, A3, "PHP_200"},
-    {38, 39, 40, 41, A4, "PHP_500"},
-    {42, 43, 44, 45, A5, "PHP_1000"},
-    {46, 47, 48, 49, A6, "USD_10"},
-    {50, 51, 52, 53, A7, "USD_50"},
-    {A8, A9, A10, A11, 14, "USD_100"},
-    {A12, A13, A14, A15, 15, "EUR_5"},
-    {7, 8, 9, 10, 16, "EUR_10"},
-    {11, 12, 13, NO_PIN, 17, "EUR_20"},
+    {10, 11, 12, 13, A0, "PHP_20"},
+    {14, 15, 16, 17, A1, "PHP_50"},
+    {18, 19, 20, 21, A2, "PHP_100"},
+    {22, 23, 24, 25, A3, "PHP_200"},
+    {26, 27, 28, 29, A4, "PHP_500"},
+    {30, 31, 32, 33, A5, "PHP_1000"},
+    {34, 35, 36, 37, A6, "USD_10"},
+    {38, 39, 40, 41, A7, "USD_50"},
+    {42, 43, 44, 45, A8, "EUR_5"},
+    {46, 47, 48, 49, A9, "EUR_10"}
 };
 
 static const uint8_t DISPENSER_COUNT = sizeof(dispensers) / sizeof(dispensers[0]);
@@ -69,8 +76,8 @@ struct SortSlotMap {
 static const SortSlotMap sortSlotMap[] = {
     {"PHP_20", 1},   {"PHP_50", 2},   {"PHP_100", 3},
     {"PHP_200", 4},  {"PHP_500", 5},  {"PHP_1000", 6},
-    {"USD_10", 7},   {"USD_50", 7},   {"USD_100", 7},
-    {"EUR_5", 8},    {"EUR_10", 8},   {"EUR_20", 8},
+    {"USD_10", 7},   {"USD_50", 7},
+    {"EUR_5", 8},    {"EUR_10", 8},
 };
 
 static const long SLOT_POSITIONS[] = {
@@ -392,6 +399,23 @@ void handleSortStatus() {
   sendDocument(doc);
 }
 
+void runConveyorForDenom(const char *denom) {
+  bool isPhp = (strncmp(denom, "PHP_", 4) == 0);
+  if (isPhp) {
+    digitalWrite(CONVEYOR_PHP_IN1, HIGH);
+    digitalWrite(CONVEYOR_PHP_IN2, LOW);
+    delay(CONVEYOR_DURATION_MS);
+    digitalWrite(CONVEYOR_PHP_IN1, LOW);
+    digitalWrite(CONVEYOR_PHP_IN2, LOW);
+  } else {
+    digitalWrite(CONVEYOR_FOREIGN_IN1, HIGH);
+    digitalWrite(CONVEYOR_FOREIGN_IN2, LOW);
+    delay(CONVEYOR_DURATION_MS);
+    digitalWrite(CONVEYOR_FOREIGN_IN1, LOW);
+    digitalWrite(CONVEYOR_FOREIGN_IN2, LOW);
+  }
+}
+
 void handleDispense(JsonDocument &cmdDoc) {
   const char *denom = cmdDoc["denom"] | "";
   const int count = cmdDoc["count"] | 0;
@@ -407,6 +431,11 @@ void handleDispense(JsonDocument &cmdDoc) {
 
   const char *errorCode = nullptr;
   const int dispensed = dispenseBills((uint8_t)unitIndex, count, &errorCode);
+  
+  if (dispensed > 0) {
+    runConveyorForDenom(denom);
+  }
+
   if (errorCode != nullptr) {
     sendError(errorCode, dispensed);
     return;
@@ -429,6 +458,35 @@ void handleDispenseStatus(JsonDocument &cmdDoc) {
   doc["status"] = "OK";
   doc["ready"] = true;
   sendDocument(doc);
+}
+
+void handleConveyor(JsonDocument &cmdDoc) {
+  const char *target = cmdDoc["target"] | "";
+  if (strcmp(target, "PHP") == 0) {
+    digitalWrite(CONVEYOR_PHP_IN1, HIGH);
+    digitalWrite(CONVEYOR_PHP_IN2, LOW);
+    delay(1000); // Test for 1 second
+    digitalWrite(CONVEYOR_PHP_IN1, LOW);
+    digitalWrite(CONVEYOR_PHP_IN2, LOW);
+
+    StaticJsonDocument<96> doc;
+    doc["status"] = "OK";
+    doc["target"] = "PHP";
+    sendDocument(doc);
+  } else if (strcmp(target, "FOREIGN") == 0) {
+    digitalWrite(CONVEYOR_FOREIGN_IN1, HIGH);
+    digitalWrite(CONVEYOR_FOREIGN_IN2, LOW);
+    delay(1000); // Test for 1 second
+    digitalWrite(CONVEYOR_FOREIGN_IN1, LOW);
+    digitalWrite(CONVEYOR_FOREIGN_IN2, LOW);
+
+    StaticJsonDocument<96> doc;
+    doc["status"] = "OK";
+    doc["target"] = "FOREIGN";
+    sendDocument(doc);
+  } else {
+    sendError("INVALID_PARAM");
+  }
 }
 
 void dispatchCommand(const String &line) {
@@ -456,6 +514,8 @@ void dispatchCommand(const String &line) {
     handleDispense(cmdDoc);
   } else if (strcmp(cmd, "DISPENSE_STATUS") == 0) {
     handleDispenseStatus(cmdDoc);
+  } else if (strcmp(cmd, "CONVEYOR") == 0) {
+    handleConveyor(cmdDoc);
   } else {
     sendError("UNKNOWN_CMD");
   }
@@ -503,11 +563,24 @@ void setupDispensers() {
   stopAllDispensers();
 }
 
+void setupConveyors() {
+  pinMode(CONVEYOR_PHP_IN1, OUTPUT);
+  pinMode(CONVEYOR_PHP_IN2, OUTPUT);
+  pinMode(CONVEYOR_FOREIGN_IN1, OUTPUT);
+  pinMode(CONVEYOR_FOREIGN_IN2, OUTPUT);
+
+  digitalWrite(CONVEYOR_PHP_IN1, LOW);
+  digitalWrite(CONVEYOR_PHP_IN2, LOW);
+  digitalWrite(CONVEYOR_FOREIGN_IN1, LOW);
+  digitalWrite(CONVEYOR_FOREIGN_IN2, LOW);
+}
+
 void setup() {
   Serial.begin(115200);
   inputLine.reserve(256);
   setupStepper();
   setupDispensers();
+  setupConveyors();
   delay(250);
   sendReadyEvent();
   homeSorter();

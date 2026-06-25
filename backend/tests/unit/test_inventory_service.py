@@ -23,7 +23,7 @@ async def test_initialize_seeds_and_hydrates_all_inventory(
 ):
     snapshot = inventory_service.machine_status.snapshot().consumables
 
-    assert len(snapshot.bill_dispenser_counts) == 12
+    assert len(snapshot.bill_dispenser_counts) == 10
     assert len(snapshot.coin_counts) == 4
     assert len(snapshot.bill_storage_counts) == 8
     assert all(count == 0 for count in snapshot.bill_dispenser_counts.values())

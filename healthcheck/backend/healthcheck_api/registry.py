@@ -13,10 +13,8 @@ BILL_DENOMS = [
     BillDenom.PHP_1000,
     BillDenom.USD_10,
     BillDenom.USD_50,
-    BillDenom.USD_100,
     BillDenom.EUR_5,
     BillDenom.EUR_10,
-    BillDenom.EUR_20,
 ]
 
 COIN_DENOMS = [
@@ -262,6 +260,22 @@ def build_component_groups() -> list[ComponentGroup]:
                     )
                     for denom in BILL_DENOMS
                 ],
+                TestDefinition(
+                    id="bill_conveyor_php",
+                    label="PHP Dispense Conveyor",
+                    component="PHP Dispense Conveyor Motor",
+                    kind="actuator",
+                    description="Run the PHP dispense conveyor motor for one second.",
+                    caution="Moves the PHP dispense conveyor.",
+                ),
+                TestDefinition(
+                    id="bill_conveyor_foreign",
+                    label="Foreign Dispense Conveyor",
+                    component="Foreign Dispense Conveyor Motor",
+                    kind="actuator",
+                    description="Run the Foreign dispense conveyor motor for one second.",
+                    caution="Moves the Foreign dispense conveyor.",
+                ),
             ],
         ),
         ComponentGroup(
