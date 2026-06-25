@@ -19,12 +19,12 @@ The security system protects the kiosk from unauthorized access and tampering.
 - 1x 5V Relay Module
 - 1x Flyback Diode (1N4007)
 - 2x LED Indicators (Red, Green)
-- 1x USB RFID Reader (Connected to RPi)
+- 1x MFRC522 RFID Reader (Connected to Arduino Mega #2 via SPI)
 - 1x Bill Storage Lid Motor (TBD - to be determined)
 
 **Security Features:**
 
-- **RFID-based maintenance access** (Authentication handled by RPi)
+- **RFID-based maintenance access** (Arduino polls card UID, Raspberry Pi verifies and sends unlock command)
 - Tamper detection via shock sensors
 - Automatic lockdown on tamper event
 - LED status indicators
@@ -82,7 +82,7 @@ The security system protects the kiosk from unauthorized access and tampering.
     │                        │  ACCESS   │                                    │
     │                        └───────────┘                                    │
     │                                                                          │
-    │      (RFID Reader connects DIRECTLY to Raspberry Pi via USB)             │
+    │      (RFID Reader connects DIRECTLY to Arduino Mega #2 via SPI)          │
     └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -540,9 +540,46 @@ The bill storage lid motor provides an additional layer of security by physicall
 
 ---
 
-## 6.7 Arduino Security Code
+## 6.7 RFID Access Control
 
-### 6.7.1 Setup and Pin Definitions
+The Coinnect system replaces traditional keypad pin authentication with an MFRC522 RFID reader wired to the Arduino Mega #2 via hardware SPI.
+
+### 6.7.1 RFID Pin Assignment (MFRC522 to Arduino Mega #2)
+
+> [!CAUTION]
+> The MFRC522 RFID IC operates strictly on the 3.3V power rail. Connecting VCC to 5V will permanently damage the module.
+
+- **VCC**: 3.3V
+- **RST**: Pin 5 (Configured in firmware)
+- **GND**: Common Ground
+- **MISO**: Pin 50 (Mega Hardware SPI MISO)
+- **MOSI**: Pin 51 (Mega Hardware SPI MOSI)
+- **SCK**: Pin 52 (Mega Hardware SPI SCK)
+- **SDA/SS**: Pin 53 (Mega Hardware SPI SS)
+
+### 6.7.2 Event Payloads
+
+1. **RFID UID Scanned Event**:
+   When a card is swiped, Arduino Mega #2 reads the hex UID and emits a JSON event on the serial link:
+   ```json
+   {"event":"RFID","uid":"A1B2C3D4"}
+   ```
+   The Raspberry Pi validates the UID against the configured admin accounts. If authorized, the Pi unlocks the solenoid lock via a serial command:
+   ```json
+   {"cmd":"SECURITY_UNLOCK"}
+   ```
+
+2. **Door Lock/Unlock State Event**:
+   When the solenoid state changes, the Arduino transmits the status event:
+   ```json
+   {"event":"DOOR_STATE","locked":true}
+   ```
+
+---
+
+## 6.8 Arduino Security Code
+
+### 6.8.1 Setup and Pin Definitions
 
 ```cpp
 // Security System - Arduino Code
@@ -582,7 +619,7 @@ void setup() {
 }
 ```
 
-### 6.7.2 Interrupt Handlers
+### 6.8.2 Interrupt Handlers
 
 ```cpp
 void shockISR_A() {
@@ -594,7 +631,7 @@ void shockISR_B() {
 }
 ```
 
-### 6.7.3 Security Functions
+### 6.8.3 Security Functions
 
 ```cpp
 void lockDoor() {
@@ -640,7 +677,7 @@ void handleTamper(String sensor) {
 // NOTE: checkPIN() removed; Access control is now handled by RPi via Serial commands.
 ```
 
-### 6.7.4 Main Loop
+### 6.8.4 Main Loop
 
 ```cpp
 // Main loop processes serial commands from RPi for locking/unlocking

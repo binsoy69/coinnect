@@ -29,6 +29,7 @@ from app.drivers.coin_security_controller import CoinSecurityController
 from app.services.machine_status import MachineStatus
 from app.services.transaction_state_machine import TransactionStateMachine
 from app.services.operation_mode import OperationModeManager
+from app.services.receipt_service import ReceiptService
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ class TransactionOrchestrator:
         ws_manager: ConnectionManager,
         db_session_factory: async_sessionmaker,
         operation_mode: OperationModeManager | None = None,
+        receipt_service: ReceiptService | None = None,
     ):
         self._bill_acceptor = bill_acceptor
         self._dispenser = dispense_orchestrator
@@ -59,6 +61,7 @@ class TransactionOrchestrator:
         self._active_session: Optional[AsyncSession] = None
         self._operation_mode = operation_mode
         self._operation_owner: Optional[str] = None
+        self._receipt_service = receipt_service
 
     @property
     def has_active_transaction(self) -> bool:
@@ -322,6 +325,8 @@ class TransactionOrchestrator:
                 TransactionState.COMPLETE,
                 {"dispensed_amount": result.total_dispensed},
             )
+            if self._receipt_service:
+                await self._receipt_service.print_receipt(db_record)
         else:
             await tx.transition_to(
                 TransactionState.ERROR,
@@ -333,6 +338,13 @@ class TransactionOrchestrator:
                     "claim_ticket_code": result.claim_ticket_code,
                 },
             )
+            if self._receipt_service:
+                await self._receipt_service.print_claim_ticket(
+                    db_record,
+                    claim_code=result.claim_ticket_code,
+                    shortfall=result.shortfall,
+                    error_reason=result.error
+                )
 
         state = await self.get_transaction_state(tx.transaction_id)
 

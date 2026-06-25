@@ -23,6 +23,7 @@ from app.services.paymongo_client import PayMongoClient
 from app.services.transaction_orchestrator import TransactionOrchestrator
 from app.services.admin_session import AdminSessionService
 from app.services.inventory_service import InventoryService
+from app.services.receipt_service import ReceiptService
 from app.services.operation_mode import OperationModeManager
 
 logger = logging.getLogger(__name__)
@@ -52,11 +53,16 @@ async def lifespan(app: FastAPI):
     await inventory_service.initialize()
     operation_mode = OperationModeManager()
     admin_sessions = AdminSessionService(settings, operation_mode)
+    receipt_service = ReceiptService(settings)
+    bill_controller = BillController(serial_manager)
+    coin_controller = CoinSecurityController(serial_manager)
     event_dispatcher = EventDispatcher(
         serial_manager.event_queue,
         machine_status,
         ws_manager,
         inventory_service=inventory_service,
+        admin_session_service=admin_sessions,
+        coin_controller=coin_controller,
     )
 
     # --- Phase 3: Hardware controllers (GPIO + Camera + ML) ---
@@ -87,8 +93,6 @@ async def lifespan(app: FastAPI):
     await camera.initialize()
 
     # --- Phase 3: Service layer ---
-    bill_controller = BillController(serial_manager)
-    coin_controller = CoinSecurityController(serial_manager)
 
     bill_acceptor = BillAcceptor(
         gpio=gpio,
@@ -117,6 +121,7 @@ async def lifespan(app: FastAPI):
         ws_manager=ws_manager,
         db_session_factory=get_session_factory(),
         operation_mode=operation_mode,
+        receipt_service=receipt_service,
     )
     event_dispatcher.set_transaction_orchestrator(transaction_orchestrator)
 
@@ -130,6 +135,7 @@ async def lifespan(app: FastAPI):
         forex_rate_service=forex_rate_service,
         db_session_factory=get_session_factory(),
         operation_mode=operation_mode,
+        receipt_service=receipt_service,
     )
 
     # --- Phase 4: PayMongo e-wallet services ---
@@ -143,6 +149,7 @@ async def lifespan(app: FastAPI):
         ws_manager=ws_manager,
         db_session_factory=get_session_factory(),
         operation_mode=operation_mode,
+        receipt_service=receipt_service,
     )
     event_dispatcher.set_ewallet_orchestrator(ewallet_orchestrator)
 
@@ -165,6 +172,7 @@ async def lifespan(app: FastAPI):
     app.state.inventory_service = inventory_service
     app.state.operation_mode = operation_mode
     app.state.admin_sessions = admin_sessions
+    app.state.receipt_service = receipt_service
 
     # Startup
     await serial_manager.startup()

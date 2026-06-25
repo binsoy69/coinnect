@@ -39,10 +39,8 @@ The bill dispensing system consists of 12 independent dispenser units, each capa
 | 6      | ₱1000        | PHP      | High value |
 | 7      | $10          | USD      |            |
 | 8      | $50          | USD      |            |
-| 9      | $100         | USD      |            |
-| 10     | €5           | EUR      |            |
-| 11     | €10          | EUR      |            |
-| 12     | €20          | EUR      |            |
+| 9      | €5           | EUR      |            |
+| 10     | €10          | EUR      |            |
 
 ---
 
@@ -328,11 +326,11 @@ The bill dispensing system consists of 12 independent dispenser units, each capa
 
 ---
 
-## 4.6 Pin Assignment (Arduino Mega)
+## 4.6 Pin Assignment (Arduino Mega #1)
 
 ### 4.6.1 Dispenser Motor Pins
 
-Using Option D (ENA/ENB tied HIGH with jumpers):
+Using Option D (ENA/ENB tied HIGH with jumpers, driving only IN1-IN4):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -340,22 +338,17 @@ Using Option D (ENA/ENB tied HIGH with jumpers):
 ├────────┬─────────────┬────────────────────────────────────────────────────────────┤
 │ Unit # │ Denomination│   IN1    IN2    IN3    IN4   │  Notes                     │
 ├────────┼─────────────┼────────────────────────────────┼────────────────────────────┤
-│   1    │   ₱20       │   D22    D23    D24    D25    │                            │
-│   2    │   ₱50       │   D26    D27    D28    D29    │                            │
-│   3    │   ₱100      │   D30    D31    D32    D33    │                            │
-│   4    │   ₱200      │   D34    D35    D36    D37    │                            │
-│   5    │   ₱500      │   D38    D39    D40    D41    │                            │
-│   6    │   ₱1000     │   D42    D43    D44    D45    │                            │
-│   7    │   $10       │   D46    D47    D48    D49    │                            │
-│   8    │   $50       │   D50    D51    D52    D53    │  D50-53 also SPI (avoid)   │
-│   9    │   $100      │   A8     A9     A10    A11    │  Using analog as digital   │
-│   10   │   €5        │   A12    A13    A14    A15    │  Using analog as digital   │
-│   11   │   €10       │   D7     D8     D9     D10    │                            │
-│   12   │   €20       │   D11    D12    D13    -      │  3-pin simplified control  │
+│   1    │   ₱20       │   D10    D11    D12    D13    │                            │
+│   2    │   ₱50       │   D14    D15    D16    D17    │                            │
+│   3    │   ₱100      │   D18    D19    D20    D21    │                            │
+│   4    │   ₱200      │   D22    D23    D24    D25    │                            │
+│   5    │   ₱500      │   D26    D27    D28    D29    │                            │
+│   6    │   ₱1000     │   D30    D31    D32    D33    │                            │
+│   7    │   $10       │   D34    D35    D36    D37    │                            │
+│   8    │   $50       │   D38    D39    D40    D41    │                            │
+│   9    │   €5        │   D42    D43    D44    D45    │                            │
+│   10   │   €10       │   D46    D47    D48    D49    │                            │
 └────────┴─────────────┴────────────────────────────────┴────────────────────────────┘
-
-Note: D50-D53 are SPI pins. If SPI is not needed, they can be used.
-      Otherwise, use I/O expander for units 8-10.
 ```
 
 ### 4.6.2 IR Sensor Pins
@@ -366,18 +359,16 @@ Note: D50-D53 are SPI pins. If SPI is not needed, they can be used.
 ├────────┬─────────────┬──────────────┬────────────────────────────────────────────┤
 │ Unit # │ Denomination│   IR Pin     │  Notes                                     │
 ├────────┼─────────────┼──────────────┼────────────────────────────────────────────┤
-│   1    │   ₱20       │   A0         │                                            │
-│   2    │   ₱50       │   A1         │                                            │
-│   3    │   ₱100      │   A2         │                                            │
-│   4    │   ₱200      │   A3         │                                            │
-│   5    │   ₱500      │   A4         │                                            │
-│   6    │   ₱1000     │   A5         │                                            │
-│   7    │   $10       │   A6         │                                            │
-│   8    │   $50       │   A7         │                                            │
-│   9    │   $100      │   D14 (TX3)  │  Serial3 TX - OK if Serial3 unused        │
-│   10   │   €5        │   D15 (RX3)  │  Serial3 RX - OK if Serial3 unused        │
-│   11   │   €10       │   D16 (TX2)  │  Serial2 TX - OK if Serial2 unused        │
-│   12   │   €20       │   D17 (RX2)  │  Serial2 RX - OK if Serial2 unused        │
+│   1    │   ₱20       │   A0         │ Analog inputs used as digital              │
+│   2    │   ₱50       │   A1         │ Analog inputs used as digital              │
+│   3    │   ₱100      │   A2         │ Analog inputs used as digital              │
+│   4    │   ₱200      │   A3         │ Analog inputs used as digital              │
+│   5    │   ₱500      │   A4         │ Analog inputs used as digital              │
+│   6    │   ₱1000     │   A5         │ Analog inputs used as digital              │
+│   7    │   $10       │   A6         │ Analog inputs used as digital              │
+│   8    │   $50       │   A7         │ Analog inputs used as digital              │
+│   9    │   €5        │   A8         │ Analog inputs used as digital              │
+│   10   │   €10       │   A9         │ Analog inputs used as digital              │
 └────────┴─────────────┴──────────────┴────────────────────────────────────────────┘
 ```
 

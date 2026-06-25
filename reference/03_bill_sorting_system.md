@@ -29,8 +29,8 @@ The bill sorting system uses a single stepper motor with a linear rail mechanism
 | 4 | ₱200 | PHP |
 | 5 | ₱500 | PHP |
 | 6 | ₱1000 | PHP |
-| 7 | All USD ($10, $50, $100) | USD |
-| 8 | All EUR (€5, €10, €20) | EUR |
+| 7 | USD ($10, $50) | USD |
+| 8 | EUR (€5, €10) | EUR |
 
 ---
 
@@ -376,7 +376,9 @@ Stepper frequency: 8000 Hz (8 kHz)
 ### 3.6.1 Pin Definitions and Setup
 
 ```cpp
-// Bill Sorting System - Arduino Code
+// Bill Sorting System - Arduino Code (uses AccelStepper library)
+#include <Arduino.h>
+#include <AccelStepper.h>
 
 // Pin Definitions
 #define STEP_PIN    2
@@ -388,27 +390,47 @@ Stepper frequency: 8000 Hz (8 kHz)
 #define STEPS_PER_REV     3200    // 1/16 microstepping
 #define MM_PER_REV        40.0    // GT2-20T pulley circumference
 #define STEPS_PER_MM      (STEPS_PER_REV / MM_PER_REV)  // 80 steps/mm
-#define SLOT_WIDTH_MM     73.0
-#define STEPS_PER_SLOT    (long)(SLOT_WIDTH_MM * STEPS_PER_MM)  // 5840 steps
+
+// Motion Constraints
+const float SORT_MAX_SPEED = 8000.0;
+const float SORT_ACCELERATION = 5000.0;
+const long HOME_SPEED_STEPS_PER_SEC = -2500; // Moving negative is the homing direction
+const long HOME_BACKOFF_STEPS = 800;
+const unsigned long HOME_TIMEOUT_MS = 12000;
+const unsigned long SORT_TIMEOUT_MS = 12000;
+const bool HOLD_SORTER_AFTER_MOVE = true;
 
 // Slot positions in steps from home
 const long SLOT_POSITIONS[8] = {
-    2920,   // Slot 1: PHP 20
-    8760,   // Slot 2: PHP 50
-    14600,  // Slot 3: PHP 100
-    20440,  // Slot 4: PHP 200
-    26280,  // Slot 5: PHP 500
-    32120,  // Slot 6: PHP 1000
+    2920,   // Slot 1: PHP_20
+    8760,   // Slot 2: PHP_50
+    14600,  // Slot 3: PHP_100
+    20440,  // Slot 4: PHP_200
+    26280,  // Slot 5: PHP_500
+    32120,  // Slot 6: PHP_1000
     37960,  // Slot 7: USD
     43800   // Slot 8: EUR
 };
 
-// Current position tracking
-volatile long currentPosition = 0;
-bool isHomed = false;
+AccelStepper sorter(AccelStepper::DRIVER, STEP_PIN, DIR_PIN);
+bool sorterHomed = false;
+int currentSlot = 0;
+
+void enableStepper() {
+    digitalWrite(ENABLE_PIN, LOW);
+}
+
+void disableStepperIfAllowed() {
+    if (!HOLD_SORTER_AFTER_MOVE) {
+        digitalWrite(ENABLE_PIN, HIGH);
+    }
+}
+
+bool limitTriggered() {
+    return digitalRead(LIMIT_PIN) == LOW;
+}
 
 void setup() {
-    // Configure pins
     pinMode(STEP_PIN, OUTPUT);
     pinMode(DIR_PIN, OUTPUT);
     pinMode(ENABLE_PIN, OUTPUT);
@@ -417,139 +439,105 @@ void setup() {
     // Disable motor initially
     digitalWrite(ENABLE_PIN, HIGH);
 
+    sorter.setMaxSpeed(SORT_MAX_SPEED);
+    sorter.setAcceleration(SORT_ACCELERATION);
+
     Serial.begin(115200);
-    Serial.println("Bill Sorting System Ready");
 }
 ```
 
 ### 3.6.2 Homing Function
 
 ```cpp
-void homeCarriage() {
-    Serial.println("Homing...");
+bool homeSorter() {
+    enableStepper();
+    sorter.setMaxSpeed(abs(HOME_SPEED_STEPS_PER_SEC));
+    sorter.setAcceleration(SORT_ACCELERATION);
+    sorter.setSpeed(HOME_SPEED_STEPS_PER_SEC);
 
-    // Enable motor
-    digitalWrite(ENABLE_PIN, LOW);
-
-    // Set direction toward home (limit switch)
-    digitalWrite(DIR_PIN, LOW);  // Adjust based on your wiring
-
-    // Move until limit switch is triggered
-    while (digitalRead(LIMIT_PIN) == HIGH) {
-        // Step
-        digitalWrite(STEP_PIN, HIGH);
-        delayMicroseconds(200);  // 2500 Hz = ~31mm/s
-        digitalWrite(STEP_PIN, LOW);
-        delayMicroseconds(200);
+    const unsigned long startedAt = millis();
+    while (!limitTriggered()) {
+        sorter.runSpeed();
+        if (millis() - startedAt > HOME_TIMEOUT_MS) {
+            sorter.stop();
+            digitalWrite(ENABLE_PIN, HIGH);
+            sorterHomed = false;
+            currentSlot = 0;
+            return false;
+        }
     }
 
-    // Back off slightly from switch
-    digitalWrite(DIR_PIN, HIGH);
-    for (int i = 0; i < 800; i++) {  // ~10mm
-        digitalWrite(STEP_PIN, HIGH);
-        delayMicroseconds(200);
-        digitalWrite(STEP_PIN, LOW);
-        delayMicroseconds(200);
+    sorter.stop();
+    sorter.setCurrentPosition(0);
+    sorter.moveTo(HOME_BACKOFF_STEPS);
+    while (sorter.distanceToGo() != 0) {
+        sorter.run();
     }
 
-    // Set position to zero
-    currentPosition = 0;
-    isHomed = true;
-
-    Serial.println("Homing complete");
+    sorter.setCurrentPosition(0);
+    sorterHomed = true;
+    currentSlot = 0;
+    disableStepperIfAllowed();
+    return true;
 }
 ```
 
 ### 3.6.3 Movement Function
 
 ```cpp
-void moveToSlot(int slotNumber) {
-    if (!isHomed) {
-        Serial.println("ERROR: Not homed");
-        return;
+bool moveSorterToSlot(uint8_t slot) {
+    if (!sorterHomed || slot < 1 || slot > 8) {
+        return false;
     }
 
-    if (slotNumber < 1 || slotNumber > 8) {
-        Serial.println("ERROR: Invalid slot number");
-        return;
-    }
+    const long targetPosition = SLOT_POSITIONS[slot - 1];
+    enableStepper();
+    sorter.setMaxSpeed(SORT_MAX_SPEED);
+    sorter.setAcceleration(SORT_ACCELERATION);
+    sorter.moveTo(targetPosition);
 
-    long targetPosition = SLOT_POSITIONS[slotNumber - 1];
-    long stepsToMove = targetPosition - currentPosition;
-
-    Serial.print("Moving to slot ");
-    Serial.print(slotNumber);
-    Serial.print(" (");
-    Serial.print(stepsToMove);
-    Serial.println(" steps)");
-
-    // Enable motor
-    digitalWrite(ENABLE_PIN, LOW);
-
-    // Set direction
-    if (stepsToMove > 0) {
-        digitalWrite(DIR_PIN, HIGH);  // Forward
-    } else {
-        digitalWrite(DIR_PIN, LOW);   // Backward
-        stepsToMove = -stepsToMove;
-    }
-
-    // Acceleration parameters
-    int minDelay = 100;   // Maximum speed (microseconds between steps)
-    int maxDelay = 500;   // Starting speed
-    int accelSteps = 1000; // Steps to accelerate
-
-    // Move with acceleration/deceleration
-    for (long i = 0; i < stepsToMove; i++) {
-        int stepDelay;
-
-        // Acceleration phase
-        if (i < accelSteps) {
-            stepDelay = map(i, 0, accelSteps, maxDelay, minDelay);
-        }
-        // Deceleration phase
-        else if (i > stepsToMove - accelSteps) {
-            stepDelay = map(i, stepsToMove - accelSteps, stepsToMove, minDelay, maxDelay);
-        }
-        // Constant speed phase
-        else {
-            stepDelay = minDelay;
-        }
-
-        // Step pulse
-        digitalWrite(STEP_PIN, HIGH);
-        delayMicroseconds(stepDelay);
-        digitalWrite(STEP_PIN, LOW);
-        delayMicroseconds(stepDelay);
-
-        // Update position
-        if (digitalRead(DIR_PIN) == HIGH) {
-            currentPosition++;
-        } else {
-            currentPosition--;
+    const unsigned long startedAt = millis();
+    while (sorter.distanceToGo() != 0) {
+        sorter.run();
+        if (millis() - startedAt > SORT_TIMEOUT_MS) {
+            sorter.stop();
+            currentSlot = 0;
+            return false;
         }
     }
 
-    // Disable motor to save power (optional - remove if holding torque needed)
-    // digitalWrite(ENABLE_PIN, HIGH);
-
-    Serial.println("Move complete");
+    currentSlot = slot;
+    disableStepperIfAllowed();
+    return true;
 }
 ```
 
 ### 3.6.4 Slot Mapping Function
 
 ```cpp
-int denominationToSlot(String denom) {
-    if (denom == "PHP_20")   return 1;
-    if (denom == "PHP_50")   return 2;
-    if (denom == "PHP_100")  return 3;
-    if (denom == "PHP_200")  return 4;
-    if (denom == "PHP_500")  return 5;
-    if (denom == "PHP_1000") return 6;
-    if (denom == "USD_10" || denom == "USD_50") return 7;
-    if (denom == "EUR_5" || denom == "EUR_10")   return 8;
-    return -1;  // Unknown denomination
+struct SortSlotMap {
+    const char *denom;
+    uint8_t slot;
+};
+
+static const SortSlotMap sortSlotMap[] = {
+    {"PHP_20", 1},   {"PHP_50", 2},   {"PHP_100", 3},
+    {"PHP_200", 4},  {"PHP_500", 5},  {"PHP_1000", 6},
+    {"USD_10", 7},   {"USD_50", 7},
+    {"EUR_5", 8},    {"EUR_10", 8},
+};
+
+int slotForDenom(const char *denom) {
+    if (denom == nullptr) {
+        return -1;
+    }
+    const uint8_t mapCount = sizeof(sortSlotMap) / sizeof(sortSlotMap[0]);
+    for (uint8_t i = 0; i < mapCount; i++) {
+        if (strcmp(sortSlotMap[i].denom, denom) == 0) {
+            return sortSlotMap[i].slot;
+        }
+    }
+    return -1;
 }
 ```
 
@@ -564,52 +552,86 @@ COMMAND FROM RPI:
 {"cmd":"SORT","denom":"PHP_100"}
 
 RESPONSE FROM ARDUINO:
-{"status":"READY"}        // Sorter in position
+{"status":"READY","slot":3}        // Sorter in position
 {"status":"ERROR","code":"NOT_HOMED"}
 {"status":"ERROR","code":"INVALID_DENOM"}
+{"status":"ERROR","code":"TIMEOUT"}
 ```
 
 ### 3.7.2 Command Handler
 
 ```cpp
-void handleSerialCommand() {
-    if (Serial.available()) {
-        String command = Serial.readStringUntil('\n');
+#include <ArduinoJson.h>
 
-        // Parse JSON (simple parser for this use case)
-        if (command.indexOf("SORT") > 0) {
-            // Extract denomination
-            int denomStart = command.indexOf("denom") + 8;
-            int denomEnd = command.indexOf("\"", denomStart);
-            String denom = command.substring(denomStart, denomEnd);
+void sendDocument(JsonDocument &doc) {
+    serializeJson(doc, Serial);
+    Serial.println();
+}
 
-            int slot = denominationToSlot(denom);
+void sendError(const char *code) {
+    StaticJsonDocument<128> doc;
+    doc["status"] = "ERROR";
+    doc["code"] = code;
+    sendDocument(doc);
+}
 
-            if (slot > 0) {
-                moveToSlot(slot);
-                Serial.println("{\"status\":\"READY\"}");
-            } else {
-                Serial.println("{\"status\":\"ERROR\",\"code\":\"INVALID_DENOM\"}");
-            }
+void handleSort(JsonDocument &cmdDoc) {
+    const char *denom = cmdDoc["denom"] | "";
+    const int slot = slotForDenom(denom);
+    if (slot < 1) {
+        sendError("INVALID_DENOM");
+        return;
+    }
+    if (!sorterHomed) {
+        sendError("NOT_HOMED");
+        return;
+    }
+    if (!moveSorterToSlot((uint8_t)slot)) {
+        sendError("TIMEOUT");
+        return;
+    }
+
+    StaticJsonDocument<96> doc;
+    doc["status"] = "READY";
+    doc["slot"] = slot;
+    sendDocument(doc);
+}
+
+void handleSortStatus() {
+    StaticJsonDocument<160> doc;
+    doc["status"] = "OK";
+    doc["position"] = sorter.currentPosition();
+    doc["slot"] = currentSlot;
+    doc["homed"] = sorterHomed;
+    sendDocument(doc);
+}
+
+void dispatchCommand(const String &line) {
+    StaticJsonDocument<384> cmdDoc;
+    DeserializationError err = deserializeJson(cmdDoc, line);
+    if (err) {
+        sendError("PARSE_ERROR");
+        return;
+    }
+
+    const char *cmd = cmdDoc["cmd"] | "";
+    if (strcmp(cmd, "HOME") == 0) {
+        if (!homeSorter()) {
+            sendError("TIMEOUT");
+        } else {
+            StaticJsonDocument<96> doc;
+            doc["status"] = "OK";
+            doc["position"] = 0;
+            sendDocument(doc);
         }
-        else if (command.indexOf("HOME") > 0) {
-            homeCarriage();
-            Serial.println("{\"status\":\"OK\"}");
-        }
-        else if (command.indexOf("STATUS") > 0) {
-            Serial.print("{\"position\":");
-            Serial.print(currentPosition);
-            Serial.print(",\"homed\":");
-            Serial.print(isHomed ? "true" : "false");
-            Serial.println("}");
-        }
+    } else if (strcmp(cmd, "SORT") == 0) {
+        handleSort(cmdDoc);
+    } else if (strcmp(cmd, "SORT_STATUS") == 0) {
+        handleSortStatus();
+    } else {
+        sendError("UNKNOWN_CMD");
     }
 }
-
-void loop() {
-    handleSerialCommand();
-}
-```
 
 ---
 

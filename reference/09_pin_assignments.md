@@ -119,7 +119,15 @@ drive it through a transistor, optocoupler, or level shifter instead of wiring
 | D21 | Solenoid Relay | Output | Lock control |
 | D22 | Red Status LED | Output | Fault/lockdown indicator |
 | D23 | Green Status LED | Output | Ready/normal indicator |
-| A0-A6 | Keypad Matrix | I/O | 4 rows + 3 columns |
+| D5 | RFID RST | Output | RC522 Reset pin |
+| D50 | RFID MISO | Input | Mega Hardware SPI MISO |
+| D51 | RFID MOSI | Output | Mega Hardware SPI MOSI |
+| D52 | RFID SCK | Output | Mega Hardware SPI SCK |
+| D53 | RFID SDA (SS) | Output | Mega Hardware SPI SS |
+| A0-A6 | Unused | - | Free analog inputs |
+
+> [!CAUTION]
+> The MFRC522 RFID reader module operates strictly on **3.3V**. Connecting the module's VCC to the 5V power rail will destroy the RFID chip.
 
 Shock sensors use the SW-420 module digital output. The sensing element is
 normally closed at rest, but firmware reads module `DO`: HIGH means idle/no

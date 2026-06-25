@@ -13,7 +13,7 @@ from app.models.events import WSEvent, WSEventType
 from app.models.serial_messages import (
     CoinInEvent,
     DoorStateEvent,
-    KeypadEvent,
+    RFIDEvent,
     ReadyEvent,
     TamperEvent,
 )
@@ -32,6 +32,8 @@ class EventDispatcher:
         inventory_service: InventoryService | None = None,
         transaction_orchestrator: Any = None,
         ewallet_orchestrator: Any = None,
+        admin_session_service: Any = None,
+        coin_controller: Any = None,
     ):
         self._queue = event_queue
         self._status = machine_status
@@ -39,6 +41,8 @@ class EventDispatcher:
         self._inventory = inventory_service
         self._transaction_orchestrator = transaction_orchestrator
         self._ewallet_orchestrator = ewallet_orchestrator
+        self._admin_sessions = admin_session_service
+        self._coin_controller = coin_controller
         self._running = False
         self._task = None
 
@@ -87,7 +91,7 @@ class EventDispatcher:
         handlers = {
             "COIN_IN": self._handle_coin_in,
             "TAMPER": self._handle_tamper,
-            "KEYPAD": self._handle_keypad,
+            "RFID": self._handle_rfid,
             "DOOR_STATE": self._handle_door_state,
             "READY": self._handle_ready,
         }
@@ -137,9 +141,35 @@ class EventDispatcher:
             payload={"sensor": parsed.sensor},
         ))
 
-    async def _handle_keypad(self, data: dict) -> None:
-        parsed = KeypadEvent(**data)
-        logger.info(f"Keypad key pressed: {parsed.key}")
+    async def _handle_rfid(self, data: dict) -> None:
+        parsed = RFIDEvent(**data)
+        if self._admin_sessions is None:
+            logger.warning("Admin session service not injected; ignoring RFID event")
+            return
+        try:
+            session = self._admin_sessions.login_rfid(parsed.uid)
+            logger.info(f"RFID admin login success: {parsed.uid} -> session {session.session_id}")
+            if self._coin_controller is not None:
+                try:
+                    await self._coin_controller.security_unlock()
+                except Exception as e:
+                    logger.error(f"Failed to send security unlock to coin controller: {e}")
+            else:
+                logger.warning("Coin controller not injected; cannot unlock door")
+            
+            await self._ws.broadcast(WSEvent(
+                type=WSEventType.STATE_CHANGE,
+                payload={
+                    "mode": "maintenance",
+                    "admin_session": {
+                        "token": session.token,
+                        "session_id": session.session_id,
+                        "expires_at": session.expires_at.isoformat(),
+                    }
+                },
+            ))
+        except Exception as e:
+            logger.error(f"RFID login failed: {e}")
 
     async def _handle_door_state(self, data: dict) -> None:
         parsed = DoorStateEvent(**data)

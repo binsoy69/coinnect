@@ -24,6 +24,7 @@ from app.services.dispense_orchestrator import DispenseOrchestrator
 from app.services.machine_status import MachineStatus
 from app.services.paymongo_client import PayMongoClient
 from app.services.operation_mode import OperationModeManager
+from app.services.receipt_service import ReceiptService
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ class EWalletOrchestrator:
         ws_manager: ConnectionManager,
         db_session_factory: async_sessionmaker,
         operation_mode: OperationModeManager | None = None,
+        receipt_service: ReceiptService | None = None,
     ):
         self._settings = settings
         self._gateway = gateway
@@ -55,6 +57,7 @@ class EWalletOrchestrator:
         self._active_transaction_id: str | None = None
         self._operation_mode = operation_mode
         self._operation_owner: str | None = None
+        self._receipt_service = receipt_service
 
     @property
     def has_active_transaction(self) -> bool:
@@ -498,6 +501,16 @@ class EWalletOrchestrator:
                 record.error_message = result.error
                 event_type = WSEventType.EWALLET_CLAIM_REQUIRED
             await session.commit()
+            if self._receipt_service:
+                if result.success:
+                    await self._receipt_service.print_receipt(record)
+                else:
+                    await self._receipt_service.print_claim_ticket(
+                        record,
+                        claim_code=record.claim_ticket_code,
+                        shortfall=result.shortfall,
+                        error_reason=result.error
+                    )
             await self._broadcast(record, event_type)
             self._clear_active()
             return self._serialize(record)
@@ -510,6 +523,8 @@ class EWalletOrchestrator:
             record.state = "COMPLETE"
             record.completed_at = datetime.utcnow()
             await session.commit()
+            if self._receipt_service:
+                await self._receipt_service.print_receipt(record)
             await self._broadcast(record, WSEventType.EWALLET_COMPLETE)
             self._clear_active()
             return self._serialize(record)
@@ -599,6 +614,13 @@ class EWalletOrchestrator:
             record.error_message = error_message
             record.completed_at = datetime.utcnow()
             await session.commit()
+            if self._receipt_service:
+                await self._receipt_service.print_claim_ticket(
+                    record,
+                    claim_code=record.claim_ticket_code,
+                    shortfall=record.amount - record.dispensed_amount,
+                    error_reason=record.error_message
+                )
             await self._broadcast(
                 record,
                 WSEventType.EWALLET_CLAIM_REQUIRED,

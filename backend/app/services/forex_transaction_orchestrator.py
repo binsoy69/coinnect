@@ -33,6 +33,7 @@ from app.services.bill_acceptor import BillAcceptor
 from app.services.dispense_orchestrator import DispenseOrchestrator
 from app.services.forex_change_calculator import calculate_forex_dispense
 from app.services.forex_rate_service import ForexRateService
+from app.services.receipt_service import ReceiptService
 from app.services.machine_status import MachineStatus
 from app.services.transaction_state_machine import TransactionStateMachine
 from app.services.operation_mode import OperationModeManager
@@ -60,6 +61,7 @@ class ForexTransactionOrchestrator:
         forex_rate_service: ForexRateService,
         db_session_factory: async_sessionmaker,
         operation_mode: OperationModeManager | None = None,
+        receipt_service: ReceiptService | None = None,
     ):
         self._bill_acceptor = bill_acceptor
         self._dispenser = dispense_orchestrator
@@ -72,6 +74,7 @@ class ForexTransactionOrchestrator:
         self._active_quote: Optional[ForexQuote] = None
         self._operation_mode = operation_mode
         self._operation_owner: Optional[str] = None
+        self._receipt_service = receipt_service
 
     @property
     def has_active_transaction(self) -> bool:
@@ -312,6 +315,8 @@ class ForexTransactionOrchestrator:
                 TransactionState.COMPLETE,
                 {"dispensed_amount": result.total_dispensed},
             )
+            if self._receipt_service:
+                await self._receipt_service.print_receipt(db_record)
         else:
             await tx.transition_to(
                 TransactionState.ERROR,
@@ -323,6 +328,13 @@ class ForexTransactionOrchestrator:
                     "claim_ticket_code": result.claim_ticket_code,
                 },
             )
+            if self._receipt_service:
+                await self._receipt_service.print_claim_ticket(
+                    db_record,
+                    claim_code=result.claim_ticket_code,
+                    shortfall=result.shortfall,
+                    error_reason=result.error
+                )
 
         state = await self.get_transaction_state(tx.transaction_id)
         await self._cleanup()

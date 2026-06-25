@@ -261,10 +261,10 @@ void loop() {
         if (coinDenom > 0) {
             coinValue += coinDenom;
 
-            // Send event to RPi
-            Serial.print("{\"event\":\"COIN_IN\",\"denom\":\"PHP_");
+            // Send event to RPi (note: denom is formatted as an integer)
+            Serial.print("{\"event\":\"COIN_IN\",\"denom\":");
             Serial.print(coinDenom);
-            Serial.print("\",\"total\":");
+            Serial.print(",\"total\":");
             Serial.print(coinValue);
             Serial.println("}");
         }
@@ -474,6 +474,10 @@ Arduino Mega #2 owns all coin and security pins. Repeated pin numbers on Mega
 
 ### 5.3.4 Coin Dispenser Arduino Code
 
+The coin dispensing mechanism uses a 180° swing profile. Under this calibration, two of the prototype dispensers (₱1 and ₱20) require a reversed sweep movement to actuate correctly. This is controlled by the `pushToResetFirst` flag:
+- **Normal Sweep (`pushToResetFirst = false`)**: Sweeps from 0° (Closed/Reset) to 180° (Open/Push) and returns to 0°.
+- **Reversed Sweep (`pushToResetFirst = true`)**: Sweeps from 180° (Closed/Push) to 0° (Open/Reset) and returns to 180°.
+
 ```cpp
 // Coin Dispenser - Arduino Code
 
@@ -491,42 +495,39 @@ Servo servo4;  // ₱20
 #define SERVO3_PIN  46
 #define SERVO4_PIN  6
 
-// Servo positions
-#define SERVO_CLOSED  0
-#define SERVO_OPEN    90
-
-// Timing
-#define SERVO_OPEN_TIME   150   // ms - time gate stays open
-#define SERVO_SETTLE_TIME 100   // ms - time for coin to drop
+// Servo defaults
+#define SERVO_RESET_DEG 0
+#define SERVO_PUSH_DEG  180
+#define SERVO_STEP_TIME_MS 1
+#define SERVO_CYCLE_SETTLE_MS 300
 
 // Coin dispenser structure
 struct CoinDispenser {
     Servo* servo;
     int denomination;
-    String name;
+    bool pushToResetFirst;
 };
 
 CoinDispenser coinDispensers[4];
 
 void setupCoinDispensers() {
-    // Attach servos to pins
     servo1.attach(SERVO1_PIN);
     servo2.attach(SERVO2_PIN);
     servo3.attach(SERVO3_PIN);
     servo4.attach(SERVO4_PIN);
 
     // Initialize dispenser array
-    coinDispensers[0] = {&servo1, 1,  "PHP_1"};
-    coinDispensers[1] = {&servo2, 5,  "PHP_5"};
-    coinDispensers[2] = {&servo3, 10, "PHP_10"};
-    coinDispensers[3] = {&servo4, 20, "PHP_20"};
+    // Note: PHP_1 and PHP_20 use pushToResetFirst = true
+    coinDispensers[0] = {&servo1, 1,  true};
+    coinDispensers[1] = {&servo2, 5,  false};
+    coinDispensers[2] = {&servo3, 10, false};
+    coinDispensers[3] = {&servo4, 20, true};
 
-    // Set all to closed position
+    // Set all to initial closed positions
     for (int i = 0; i < 4; i++) {
-        coinDispensers[i].servo->write(SERVO_CLOSED);
+        coinDispensers[i].servo->write(coinDispensers[i].pushToResetFirst ? SERVO_PUSH_DEG : SERVO_RESET_DEG);
     }
-
-    delay(500);  // Allow servos to reach position
+    delay(500);
 }
 ```
 
@@ -539,7 +540,6 @@ struct CoinDispenseResult {
     String error;
 };
 
-// Find dispenser by denomination
 int findCoinDispenser(int denomination) {
     for (int i = 0; i < 4; i++) {
         if (coinDispensers[i].denomination == denomination) {
@@ -549,17 +549,33 @@ int findCoinDispenser(int denomination) {
     return -1;
 }
 
-// Dispense single coin
+// Dispense single coin using the 180° swing sweep profile
 void dispenseSingleCoin(int dispenserIndex) {
-    Servo* servo = coinDispensers[dispenserIndex].servo;
-
-    // Open gate
-    servo->write(SERVO_OPEN);
-    delay(SERVO_OPEN_TIME);
-
-    // Close gate
-    servo->write(SERVO_CLOSED);
-    delay(SERVO_SETTLE_TIME);
+    CoinDispenser &dispenser = coinDispensers[dispenserIndex];
+    Servo *servo = dispenser.servo;
+    
+    if (dispenser.pushToResetFirst) {
+        // Reversed sweep: 180 -> 0 -> 180
+        for (int pos = SERVO_PUSH_DEG; pos >= SERVO_RESET_DEG; pos--) {
+            servo->write(pos);
+            delay(SERVO_STEP_TIME_MS);
+        }
+        for (int pos = SERVO_RESET_DEG; pos <= SERVO_PUSH_DEG; pos++) {
+            servo->write(pos);
+            delay(SERVO_STEP_TIME_MS);
+        }
+    } else {
+        // Normal sweep: 0 -> 180 -> 0
+        for (int pos = SERVO_RESET_DEG; pos <= SERVO_PUSH_DEG; pos++) {
+            servo->write(pos);
+            delay(SERVO_STEP_TIME_MS);
+        }
+        for (int pos = SERVO_PUSH_DEG; pos >= SERVO_RESET_DEG; pos--) {
+            servo->write(pos);
+            delay(SERVO_STEP_TIME_MS);
+        }
+    }
+    delay(SERVO_CYCLE_SETTLE_MS);
 }
 
 // Dispense multiple coins

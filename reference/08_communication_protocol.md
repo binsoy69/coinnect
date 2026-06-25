@@ -118,7 +118,7 @@ is active HIGH and defaults disabled.
 **Events:**
 
 - `{"event":"TAMPER","sensor":"A"}`
-- `{"event":"KEYPAD","key":"5"}`
+- `{"event":"RFID","uid":"A1B2C3D4"}`
 - `{"event":"DOOR_STATE","locked":true}`
 
 ### 8.3.5 System Commands

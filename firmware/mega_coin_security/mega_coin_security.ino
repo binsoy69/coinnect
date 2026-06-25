@@ -1,12 +1,18 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <Servo.h>
+#include <SPI.h>
+#include <MFRC522.h>
 
-// Coinnect Mega #2 firmware: coin accept/dispense + security.
+// Coinnect Mega #2 firmware: coin accept/dispense + security + RFID.
 // Serial protocol: newline-delimited JSON at 115200 baud.
 
-static const char *FIRMWARE_VERSION = "2.1.0";
+static const char *FIRMWARE_VERSION = "2.2.0";
 static const char *CONTROLLER_ID = "COIN_SECURITY";
+
+// MFRC522 RFID reader pins.
+static const uint8_t MFRC522_RST_PIN = 5;
+static const uint8_t MFRC522_SS_PIN = 53;
 
 // Coin acceptor, sorter, and dispenser pins.
 static const uint8_t COIN_PULSE_PIN = 18;  // INT5
@@ -52,6 +58,7 @@ Servo servoPhp5;
 Servo servoPhp10;
 Servo servoPhp20;
 Servo coinSorterServo;
+MFRC522 mfrc522(MFRC522_SS_PIN, MFRC522_RST_PIN);
 
 struct CoinDispenser {
   Servo *servo;
@@ -674,6 +681,9 @@ void setup() {
   setupCoinServos();
   setupSecurityPins();
 
+  SPI.begin();
+  mfrc522.PCD_Init();
+
   attachInterrupt(digitalPinToInterrupt(COIN_PULSE_PIN), coinPulseISR, FALLING);
   // Tamper is detected when the normally closed SW-420 module DO falls LOW.
   attachInterrupt(digitalPinToInterrupt(SHOCK_A_PIN), shockAISR, FALLING);
@@ -683,8 +693,33 @@ void setup() {
   sendReadyEvent();
 }
 
+void serviceRFID() {
+  if (!mfrc522.PICC_IsNewCardPresent()) {
+    return;
+  }
+  if (!mfrc522.PICC_ReadCardSerial()) {
+    return;
+  }
+
+  String uidStr = "";
+  for (byte i = 0; i < mfrc522.uid.size; i++) {
+    if (mfrc522.uid.uidByte[i] < 0x10) uidStr += "0";
+    uidStr += String(mfrc522.uid.uidByte[i], HEX);
+  }
+  uidStr.toUpperCase();
+
+  StaticJsonDocument<128> doc;
+  doc["event"] = "RFID";
+  doc["uid"] = uidStr;
+  sendDocument(doc);
+
+  mfrc522.PICC_HaltA();
+  mfrc522.PCD_StopCrypto1();
+}
+
 void loop() {
   serviceTamperEvents();
   serviceCoinPulseTrain();
+  serviceRFID();
   handleSerialInput();
 }

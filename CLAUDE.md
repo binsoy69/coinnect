@@ -75,8 +75,8 @@ See `reference/08_communication_protocol.md` for full protocol specification.
 
 **Bills:**
 - PHP: `PHP_20`, `PHP_50`, `PHP_100`, `PHP_200`, `PHP_500`, `PHP_1000`
-- USD: `USD_10`, `USD_50`, `USD_100`
-- EUR: `EUR_5`, `EUR_10`, `EUR_20`
+- USD: `USD_10`, `USD_50`
+- EUR: `EUR_5`, `EUR_10`
 
 **Sorting Slot Mapping (Arduino #1):**
 - Slots 1-6: PHP_20, PHP_50, PHP_100, PHP_200, PHP_500, PHP_1000

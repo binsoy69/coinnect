@@ -40,8 +40,8 @@ Command routing:
 **Denomination Conventions**
 Use these exact strings in commands and mappings:
 - PHP: `PHP_20`, `PHP_50`, `PHP_100`, `PHP_200`, `PHP_500`, `PHP_1000`
-- USD: `USD_10`, `USD_50`, `USD_100`
-- EUR: `EUR_5`, `EUR_10`, `EUR_20`
+- USD: `USD_10`, `USD_50`
+- EUR: `EUR_5`, `EUR_10`
 
 Sorting slot mapping (Arduino #1):
 - Slot 1: PHP_20
@@ -50,8 +50,8 @@ Sorting slot mapping (Arduino #1):
 - Slot 4: PHP_200
 - Slot 5: PHP_500
 - Slot 6: PHP_1000
-- Slot 7: USD_* (10, 50, 100)
-- Slot 8: EUR_* (5, 10, 20)
+- Slot 7: USD_* (10, 50)
+- Slot 8: EUR_* (5, 10)
 
 **Key Pin Conventions**
 Raspberry Pi (bill acceptor):

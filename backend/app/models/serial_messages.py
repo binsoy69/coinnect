@@ -214,9 +214,9 @@ class TamperEvent(BaseModel):
     sensor: str
 
 
-class KeypadEvent(BaseModel):
-    event: Literal["KEYPAD"]
-    key: str
+class RFIDEvent(BaseModel):
+    event: Literal["RFID"]
+    uid: str
 
 
 class DoorStateEvent(BaseModel):
@@ -230,4 +230,4 @@ class ReadyEvent(BaseModel):
     controller: str
 
 
-SerialEvent = Union[CoinInEvent, TamperEvent, KeypadEvent, DoorStateEvent, ReadyEvent]
+SerialEvent = Union[CoinInEvent, TamperEvent, RFIDEvent, DoorStateEvent, ReadyEvent]
