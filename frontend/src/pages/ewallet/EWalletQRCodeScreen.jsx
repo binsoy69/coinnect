@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import PageLayout from "../../components/layout/PageLayout";
 import QRCodeDisplay from "../../components/ewallet/QRCodeDisplay";
@@ -6,28 +7,50 @@ import { useEWallet } from "../../context/EWalletContext";
 
 export default function EWalletQRCodeScreen() {
   const navigate = useNavigate();
-  const { ewallet, getEWalletConfig, getProviderStyles } = useEWallet();
+  const {
+    ewallet,
+    getEWalletConfig,
+    getProviderStyles,
+    refreshBackendTransaction,
+  } = useEWallet();
   const config = getEWalletConfig();
   const styles = getProviderStyles();
+
+  const handleVerify = async () => {
+    const data = await refreshBackendTransaction();
+    if (
+      ["COMPLETE", "CLAIM_REQUIRED", "FAILED", "CANCELLED"].includes(
+        data?.state,
+      )
+    ) {
+      navigate(getEWalletRoute(ROUTES.EWALLET_SUMMARY, ewallet.serviceType));
+    }
+  };
+
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const data = await refreshBackendTransaction().catch(() => null);
+      if (
+        ["COMPLETE", "CLAIM_REQUIRED", "FAILED", "CANCELLED"].includes(
+          data?.state,
+        )
+      ) {
+        clearInterval(interval);
+        navigate(getEWalletRoute(ROUTES.EWALLET_SUMMARY, ewallet.serviceType));
+      }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [ewallet.serviceType, navigate, refreshBackendTransaction]);
 
   if (!config) {
     navigate(ROUTES.EWALLET);
     return null;
   }
 
-  const handleVerify = () => {
-    navigate(getEWalletRoute(ROUTES.EWALLET_VERIFY, ewallet.serviceType));
-  };
-
-  const handleBack = () => {
-    navigate(getEWalletRoute(ROUTES.EWALLET_CONFIRM, ewallet.serviceType));
-  };
-
   return (
     <PageLayout
       headerProps={{
-        showBack: true,
-        onBack: handleBack,
+        showBack: false,
         subtitle: "Scan QR Code",
         rightContent: (
           <div
@@ -44,6 +67,14 @@ export default function EWalletQRCodeScreen() {
           providerName={config.providerName}
           onVerify={handleVerify}
           colorVariant={ewallet.provider}
+          qrImageUrl={ewallet.backendState?.qr_image_url}
+          statusText={
+            ["paid", "succeeded"].includes(
+              ewallet.backendState?.gateway_status,
+            )
+              ? "Payment confirmed. Preparing cash."
+              : "Pay with any QR Ph-compatible wallet."
+          }
         />
       </div>
     </PageLayout>

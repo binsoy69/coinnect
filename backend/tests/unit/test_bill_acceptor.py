@@ -14,6 +14,7 @@ from app.drivers.mock_gpio_controller import MockGPIOController
 from app.drivers.mock_camera_controller import MockCameraController
 from app.ml.mock_authenticator import MockBillAuthenticator
 from app.services.bill_acceptor import BillAcceptor, BillAcceptResult
+from app.services.inventory_service import InventoryLocation
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +109,40 @@ def acceptor(
 
 class TestAcceptBillSuccess:
     """Successful bill acceptance (genuine + identified denomination)."""
+
+    @pytest.mark.asyncio
+    async def test_persists_accepted_bill_when_inventory_service_is_available(
+        self,
+        mock_gpio,
+        mock_camera,
+        mock_auth,
+        mock_bill_controller,
+        mock_machine_status,
+        mock_ws_manager,
+        test_settings,
+    ):
+        inventory = AsyncMock()
+        acceptor = BillAcceptor(
+            gpio=mock_gpio,
+            camera=mock_camera,
+            authenticator=mock_auth,
+            bill_controller=mock_bill_controller,
+            machine_status=mock_machine_status,
+            ws_manager=mock_ws_manager,
+            settings=test_settings,
+            inventory_service=inventory,
+        )
+
+        result = await acceptor.accept_bill()
+
+        assert result.success
+        inventory.adjust.assert_awaited_once_with(
+            InventoryLocation.BILL_STORAGE,
+            "PHP_100",
+            1,
+            reason="BILL_ACCEPTED",
+        )
+        mock_machine_status.increment_bill_storage.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_successful_acceptance_returns_success(self, acceptor):

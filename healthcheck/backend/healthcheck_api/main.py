@@ -1,6 +1,7 @@
 """FastAPI app for the Coinnect health check maintenance program."""
 
 from contextlib import asynccontextmanager
+import json
 import os
 from pathlib import Path
 import sys
@@ -15,12 +16,20 @@ from dotenv import load_dotenv
 
 from app.core.config import Settings
 from app.core.logging import setup_logging
+from app.services.paymongo_client import PayMongoClient
 
 from healthcheck_api.auth import AuthManager
 from healthcheck_api.dependencies import require_auth
+from healthcheck_api.ewallet_sandbox import (
+    EWalletSandboxConfig,
+    EWalletSandboxService,
+    SandboxConfigurationError,
+    create_sandbox_database,
+)
 from healthcheck_api.hardware import create_hardware_context
 from healthcheck_api.models import (
     ComponentGroup,
+    EWalletSandboxSessionCreate,
     HealthcheckStatus,
     LoginRequest,
     LoginResponse,
@@ -82,15 +91,33 @@ async def lifespan(app: FastAPI):
 
     hardware = await create_hardware_context(settings)
     runner = DiagnosticsRunner(hardware)
+    sandbox_config = EWalletSandboxConfig.from_environment()
+    sandbox_engine, sandbox_factory = await create_sandbox_database(
+        sandbox_config.database_url
+    )
+    paymongo_client = PayMongoClient(settings)
+    sandbox_service = EWalletSandboxService(
+        settings,
+        paymongo_client,
+        sandbox_factory,
+        sandbox_config,
+    )
+    await sandbox_service.start()
 
     app.state.auth_manager = auth_manager
     app.state.settings = settings
     app.state.hardware = hardware
     app.state.diagnostics_runner = runner
+    app.state.paymongo_client = paymongo_client
+    app.state.ewallet_sandbox_service = sandbox_service
+    app.state.ewallet_sandbox_engine = sandbox_engine
 
     try:
         yield
     finally:
+        await sandbox_service.stop()
+        await paymongo_client.close()
+        await sandbox_engine.dispose()
         await hardware.shutdown()
 
 
@@ -174,6 +201,176 @@ def register_routes(app: FastAPI) -> None:
     async def recent_runs(request: Request):
         runner: DiagnosticsRunner = request.app.state.diagnostics_runner
         return runner.recent_runs
+
+    @app.get(
+        "/api/v1/ewallet-sandbox/config",
+        dependencies=[Depends(require_auth)],
+    )
+    async def ewallet_sandbox_config(request: Request):
+        service: EWalletSandboxService = (
+            request.app.state.ewallet_sandbox_service
+        )
+        return service.config_status
+
+    @app.post(
+        "/api/v1/ewallet-sandbox/sessions",
+        status_code=status.HTTP_201_CREATED,
+        dependencies=[Depends(require_auth)],
+    )
+    async def create_ewallet_sandbox_session(
+        payload: EWalletSandboxSessionCreate,
+        request: Request,
+    ):
+        service: EWalletSandboxService = (
+            request.app.state.ewallet_sandbox_service
+        )
+        try:
+            return await service.create_session(payload)
+        except SandboxConfigurationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(exc),
+            ) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=str(exc),
+            ) from exc
+
+    @app.get(
+        "/api/v1/ewallet-sandbox/sessions",
+        dependencies=[Depends(require_auth)],
+    )
+    async def list_ewallet_sandbox_sessions(request: Request):
+        service: EWalletSandboxService = (
+            request.app.state.ewallet_sandbox_service
+        )
+        return await service.list_sessions()
+
+    @app.get(
+        "/api/v1/ewallet-sandbox/sessions/{session_id}",
+        dependencies=[Depends(require_auth)],
+    )
+    async def get_ewallet_sandbox_session(
+        session_id: str,
+        request: Request,
+    ):
+        service: EWalletSandboxService = (
+            request.app.state.ewallet_sandbox_service
+        )
+        try:
+            return await service.get_session(session_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="E-wallet sandbox session not found",
+            ) from exc
+
+    @app.post(
+        "/api/v1/ewallet-sandbox/sessions/{session_id}/cancel",
+        dependencies=[Depends(require_auth)],
+    )
+    async def cancel_ewallet_sandbox_session(
+        session_id: str,
+        request: Request,
+    ):
+        service: EWalletSandboxService = (
+            request.app.state.ewallet_sandbox_service
+        )
+        try:
+            return await service.cancel_session(session_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="E-wallet sandbox session not found",
+            ) from exc
+
+    @app.post(
+        "/api/v1/ewallet-sandbox/callbacks/payment",
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    async def ewallet_sandbox_payment_callback(request: Request):
+        raw_body = await request.body()
+        signature = request.headers.get(
+            "Paymongo-Signature"
+        ) or request.headers.get("X-Paymongo-Signature")
+        gateway: PayMongoClient = request.app.state.paymongo_client
+        if not gateway.verify_webhook_signature(raw_body, signature):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid webhook signature",
+            )
+        try:
+            payload = json.loads(raw_body)
+            event = _normalize_gateway_event(payload)
+            service: EWalletSandboxService = (
+                request.app.state.ewallet_sandbox_service
+            )
+            await service.process_payment_event(event)
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        return {"accepted": True}
+
+    @app.post(
+        "/api/v1/ewallet-sandbox/callbacks/transfer",
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    async def ewallet_sandbox_transfer_callback(request: Request):
+        payload = await request.json()
+        batch_transfer_id = _extract_batch_transfer_id(payload)
+        if not batch_transfer_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Missing batch_transfer_id",
+            )
+        service: EWalletSandboxService = (
+            request.app.state.ewallet_sandbox_service
+        )
+        await service.process_transfer_callback(batch_transfer_id)
+        return {"accepted": True}
+
+
+def _normalize_gateway_event(payload: dict) -> dict:
+    data = payload.get("data", payload)
+    attrs = data.get("attributes") or {}
+    nested = attrs.get("data") or {}
+    nested_attrs = nested.get("attributes") or {}
+    event_type = attrs.get("type") or data.get("type")
+    if not event_type:
+        raise ValueError("Missing PayMongo event type")
+    resource_id = nested.get("id") or data.get("id")
+    payment_id = None
+    if str(event_type).startswith("payment."):
+        payment_id = nested.get("id")
+        resource_id = nested_attrs.get("payment_intent_id")
+    return {
+        "id": str(data.get("id") or payload.get("id")),
+        "type": str(event_type),
+        "resource_id": resource_id,
+        "payment_id": payment_id,
+    }
+
+
+def _extract_batch_transfer_id(payload: dict) -> str | None:
+    candidates = [
+        payload.get("batch_transfer_id"),
+        payload.get("data", {}).get("batch_transfer_id"),
+        payload.get("data", {}).get("attributes", {}).get(
+            "batch_transfer_id"
+        ),
+    ]
+    data_id = payload.get("data", {}).get("id")
+    if isinstance(data_id, str) and data_id.startswith(
+        ("batch_tr_", "btr_")
+    ):
+        candidates.append(data_id)
+    return next(
+        (str(candidate) for candidate in candidates if candidate),
+        None,
+    )
 
 
 app = create_app()

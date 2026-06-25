@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import PageLayout from "../../components/layout/PageLayout";
@@ -9,9 +10,20 @@ import { isCashOut } from "../../constants/ewalletData";
 
 export default function EWalletFeeScreen() {
   const navigate = useNavigate();
-  const { ewallet, getEWalletConfig, getProviderStyles } = useEWallet();
+  const {
+    ewallet,
+    getEWalletConfig,
+    getProviderStyles,
+    loadFeeTiers,
+  } = useEWallet();
   const config = getEWalletConfig();
   const styles = getProviderStyles();
+
+  useEffect(() => {
+    if (ewallet.feeTiers.length === 0) {
+      loadFeeTiers().catch(() => {});
+    }
+  }, [ewallet.feeTiers.length, loadFeeTiers]);
 
   if (!config) {
     navigate(ROUTES.EWALLET);
@@ -19,7 +31,10 @@ export default function EWalletFeeScreen() {
   }
 
   const handleProceed = () => {
-    navigate(getEWalletRoute(ROUTES.EWALLET_MOBILE, ewallet.serviceType));
+    const nextRoute = isCashOut(ewallet.serviceType)
+      ? ROUTES.EWALLET_AMOUNT
+      : ROUTES.EWALLET_MOBILE;
+    navigate(getEWalletRoute(nextRoute, ewallet.serviceType));
   };
 
   const handleBack = () => {
@@ -52,6 +67,7 @@ export default function EWalletFeeScreen() {
         </motion.h1>
 
         <TransactionFeeTable
+          feeTiers={ewallet.feeTiers}
           showCashOutNote={isCashOut(ewallet.serviceType)}
           colorVariant={ewallet.provider}
           className="mb-8"
@@ -66,9 +82,10 @@ export default function EWalletFeeScreen() {
             variant={config.provider} // "gcash" or "maya"
             size="xl"
             onClick={handleProceed}
+            disabled={ewallet.feeTiers.length === 0}
             className="min-w-[200px]"
           >
-            Proceed
+            {ewallet.feeTiers.length === 0 ? "Loading fees..." : "Proceed"}
           </Button>
         </motion.div>
       </div>

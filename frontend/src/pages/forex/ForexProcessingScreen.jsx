@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import LoadingDots from '../../components/common/LoadingDots';
@@ -11,17 +11,10 @@ export default function ForexProcessingScreen() {
   const navigate = useNavigate();
   const { forex } = useForex();
   const { backendState, dispenseProgress, transactionId } = useForexTransaction();
-  const [statusText, setStatusText] = useState("Dispensing Money");
-
-  // Update status text based on dispense progress
-  useEffect(() => {
-    if (dispenseProgress) {
-      const { dispensed, total } = dispenseProgress;
-      if (dispensed != null && total != null) {
-        setStatusText(`Dispensing ${dispensed}/${total}`);
-      }
-    }
-  }, [dispenseProgress]);
+  const statusText =
+    dispenseProgress?.dispensed != null && dispenseProgress?.total != null
+      ? `Dispensing ${dispenseProgress.dispensed}/${dispenseProgress.total}`
+      : "Dispensing Money";
 
   // Navigate to success when backend signals completion
   useEffect(() => {

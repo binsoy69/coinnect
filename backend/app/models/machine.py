@@ -54,6 +54,7 @@ class ConsumablesState(BaseModel):
         }
     )
     alerts: List[str] = Field(default_factory=list)
+    inventory_consistent: bool = True
 
 
 class MachineStateSnapshot(BaseModel):

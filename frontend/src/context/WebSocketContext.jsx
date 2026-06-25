@@ -30,6 +30,18 @@ export function WebSocketProvider({ children }) {
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef(null);
   const heartbeatTimerRef = useRef(null);
+  const connectRef = useRef(null);
+
+  const scheduleReconnect = useCallback(() => {
+    const attempt = reconnectAttemptRef.current;
+    const delay = Math.min(1000 * Math.pow(2, attempt), MAX_RECONNECT_DELAY);
+    reconnectAttemptRef.current += 1;
+
+    reconnectTimerRef.current = setTimeout(() => {
+      setConnectionState(CONNECTION_STATES.RECONNECTING);
+      connectRef.current?.();
+    }, delay);
+  }, []);
 
   const connect = useCallback(() => {
     try {
@@ -94,27 +106,19 @@ export function WebSocketProvider({ children }) {
       setConnectionState(CONNECTION_STATES.CLOSED);
       scheduleReconnect();
     }
-  }, []);
-
-  const scheduleReconnect = useCallback(() => {
-    const attempt = reconnectAttemptRef.current;
-    const delay = Math.min(1000 * Math.pow(2, attempt), MAX_RECONNECT_DELAY);
-    reconnectAttemptRef.current += 1;
-
-    reconnectTimerRef.current = setTimeout(() => {
-      setConnectionState(CONNECTION_STATES.RECONNECTING);
-      connect();
-    }, delay);
-  }, [connect]);
+  }, [scheduleReconnect]);
 
   useEffect(() => {
-    connect();
+    connectRef.current = connect;
+    const initialConnectTimer = setTimeout(connect, 0);
     return () => {
+      clearTimeout(initialConnectTimer);
       clearTimeout(reconnectTimerRef.current);
       clearInterval(heartbeatTimerRef.current);
       if (wsRef.current) {
         wsRef.current.close();
       }
+      connectRef.current = null;
     };
   }, [connect]);
 

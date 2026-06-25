@@ -4,7 +4,7 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import JSON, DateTime, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, Integer, String, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -138,6 +138,117 @@ class WALEntry(Base):
     status: Mapped[str] = mapped_column(
         String, default=WALStatus.PENDING.value
     )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow
+    )
+
+
+class EWalletTransactionRecord(Base):
+    """Persistent state for PayMongo-backed cash-in and cash-out."""
+
+    __tablename__ = "ewallet_transactions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    provider: Mapped[str] = mapped_column(String, nullable=False)
+    direction: Mapped[str] = mapped_column(String, nullable=False)
+    mobile_number: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    account_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    state: Mapped[str] = mapped_column(String, nullable=False)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    fee: Mapped[int] = mapped_column(Integer, nullable=False)
+    transfer_amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_due: Mapped[int] = mapped_column(Integer, nullable=False)
+    inserted_amount: Mapped[int] = mapped_column(Integer, default=0)
+    inserted_denominations: Mapped[dict] = mapped_column(JSON, default=dict)
+    dispensed_amount: Mapped[int] = mapped_column(Integer, default=0)
+    dispense_plan: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    dispense_result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    gateway_payment_intent_id: Mapped[Optional[str]] = mapped_column(
+        String, unique=True, nullable=True
+    )
+    gateway_batch_transfer_id: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )
+    gateway_transfer_id: Mapped[Optional[str]] = mapped_column(
+        String, unique=True, nullable=True
+    )
+    gateway_status: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    qr_image_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    test_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    claim_ticket_code: Mapped[Optional[str]] = mapped_column(
+        String, unique=True, nullable=True
+    )
+    error_code: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True
+    )
+
+
+class GatewayEventRecord(Base):
+    """Processed PayMongo event IDs for replay protection."""
+
+    __tablename__ = "gateway_events"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    event_type: Mapped[str] = mapped_column(String, nullable=False)
+    resource_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    processed: Mapped[bool] = mapped_column(Boolean, default=False)
+    processing_error: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )
+    processed_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow
+    )
+
+
+class InventoryBalance(Base):
+    """Current persisted count for one physical inventory location."""
+
+    __tablename__ = "inventory_balances"
+    __table_args__ = (
+        UniqueConstraint(
+            "location", "denomination", name="uq_inventory_location_denom"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    location: Mapped[str] = mapped_column(String, nullable=False)
+    denomination: Mapped[str] = mapped_column(String, nullable=False)
+    count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class InventoryAdjustment(Base):
+    """Append-only audit record for an inventory balance change."""
+
+    __tablename__ = "inventory_adjustments"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    location: Mapped[str] = mapped_column(String, nullable=False)
+    denomination: Mapped[str] = mapped_column(String, nullable=False)
+    old_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    new_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    delta: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(String, nullable=False)
+    source: Mapped[str] = mapped_column(String, nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    session_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    reference_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow
     )

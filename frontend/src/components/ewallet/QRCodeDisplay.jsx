@@ -5,6 +5,8 @@ export default function QRCodeDisplay({
   onVerify,
   className = "",
   colorVariant = "gcash", // 'gcash' or 'maya'
+  qrImageUrl = "",
+  statusText = "Waiting for payment confirmation",
 }) {
   const textColor =
     colorVariant === "maya" ? "text-coinnect-maya" : "text-coinnect-gcash";
@@ -23,10 +25,10 @@ export default function QRCodeDisplay({
     >
       {/* Heading */}
       <h2 className="text-2xl font-bold text-gray-900 mb-2">
-        Scan QR Code ({providerName} App)
+        Scan QR Ph Code
       </h2>
       <p className="text-gray-500 mb-6">
-        Scan QR Code and input money you want to send.
+        Pay using {providerName} or any QR Ph-compatible wallet or bank app.
       </p>
 
       {/* QR Code placeholder */}
@@ -36,7 +38,9 @@ export default function QRCodeDisplay({
         transition={{ delay: 0.2 }}
         className="w-56 h-56 bg-white border-2 border-gray-300 rounded-xl p-4 mb-6 flex items-center justify-center"
       >
-        {/* Simple QR-like pattern */}
+        {qrImageUrl ? (
+          <img src={qrImageUrl} alt="PayMongo QR Ph payment" className="w-full h-full object-contain" />
+        ) : (
         <svg viewBox="0 0 100 100" className="w-full h-full">
           {/* Corner squares */}
           <rect x="5" y="5" width="25" height="25" fill="#333" rx="2" />
@@ -124,6 +128,7 @@ export default function QRCodeDisplay({
             instaPay
           </text>
         </svg>
+        )}
       </motion.div>
 
       {/* After paying text */}
@@ -133,7 +138,7 @@ export default function QRCodeDisplay({
         transition={{ delay: 0.4 }}
         className={`${textColor} italic mb-6`}
       >
-        After paying, click the button
+        {statusText}
       </motion.p>
 
       {/* Verify button */}
@@ -144,7 +149,7 @@ export default function QRCodeDisplay({
         onClick={onVerify}
         className={`px-10 py-3 rounded-button text-lg font-semibold border-2 ${borderColor} ${textColor} ${hoverBg} hover:text-white transition-colors`}
       >
-        Verify Transaction
+        Check Payment
       </motion.button>
     </motion.div>
   );

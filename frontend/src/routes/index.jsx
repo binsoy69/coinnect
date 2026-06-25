@@ -44,12 +44,12 @@ import {
   EWalletInsertBillsScreen,
   EWalletInsertCoinsScreen,
   EWalletQRCodeScreen,
-  EWalletVerifyPINScreen,
-  EWalletAccountDetailsScreen,
   EWalletProcessingScreen,
   EWalletSummaryScreen,
   EWalletSuccessScreen,
 } from '../pages/ewallet';
+import AdminLoginScreen from '../pages/admin/AdminLoginScreen';
+import AdminInventoryScreen from '../pages/admin/AdminInventoryScreen';
 
 export default function AppRoutes() {
   return (
@@ -104,13 +104,15 @@ export default function AppRoutes() {
       <Route path={ROUTES.EWALLET_INSERT_BILLS} element={<EWalletInsertBillsScreen />} />
       <Route path={ROUTES.EWALLET_INSERT_COINS} element={<EWalletInsertCoinsScreen />} />
       <Route path={ROUTES.EWALLET_QR} element={<EWalletQRCodeScreen />} />
-      <Route path={ROUTES.EWALLET_VERIFY} element={<EWalletVerifyPINScreen />} />
-      <Route path={ROUTES.EWALLET_DETAILS} element={<EWalletAccountDetailsScreen />} />
 
       {/* E-Wallet Feedback Screens */}
       <Route path={ROUTES.EWALLET_PROCESSING} element={<EWalletProcessingScreen />} />
       <Route path={ROUTES.EWALLET_SUMMARY} element={<EWalletSummaryScreen />} />
       <Route path={ROUTES.EWALLET_SUCCESS} element={<EWalletSuccessScreen />} />
+
+      {/* Hidden Maintenance Flow */}
+      <Route path={ROUTES.ADMIN_LOGIN} element={<AdminLoginScreen />} />
+      <Route path={ROUTES.ADMIN_INVENTORY} element={<AdminInventoryScreen />} />
     </Routes>
   );
 }

@@ -178,6 +178,29 @@ class MachineStatus:
             self._check_coin_alerts()
         self._notify_change()
 
+    def set_storage_counts(self, counts: dict) -> None:
+        """Bulk-set accepted bill storage inventory."""
+        with self._lock:
+            for denom, count in counts.items():
+                if denom in self._consumables.bill_storage_counts:
+                    self._consumables.bill_storage_counts[denom] = count
+            self._check_storage_alerts()
+        self._notify_change()
+
+    def set_inventory_consistent(
+        self, consistent: bool, message: str = "INVENTORY_RECONCILIATION_REQUIRED"
+    ) -> None:
+        with self._lock:
+            self._consumables.inventory_consistent = consistent
+            self._consumables.alerts = [
+                alert
+                for alert in self._consumables.alerts
+                if alert != "INVENTORY_RECONCILIATION_REQUIRED"
+            ]
+            if not consistent:
+                self._consumables.alerts.append(message)
+        self._notify_change()
+
     def get_alerts(self) -> List[str]:
         with self._lock:
             return list(self._consumables.alerts)

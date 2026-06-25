@@ -1,7 +1,13 @@
 from functools import lru_cache
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, BaseModel, Field
 from pydantic_settings import BaseSettings
+
+
+class EWalletFeeTier(BaseModel):
+    min: int = Field(ge=1)
+    max: int | None = Field(default=None, ge=1)
+    fee: int = Field(ge=0)
 
 
 class Settings(BaseSettings):
@@ -37,6 +43,12 @@ class Settings(BaseSettings):
 
     # Session
     session_timeout: int = 180
+
+    # Maintenance admin access
+    admin_pin: str = ""
+    admin_session_minutes: int = 15
+    admin_lockout_minutes: int = 5
+    admin_max_attempts: int = 5
 
     # Mock hardware (GPIO, camera, ML)
     use_mock_hardware: bool = False
@@ -100,6 +112,34 @@ class Settings(BaseSettings):
     # Forex connectivity
     forex_connectivity_check_url: str = "https://exchange-rates.abstractapi.com"
     forex_connectivity_timeout: int = 5
+
+    # PayMongo e-wallet integration
+    paymongo_api_url: str = "https://api.paymongo.com"
+    paymongo_secret_key: str = ""
+    paymongo_public_key: str = ""
+    paymongo_webhook_secret: str = ""
+    paymongo_sandbox: bool = True
+    paymongo_timeout_seconds: int = 15
+    paymongo_max_retries: int = 3
+    paymongo_transfer_callback_url: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "PAYMONGO_TRANSFER_CALLBACK_URL",
+            "PAYMONGO_CALLBACK_URL",
+            "paymongo_transfer_callback_url",
+            "paymongo_callback_url",
+        ),
+    )
+    paymongo_source_account_number: str = ""
+    paymongo_source_account_name: str = "Coinnect"
+    paymongo_source_account_bic: str = "PAEYPHM2XXX"
+    paymongo_webhook_tolerance_seconds: int = 300
+    ewallet_fee_tiers: list[EWalletFeeTier] = Field(
+        default_factory=lambda: [
+            EWalletFeeTier(min=1, max=500, fee=15),
+            EWalletFeeTier(min=501, max=None, fee=25),
+        ]
+    )
 
     # ML models per currency
     yolo_auth_model_path_usd: str = "models/auth_usd.pt"

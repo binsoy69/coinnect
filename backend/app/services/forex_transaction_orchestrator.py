@@ -35,6 +35,7 @@ from app.services.forex_change_calculator import calculate_forex_dispense
 from app.services.forex_rate_service import ForexRateService
 from app.services.machine_status import MachineStatus
 from app.services.transaction_state_machine import TransactionStateMachine
+from app.services.operation_mode import OperationModeManager
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ class ForexTransactionOrchestrator:
         ws_manager: ConnectionManager,
         forex_rate_service: ForexRateService,
         db_session_factory: async_sessionmaker,
+        operation_mode: OperationModeManager | None = None,
     ):
         self._bill_acceptor = bill_acceptor
         self._dispenser = dispense_orchestrator
@@ -68,6 +70,8 @@ class ForexTransactionOrchestrator:
         self._active_tx: Optional[TransactionStateMachine] = None
         self._active_session: Optional[AsyncSession] = None
         self._active_quote: Optional[ForexQuote] = None
+        self._operation_mode = operation_mode
+        self._operation_owner: Optional[str] = None
 
     @property
     def has_active_transaction(self) -> bool:
@@ -112,6 +116,8 @@ class ForexTransactionOrchestrator:
         snapshot = self._status.snapshot()
         if snapshot.security.tamper_active:
             raise TransactionError("", "Machine is in lockdown mode")
+        if not snapshot.consumables.inventory_consistent:
+            raise TransactionError("", "Inventory reconciliation is required")
 
         # 3. Get quote (locks rate)
         try:
@@ -146,6 +152,9 @@ class ForexTransactionOrchestrator:
         # 7. Create DB record
         tx_type = f"forex-{service_type}"
         tx_id = str(uuid.uuid4())
+        if self._operation_mode:
+            self._operation_mode.begin_transaction(tx_id)
+            self._operation_owner = tx_id
         session = self._db_factory()
         self._active_session = session
 
@@ -290,7 +299,9 @@ class ForexTransactionOrchestrator:
 
         await tx.transition_to(TransactionState.DISPENSING)
 
-        result = await self._dispenser.execute_dispense(plan)
+        result = await self._dispenser.execute_dispense(
+            plan, reference_id=tx.transaction_id
+        )
 
         db_record.dispensed_amount = result.total_dispensed
         db_record.dispense_result = result.model_dump()
@@ -383,5 +394,8 @@ class ForexTransactionOrchestrator:
             self._active_session = None
         self._active_tx = None
         self._active_quote = None
+        if self._operation_mode and self._operation_owner:
+            self._operation_mode.end_transaction(self._operation_owner)
+            self._operation_owner = None
         # Reset bill acceptor to PHP
         self._bill_acceptor.set_expected_currency("PHP")

@@ -48,3 +48,30 @@ export function runTest(token, testId) {
     token,
   });
 }
+
+export function fetchEWalletSandboxConfig(token) {
+  return request('/ewallet-sandbox/config', { token });
+}
+
+export function fetchEWalletSandboxSessions(token) {
+  return request('/ewallet-sandbox/sessions', { token });
+}
+
+export function fetchEWalletSandboxSession(token, sessionId) {
+  return request(`/ewallet-sandbox/sessions/${sessionId}`, { token });
+}
+
+export function createEWalletSandboxSession(token, payload) {
+  return request('/ewallet-sandbox/sessions', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(payload),
+  });
+}
+
+export function cancelEWalletSandboxSession(token, sessionId) {
+  return request(`/ewallet-sandbox/sessions/${sessionId}/cancel`, {
+    method: 'POST',
+    token,
+  });
+}

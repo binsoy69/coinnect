@@ -11,6 +11,8 @@ os.environ["SERIAL_PORT_COIN"] = "MOCK_COIN"
 os.environ["ENVIRONMENT"] = "test"
 os.environ["LOG_LEVEL"] = "DEBUG"
 os.environ["DB_URL"] = "sqlite+aiosqlite:///:memory:"
+os.environ["HOST"] = "0.0.0.0"
+os.environ["PAYMONGO_SANDBOX"] = "true"
 
 from app.api.ws import ConnectionManager
 from app.core.config import Settings

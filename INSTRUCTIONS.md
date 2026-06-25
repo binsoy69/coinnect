@@ -370,9 +370,17 @@ CAMERA_INDEX=0
 # ML Model Path
 YOLO_MODEL_PATH=/home/pi/coinnect/backend/app/ml/models/bill_auth.pt
 
-# Payment Provider API Keys (for online mode)
-GCASH_API_KEY=your_gcash_api_key_here
-MAYA_API_KEY=your_maya_api_key_here
+# PayMongo keys (test mode)
+PAYMONGO_SECRET_KEY=sk_test_replace_me
+PAYMONGO_PUBLIC_KEY=pk_test_replace_me
+PAYMONGO_WEBHOOK_SECRET=replace_with_endpoint_secret
+PAYMONGO_SANDBOX=true
+PAYMONGO_TRANSFER_CALLBACK_URL=https://your-public-host/api/v1/ewallet/transfer-callback
+PAYMONGO_WEBHOOK_TOLERANCE_SECONDS=300
+PAYMONGO_SOURCE_ACCOUNT_NUMBER=your_paymongo_wallet_source_account
+PAYMONGO_SOURCE_ACCOUNT_NAME=Coinnect
+PAYMONGO_SOURCE_ACCOUNT_BIC=PAEYPHM2XXX
+EWALLET_FEE_TIERS=[{"min":1,"max":500,"fee":15},{"min":501,"max":null,"fee":25}]
 
 # Application Settings
 LOG_LEVEL=INFO

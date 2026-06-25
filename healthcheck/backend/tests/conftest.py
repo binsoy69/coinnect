@@ -21,9 +21,24 @@ async def app_lifespan(app):
 
 
 @pytest.fixture
-async def app_client():
+async def app_client(tmp_path, monkeypatch):
     from healthcheck_api.main import create_app
 
+    monkeypatch.setenv(
+        "HEALTHCHECK_EWALLET_DB_URL",
+        f"sqlite+aiosqlite:///{tmp_path / 'healthcheck_ewallet.db'}",
+    )
+    monkeypatch.setenv(
+        "HEALTHCHECK_PUBLIC_BASE_URL",
+        "https://healthcheck.example.com",
+    )
+    monkeypatch.setenv("PAYMONGO_SANDBOX", "true")
+    monkeypatch.setenv("PAYMONGO_SECRET_KEY", "sk_test_healthcheck")
+    monkeypatch.setenv("PAYMONGO_PUBLIC_KEY", "pk_test_healthcheck")
+    monkeypatch.setenv("PAYMONGO_WEBHOOK_SECRET", "whsec_healthcheck")
+    monkeypatch.setenv("PAYMONGO_SOURCE_ACCOUNT_NUMBER", "source-001")
+    monkeypatch.setenv("PAYMONGO_SOURCE_ACCOUNT_NAME", "Coinnect")
+    monkeypatch.setenv("PAYMONGO_SOURCE_ACCOUNT_BIC", "PAEYPHM2XXX")
     app = create_app()
     transport = ASGITransport(app=app)
     async with app_lifespan(app):

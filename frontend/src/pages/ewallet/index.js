@@ -9,8 +9,6 @@ export { default as EWalletConfirmScreen } from './EWalletConfirmScreen';
 export { default as EWalletInsertBillsScreen } from './EWalletInsertBillsScreen';
 export { default as EWalletInsertCoinsScreen } from './EWalletInsertCoinsScreen';
 export { default as EWalletQRCodeScreen } from './EWalletQRCodeScreen';
-export { default as EWalletVerifyPINScreen } from './EWalletVerifyPINScreen';
-export { default as EWalletAccountDetailsScreen } from './EWalletAccountDetailsScreen';
 export { default as EWalletProcessingScreen } from './EWalletProcessingScreen';
 export { default as EWalletSummaryScreen } from './EWalletSummaryScreen';
 export { default as EWalletSuccessScreen } from './EWalletSuccessScreen';

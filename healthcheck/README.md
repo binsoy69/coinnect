@@ -38,6 +38,48 @@ module needed by the vendored Paperang driver into the active virtualenv; the
 healthcheck backend will still fail with `No module named 'bluetooth'` if that
 command was skipped or run outside the virtualenv.
 
+## E-Wallet Sandbox Diagnostics
+
+The healthcheck dashboard includes a guided PayMongo sandbox panel for GCash
+and Maya cash-in/cash-out integration checks. These checks use the real
+PayMongo sandbox API but do not call GPIO, Arduino, inventory, bill acceptance,
+or cash dispensing code.
+
+For the complete account, API-key, public HTTPS, webhook creation, Money
+Movement, verification, and troubleshooting procedure, see
+[`PAYMONGO_INTEGRATION.md`](PAYMONGO_INTEGRATION.md).
+
+Configure these values in `healthcheck/backend/.env`:
+
+```env
+PAYMONGO_SANDBOX=true
+PAYMONGO_SECRET_KEY=sk_test_...
+PAYMONGO_PUBLIC_KEY=pk_test_...
+PAYMONGO_WEBHOOK_SECRET=...
+PAYMONGO_SOURCE_ACCOUNT_NUMBER=...
+PAYMONGO_SOURCE_ACCOUNT_NAME=Coinnect
+PAYMONGO_SOURCE_ACCOUNT_BIC=PAEYPHM2XXX
+HEALTHCHECK_PUBLIC_BASE_URL=https://public-healthcheck.example.com
+HEALTHCHECK_EWALLET_DB_URL=sqlite+aiosqlite:///./healthcheck_ewallet.db
+```
+
+`HEALTHCHECK_PUBLIC_BASE_URL` must be an externally reachable HTTPS origin.
+Register the payment callback shown in the dashboard as the PayMongo payment
+webhook in **Test Mode**, subscribed to `payment.paid`, then copy that
+endpoint's secret into `PAYMONGO_WEBHOOK_SECRET`. Cash-in batch transfers
+receive the derived transfer callback URL in each request and do not require a
+second dashboard webhook.
+
+Cash-out tests complete only after a signed `payment.paid` webhook is received
+and the Payment Intent is retrieved and verified. Cash-in tests complete only
+after the transfer callback triggers retrieval and reconciliation of the batch
+transfer. Pending sessions time out after ten minutes. Cancelling in the
+healthcheck stops local tracking; it does not cancel the PayMongo resource.
+
+Sandbox session state is stored separately from the kiosk database. The
+healthcheck retains the newest 100 completed sessions and never prunes pending
+sessions.
+
 ## Bill ML and Live Bill Diagnostics
 
 The healthcheck backend uses `healthcheck/backend/.env` for model paths and

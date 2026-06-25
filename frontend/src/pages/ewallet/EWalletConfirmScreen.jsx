@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { HelpCircle } from "lucide-react";
@@ -8,23 +9,37 @@ import { isCashIn } from "../../constants/ewalletData";
 
 export default function EWalletConfirmScreen() {
   const navigate = useNavigate();
-  const { ewallet, getEWalletConfig, getProviderStyles } = useEWallet();
+  const {
+    ewallet,
+    getEWalletConfig,
+    getProviderStyles,
+    startBackendTransaction,
+  } = useEWallet();
   const config = getEWalletConfig();
   const styles = getProviderStyles();
+  const [submitting, setSubmitting] = useState(false);
 
   if (!config) {
     navigate(ROUTES.EWALLET);
     return null;
   }
 
-  const handleProceed = () => {
+  const handleProceed = async () => {
+    setSubmitting(true);
+    try {
+      await startBackendTransaction();
     // Branching: Cash In goes to insert bills, Cash Out goes to QR code
-    if (isCashIn(ewallet.serviceType)) {
-      navigate(
-        getEWalletRoute(ROUTES.EWALLET_INSERT_BILLS, ewallet.serviceType),
-      );
-    } else {
-      navigate(getEWalletRoute(ROUTES.EWALLET_QR, ewallet.serviceType));
+      if (isCashIn(ewallet.serviceType)) {
+        navigate(
+          getEWalletRoute(ROUTES.EWALLET_INSERT_BILLS, ewallet.serviceType),
+        );
+      } else {
+        navigate(getEWalletRoute(ROUTES.EWALLET_QR, ewallet.serviceType));
+      }
+    } catch {
+      // Context exposes the backend error below the actions.
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -55,12 +70,18 @@ export default function EWalletConfirmScreen() {
         transition={{ delay: 0.2 }}
         className="text-center text-white mb-8"
       >
-        <p className="text-xl mb-4">
-          <span className="font-normal">Mobile Number: </span>
-          <span className="font-bold">
-            {ewallet.mobileNumber || "09XXXXXXXXX"}
-          </span>
-        </p>
+        {isCashIn(ewallet.serviceType) && (
+          <>
+            <p className="text-xl mb-4">
+              <span className="font-normal">Account Name: </span>
+              <span className="font-bold">{ewallet.accountName}</span>
+            </p>
+            <p className="text-xl mb-4">
+              <span className="font-normal">Mobile Number: </span>
+              <span className="font-bold">{ewallet.mobileNumber}</span>
+            </p>
+          </>
+        )}
         <p className="text-xl mb-4">
           <span className="font-normal">Amount to Transfer: </span>
           <span className="font-bold">P{ewallet.transferAmount}</span>
@@ -96,10 +117,16 @@ export default function EWalletConfirmScreen() {
           variant={ewallet.provider === "maya" ? "white-green" : "white-blue"}
           size="xl"
           onClick={handleProceed}
+          disabled={submitting}
           className="min-w-[150px]"
         >
-          Proceed
+          {submitting ? "Connecting..." : "Proceed"}
         </Button>
+        {ewallet.gatewayError && (
+          <p className="text-white bg-red-700/50 rounded-lg px-4 py-2">
+            {ewallet.gatewayError}
+          </p>
+        )}
       </motion.div>
 
       {/* Note */}

@@ -1,8 +1,7 @@
 import { motion } from "framer-motion";
-import { EWALLET_FEE_TIERS } from "../../constants/ewalletData";
 
 export default function TransactionFeeTable({
-  feeTiers = EWALLET_FEE_TIERS,
+  feeTiers = [],
   showCashOutNote = false,
   className = "",
   colorVariant = "ewallet", // 'gcash' or 'maya'
@@ -55,7 +54,7 @@ export default function TransactionFeeTable({
             className={`grid grid-cols-2 ${bgColor} text-white border-t ${rowBorder}`}
           >
             <div className="p-4 text-center text-xl font-bold">
-              P{tier.min} - P{tier.max}
+              P{tier.min} - {tier.max == null ? "and above" : `P${tier.max}`}
             </div>
             <div className="p-4 text-center text-xl font-bold">P{tier.fee}</div>
           </motion.div>
@@ -75,8 +74,8 @@ export default function TransactionFeeTable({
         </p>
         {showCashOutNote && (
           <p className="text-lg font-semibold text-gray-800 mt-3">
-            <span className="font-bold italic">Note:</span> Ensure you have your
-            mobile phone and the provided mobile number with you.
+            <span className="font-bold italic">Note:</span> The QR code can be
+            paid using any QR Ph-compatible wallet or banking app.
           </p>
         )}
       </motion.div>

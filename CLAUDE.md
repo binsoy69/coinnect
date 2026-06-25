@@ -13,7 +13,7 @@ Coinnect is a self-service financial kiosk for cash-in/cash-out and money conver
 
 **Operational Modes:**
 - **Offline**: Money-changer only (PHP cash-to-cash, coin↔bill, bill↔bill)
-- **Online**: E-wallet transactions (GCash/Maya) and foreign exchange
+- **Online**: PayMongo-backed QR Ph cash-out, GCash/Maya disbursement cash-in, and foreign exchange
 
 ## Repository Structure
 
@@ -156,9 +156,9 @@ See `reference/08_communication_protocol.md` for full protocol specification.
 4. RPi authenticates via camera + ML, identifies denomination
 5. RPi commands Arduino #1 to align sorting slot
 6. Bill routed to storage, inventory updated
-7. On confirmation, RPi calls provider API (requires online)
-8. On success: finalize ledger, print receipt
-9. On failure: abort transaction, record incident
+7. On confirmation, RPi submits an idempotent PayMongo InstaPay transfer
+8. On signed callback success: finalize ledger and print receipt
+9. On failure after cash storage: persist the obligation and issue a claim ticket
 
 ### Cash-Out (E-Wallet → Cash)
 1. User selects provider, requests amount

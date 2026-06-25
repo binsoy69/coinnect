@@ -8,11 +8,19 @@ import { useEWallet } from "../../context/EWalletContext";
 
 export default function EWalletMobileScreen() {
   const navigate = useNavigate();
-  const { ewallet, setMobileNumber, getEWalletConfig, getProviderStyles } =
-    useEWallet();
+  const {
+    ewallet,
+    setMobileNumber,
+    setAccountName,
+    getEWalletConfig,
+    getProviderStyles,
+  } = useEWallet();
   const config = getEWalletConfig();
   const styles = getProviderStyles();
   const [value, setValue] = useState("");
+  const [accountName, setAccountNameValue] = useState(
+    ewallet.accountName || "",
+  );
 
   if (!config) {
     navigate(ROUTES.EWALLET);
@@ -20,6 +28,8 @@ export default function EWalletMobileScreen() {
   }
 
   const handleSubmit = (mobile) => {
+    if (!accountName.trim()) return;
+    setAccountName(accountName.trim());
     setMobileNumber(mobile);
     navigate(getEWalletRoute(ROUTES.EWALLET_AMOUNT, ewallet.serviceType));
   };
@@ -59,13 +69,26 @@ export default function EWalletMobileScreen() {
           transition={{ delay: 0.2 }}
           className="w-full max-w-xl"
         >
+          <label className="block mb-5">
+            <span className="block text-sm font-semibold text-gray-600 mb-2">
+              Account Name
+            </span>
+            <input
+              type="text"
+              value={accountName}
+              onChange={(event) => setAccountNameValue(event.target.value)}
+              placeholder="Name registered to the wallet"
+              maxLength={120}
+              className={`w-full border-2 rounded-xl px-4 py-3 text-lg outline-none ${styles.text} focus:ring-2 focus:ring-blue-200`}
+            />
+          </label>
           <VirtualKeypad
             value={value}
             onChange={setValue}
             onSubmit={handleSubmit}
             maxLength={11}
             placeholder="09XXXXXXXXX"
-            submitLabel="Proceed"
+            submitLabel={accountName.trim() ? "Proceed" : "Enter name first"}
             colorClass={`coinnect-${ewallet.provider}`}
           />
         </motion.div>

@@ -27,7 +27,7 @@ This separation isolates faults (security/coin can remain active if bill subsyst
 ```mermaid
 flowchart LR
   User((User)) -->|touch + cash| Kiosk[Coinnect Kiosk]
-  Kiosk -->|cash-out/cash-in requests| APIs[Cloud/APIs\n(GCash/Maya/Payments/Exchange/Telemetry)]
+  Kiosk -->|QR payments + disbursements| APIs[PayMongo\n(QR Ph / GCash / Maya / Money Movement)]
   Tech((Technician)) -->|RFID Card| Kiosk
 ```
 
@@ -105,7 +105,7 @@ Responsibilities:
 - Offline-first ledgering: durable transaction logs, inventory deltas, and receipts.
 - **Centralized Configuration:** Stores all hardware thresholds (servo angles, sensor triggers) and pushes them to Arduinos on connection.
 - Policy decisions: when to accept cash, when to lock down, how to handle partial failures.
-- Exchange-rate and payment provider adapters (GCash/Maya/etc.).
+- Exchange-rate services and a PayMongo adapter for QR Ph acceptance and GCash/Maya InstaPay disbursements.
 
 Key concerns:
 
@@ -181,27 +181,27 @@ Responsibilities:
 
 ### A) Cash-In (Bills) to E-Wallet
 
-1. User selects cash-in and provider (e.g., GCash/Maya); enters account reference.
+1. User selects cash-in and GCash/Maya; enters the registered account name and mobile number.
 2. RPi starts a transaction session locally (ledger "pending").
 3. User inserts bill(s).
 4. RPi bill acceptor subsystem detects bill entry, runs the acceptor motor for a calibrated duration, captures images under controlled lighting, and runs ML authentication + denomination.
 5. If accepted, RPi commands Arduino #1 to align the correct sorting slot.
 6. Arduino #1 signals READY; RPi drives acceptor motor to route bill into the aligned slot.
 7. RPi updates local inventory and session total; UI displays updated amount.
-8. On user confirmation, RPi calls provider API(s) to credit wallet (online required; blocked when offline).
-9. On success, RPi finalizes ledger, prints receipt, and optionally syncs logs/telemetry.
-10. On API failure, RPi aborts the transaction and records an incident; funds handling policy should be explicitly defined before deployment.
+8. On confirmation, RPi submits one idempotent PayMongo batch transfer over InstaPay.
+9. The transfer callback triggers a secret-key batch retrieval; the returned transfer ID, reference, and successful status must match.
+10. On success, RPi finalizes the ledger. Failed or uncertain transfers after cash storage produce a claim ticket.
 
 ### B) Cash-Out (E-Wallet) to Cash (Bills + Coins)
 
-1. User selects cash-out and provider; requests amount.
+1. User selects cash-out and GCash/Maya branding, then enters the gross amount.
 2. RPi validates kiosk capability (inventory available, devices ready, not in tamper/lockdown).
-3. RPi calls provider API(s) to authorize/debit (online required; blocked when offline).
-4. RPi computes a dispense plan (bills first, then coins for remainder) and reserves inventory locally.
-5. RPi commands Arduino #1 to dispense bills by denomination; monitors status/faults.
-6. If needed, RPi commands Arduino #2 to dispense coins for exact change.
-7. RPi confirms completion, prints receipt, finalizes ledger, and records inventory deltas.
-8. If a dispense fault occurs after debit, RPi generates a **claim ticket** with a unique code, prints it (if possible), displays the code on-screen, and records the incident for customer service resolution.
+3. RPi creates a PayMongo Payment Intent, creates a QR Ph Payment Method, and attaches it.
+4. The kiosk displays the returned QR code; any QR Ph-compatible wallet or bank application may pay it.
+5. A signed `payment.paid` webhook triggers a secret-key Payment Intent retrieval.
+6. RPi verifies intent ID, metadata, succeeded status, PHP currency, exact gross amount, paid Payment, and QR Ph source.
+7. Only after verification does RPi dispense the gross amount minus the configured fee.
+8. RPi finalizes inventory and the ledger; ambiguous payments or partial dispensing produce a claim ticket.
 
 ### C) Money Conversion (Bill<->Bill, Coin<->Bill)
 
@@ -294,7 +294,7 @@ The system monitors and reports on:
 
 ### Remote Alerts
 
-- Push notifications to technician (mobile app or dashboard) for:
+- Push notifications to the technician dashboard for:
   - Low consumables (operator-reported Paperang paper, inventory)
   - Hardware faults (jams, sensor failures)
   - Security events (tamper, lockdown)

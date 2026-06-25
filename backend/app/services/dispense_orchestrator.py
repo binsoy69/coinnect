@@ -18,6 +18,7 @@ from app.drivers.coin_security_controller import CoinSecurityController
 from app.models.events import WSEvent, WSEventType
 from app.services.change_calculator import DispensePlan, DispensePlanItem
 from app.services.machine_status import MachineStatus
+from app.services.inventory_service import InventoryService
 
 logger = logging.getLogger(__name__)
 
@@ -50,13 +51,17 @@ class DispenseOrchestrator:
         coin_controller: CoinSecurityController,
         machine_status: MachineStatus,
         ws_manager: ConnectionManager,
+        inventory_service: InventoryService | None = None,
     ):
         self._bill = bill_controller
         self._coin = coin_controller
         self._status = machine_status
         self._ws = ws_manager
+        self._inventory = inventory_service
 
-    async def execute_dispense(self, plan: DispensePlan) -> DispenseResult:
+    async def execute_dispense(
+        self, plan: DispensePlan, reference_id: str | None = None
+    ) -> DispenseResult:
         """Execute the full dispense plan.
 
         Args:
@@ -69,13 +74,15 @@ class DispenseOrchestrator:
         dispensed_coins: Dict[str, int] = {}
         total_dispensed = 0
         error_msg = None
+        reserved = False
 
         total_items = len(plan.bill_items) + len(plan.coin_items)
         completed_items = 0
 
         try:
             # Phase 1: Reserve inventory
-            self._reserve_inventory(plan)
+            await self._reserve_inventory(plan, reference_id)
+            reserved = True
 
             # Phase 2: Dispense bills
             for item in plan.bill_items:
@@ -120,7 +127,18 @@ class DispenseOrchestrator:
         success = shortfall == 0 and error_msg is None
 
         # Restore unreserved inventory for items not dispensed
-        self._reconcile_inventory(plan, dispensed_bills, dispensed_coins)
+        if reserved:
+            try:
+                await self._reconcile_inventory(
+                    plan,
+                    dispensed_bills,
+                    dispensed_coins,
+                    reference_id,
+                )
+            except Exception as exc:
+                self._status.set_inventory_consistent(False)
+                error_msg = error_msg or f"Inventory reconciliation failed: {exc}"
+                logger.error(error_msg, exc_info=True)
 
         # Generate claim ticket if partial
         claim_ticket = None
@@ -190,20 +208,53 @@ class DispenseOrchestrator:
             )
             return actual
 
-    def _reserve_inventory(self, plan: DispensePlan) -> None:
+    async def _reserve_inventory(
+        self, plan: DispensePlan, reference_id: str | None
+    ) -> None:
         """Decrement inventory for all planned items before dispensing."""
+        if self._inventory is not None:
+            quantities = {
+                ("BILL_DISPENSER", item.denom): item.count
+                for item in plan.bill_items
+            }
+            quantities.update(
+                {
+                    ("COIN_DISPENSER", item.denom): item.count
+                    for item in plan.coin_items
+                }
+            )
+            await self._inventory.reserve(
+                quantities, reference_id=reference_id
+            )
+            return
         for item in plan.bill_items:
             self._status.decrement_bill_dispenser(item.denom, item.count)
         for item in plan.coin_items:
             self._status.decrement_coin(item.denom, item.count)
 
-    def _reconcile_inventory(
+    async def _reconcile_inventory(
         self,
         plan: DispensePlan,
         actual_bills: Dict[str, int],
         actual_coins: Dict[str, int],
+        reference_id: str | None,
     ) -> None:
         """Restore inventory for items that were reserved but not dispensed."""
+        if self._inventory is not None:
+            quantities = {}
+            for item in plan.bill_items:
+                not_dispensed = item.count - actual_bills.get(item.denom, 0)
+                if not_dispensed > 0:
+                    quantities[("BILL_DISPENSER", item.denom)] = not_dispensed
+            for item in plan.coin_items:
+                not_dispensed = item.count - actual_coins.get(item.denom, 0)
+                if not_dispensed > 0:
+                    quantities[("COIN_DISPENSER", item.denom)] = not_dispensed
+            if quantities:
+                await self._inventory.restore(
+                    quantities, reference_id=reference_id
+                )
+            return
         # For bills: reserved full count, dispensed actual. Restore difference.
         for item in plan.bill_items:
             actual = actual_bills.get(item.denom, 0)

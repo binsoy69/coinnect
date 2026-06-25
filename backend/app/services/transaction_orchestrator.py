@@ -28,6 +28,7 @@ from app.services.dispense_orchestrator import DispenseOrchestrator
 from app.drivers.coin_security_controller import CoinSecurityController
 from app.services.machine_status import MachineStatus
 from app.services.transaction_state_machine import TransactionStateMachine
+from app.services.operation_mode import OperationModeManager
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ class TransactionOrchestrator:
         machine_status: MachineStatus,
         ws_manager: ConnectionManager,
         db_session_factory: async_sessionmaker,
+        operation_mode: OperationModeManager | None = None,
     ):
         self._bill_acceptor = bill_acceptor
         self._dispenser = dispense_orchestrator
@@ -55,6 +57,8 @@ class TransactionOrchestrator:
         self._db_factory = db_session_factory
         self._active_tx: Optional[TransactionStateMachine] = None
         self._active_session: Optional[AsyncSession] = None
+        self._operation_mode = operation_mode
+        self._operation_owner: Optional[str] = None
 
     @property
     def has_active_transaction(self) -> bool:
@@ -95,6 +99,8 @@ class TransactionOrchestrator:
         snapshot = self._status.snapshot()
         if snapshot.security.tamper_active:
             raise TransactionError("", "Machine is in lockdown mode")
+        if not snapshot.consumables.inventory_consistent:
+            raise TransactionError("", "Inventory reconciliation is required")
 
         # Pre-check: can we dispense the target amount?
         total_due = target_amount + fee
@@ -108,35 +114,42 @@ class TransactionOrchestrator:
         except Exception as e:
             raise TransactionError("", f"Cannot dispense requested amount: {e}")
 
-        await self._set_coin_acceptor_enabled(transaction_type == "coin-to-bill")
-
         # Create transaction
         tx_id = str(uuid.uuid4())
-        session = self._db_factory()
-        self._active_session = session
-
-        record = TransactionRecord(
-            id=tx_id,
-            type=transaction_type,
-            state=TransactionState.IDLE.value,
-            target_amount=target_amount,
-            fee=fee,
-            total_due=total_due,
-            selected_dispense_denoms=selected_dispense_denoms,
-        )
-        session.add(record)
-        await session.commit()
-
-        # Create state machine
-        self._active_tx = TransactionStateMachine(
-            transaction_id=tx_id,
-            transaction_type=transaction_type,
-            ws_manager=self._ws,
-            db_session=session,
-        )
-
-        # Transition to WAITING_FOR_BILL
-        await self._active_tx.transition_to(TransactionState.WAITING_FOR_BILL)
+        if self._operation_mode:
+            self._operation_mode.begin_transaction(tx_id)
+            self._operation_owner = tx_id
+        try:
+            await self._set_coin_acceptor_enabled(
+                transaction_type == "coin-to-bill"
+            )
+            session = self._db_factory()
+            self._active_session = session
+            record = TransactionRecord(
+                id=tx_id,
+                type=transaction_type,
+                state=TransactionState.IDLE.value,
+                target_amount=target_amount,
+                fee=fee,
+                total_due=total_due,
+                selected_dispense_denoms=selected_dispense_denoms,
+            )
+            session.add(record)
+            await session.commit()
+            self._active_tx = TransactionStateMachine(
+                transaction_id=tx_id,
+                transaction_type=transaction_type,
+                ws_manager=self._ws,
+                db_session=session,
+            )
+            await self._active_tx.transition_to(
+                TransactionState.WAITING_FOR_BILL
+            )
+        except Exception:
+            if self._operation_mode and self._operation_owner:
+                self._operation_mode.end_transaction(self._operation_owner)
+                self._operation_owner = None
+            raise
 
         logger.info(
             f"Transaction started: {tx_id} type={transaction_type} "
@@ -295,7 +308,9 @@ class TransactionOrchestrator:
         await tx.transition_to(TransactionState.DISPENSING)
 
         # Execute dispense
-        result = await self._dispenser.execute_dispense(plan)
+        result = await self._dispenser.execute_dispense(
+            plan, reference_id=tx.transaction_id
+        )
 
         # Update record with result
         db_record.dispensed_amount = result.total_dispensed
@@ -470,6 +485,9 @@ class TransactionOrchestrator:
             await self._active_session.close()
             self._active_session = None
         self._active_tx = None
+        if self._operation_mode and self._operation_owner:
+            self._operation_mode.end_transaction(self._operation_owner)
+            self._operation_owner = None
 
     async def _set_coin_acceptor_enabled(self, enabled: bool) -> None:
         if self._coin_controller is None:

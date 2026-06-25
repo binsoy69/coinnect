@@ -109,7 +109,6 @@ _Goal: Create a visually stunning, premium interface based on mockup designs bef
 - [x] **Phase 1.10.3: E-Wallet Components**
   - [x] `TransactionFeeTable` - Fee tiers display
   - [x] `QRCodeDisplay` - Static QR code with provider branding
-  - [x] `AccountDetailsPanel` - Two-column account details layout
   - [x] `EWalletTransactionCard` - Blue transaction summary card
 - [x] **Phase 1.10.4: E-Wallet Entry Screens**
   - [x] EWalletProviderScreen (GCash/Maya selection)
@@ -121,10 +120,9 @@ _Goal: Create a visually stunning, premium interface based on mockup designs bef
   - [x] EWalletInsertBillsScreen (bills first, optional coins)
   - [x] EWalletInsertCoinsScreen (fill remaining amount)
 - [x] **Phase 1.10.6: Cash Out Screens**
-  - [x] EWalletQRCodeScreen (QR code display)
-  - [x] EWalletVerifyPINScreen (6-digit PIN entry)
+  - [x] EWalletQRCodeScreen (dynamic QR Ph display and status monitoring)
 - [x] **Phase 1.10.7: Shared End Screens**
-  - [x] EWalletAccountDetailsScreen, EWalletProcessingScreen
+  - [x] EWalletProcessingScreen
   - [x] EWalletSummaryScreen, EWalletSuccessScreen
 - [x] **Phase 1.10.8: Integration**
   - [x] Enable E-Wallet card on TransactionTypeScreen
@@ -284,20 +282,23 @@ _Goal: Enable PHP Bill <-> Coin conversion without Internet._
 
 ## 📱 Phase 4: E-Wallet Integration (Online)
 
-_Goal: Connect GCash/Maya flows._
+_Goal: Connect GCash/Maya cash-in and QR Ph cash-out through PayMongo._
 
-- [ ] **API Client Wrapper**
-  - [ ] Create `PaymentGateway` abstract class.
-  - [ ] Implement `GCashProvider` (simulated or real sandbox API).
-  - [ ] Implement `MayaProvider` (simulated or real sandbox API).
-  - [ ] **Test**: `pytest tests/unit/test_payment_providers.py`.
-- [ ] **Cash-In Flow**
-  - [ ] UI: Phone Number Entry Keypad.
-  - [ ] Backend: Validate Account -> Accept Cash -> Trigger Top-up API.
-- [ ] **Cash-Out Flow**
-  - [ ] UI: Amount Selection -> QR Code Display (for user to scan) OR Phone Entry.
-  - [ ] Backend: Poll for payment completion -> Trigger Dispense.
-  - [ ] **Test**: `pytest tests/integration/test_cash_out_flow.py`.
+- [x] **PayMongo API Client**
+  - [x] QR Ph Payment Intent creation with idempotency.
+  - [x] Batch-transfer disbursement to GCash/Maya receiving institutions.
+  - [x] PayMongo `t/te/li` webhook verification and replay protection.
+- [x] **Cash-In Flow**
+  - [x] Capture wallet mobile number and registered account name.
+  - [x] Accept physical cash before submitting the disbursement.
+  - [x] Persist failed obligations and issue claim tickets.
+- [x] **Cash-Out Flow**
+  - [x] Generate a dynamic QR Ph payment.
+  - [x] Retrieve and verify the Payment Intent before dispensing.
+  - [x] Persist partial dispense and claim-ticket reconciliation.
+- [x] **Kiosk-Only Flow**
+  - [x] Remove the custom Expo wallet simulator and sandbox account APIs.
+  - [x] Accept cash-out payment from any QR Ph-compatible application.
 
 ---
 
@@ -480,7 +481,6 @@ _Goal: Enable basic remote visibility into kiosk health and operations._
 - [x] `[FE-022]` Create `LoadingSpinner` component (circular dot animation)
 - [x] `[FE-023]` Create `TransactionFeeTable` component (fee tiers display)
 - [x] `[FE-024]` Create `QRCodeDisplay` component (static QR placeholder)
-- [x] `[FE-025]` Create `AccountDetailsPanel` component (two-column layout)
 - [x] `[FE-026]` Create `EWalletTransactionCard` component (blue summary card)
 - [x] `[FE-027]` Implement 15 e-wallet screens (see UI.md Phase 1.10.4-1.10.7)
 - [x] `[FE-028]` Add e-wallet routes and navigation

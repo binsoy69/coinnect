@@ -15,19 +15,23 @@ export default function EWalletInsertCoinsScreen() {
   const navigate = useNavigate();
   const {
     ewallet,
-    addInsertedCoin,
     getEWalletConfig,
     getProviderStyles,
     isAmountMatched,
     getRemainingAmount,
+    simulateCashInsert,
   } = useEWallet();
   const config = getEWalletConfig();
   const styles = getProviderStyles();
 
-  // Handle timeout - go to details even if partial
+  // Handle timeout only after the required amount has been accepted.
   const handleTimeout = useCallback(() => {
-    navigate(getEWalletRoute(ROUTES.EWALLET_DETAILS, ewallet.serviceType));
-  }, [navigate, ewallet.serviceType]);
+    if (isAmountMatched()) {
+      navigate(
+        getEWalletRoute(ROUTES.EWALLET_PROCESSING, ewallet.serviceType),
+      );
+    }
+  }, [isAmountMatched, navigate, ewallet.serviceType]);
 
   // Keyboard simulation for testing (keys 1-4 = coin denominations)
   useEffect(() => {
@@ -40,19 +44,21 @@ export default function EWalletInsertCoinsScreen() {
       };
 
       if (keyMap[e.key]) {
-        addInsertedCoin(keyMap[e.key]);
+        simulateCashInsert(keyMap[e.key]).catch(() => {});
       }
     };
 
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [addInsertedCoin]);
+  }, [simulateCashInsert]);
 
   // Auto-advance when amount is matched
   useEffect(() => {
     if (isAmountMatched()) {
       const timer = setTimeout(() => {
-        navigate(getEWalletRoute(ROUTES.EWALLET_DETAILS, ewallet.serviceType));
+        navigate(
+          getEWalletRoute(ROUTES.EWALLET_PROCESSING, ewallet.serviceType),
+        );
       }, 1000);
       return () => clearTimeout(timer);
     }

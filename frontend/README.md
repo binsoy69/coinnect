@@ -1,5 +1,14 @@
 # React + Vite
 
+## PayMongo e-wallet flow
+
+The kiosk calls `/api/v1/ewallet`. Cash-in submits accepted cash as a PayMongo
+GCash/Maya disbursement. Cash-out displays a dynamic QR Ph code and waits for a
+backend-verified webhook before dispensing. Configure `VITE_API_BASE` and
+`VITE_WS_URL` for the Raspberry Pi backend. Fee tiers come from
+`GET /api/v1/ewallet/config`. Cash-out does not collect wallet credentials,
+mobile numbers, or PINs.
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:

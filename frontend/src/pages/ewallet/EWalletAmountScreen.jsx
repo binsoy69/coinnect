@@ -5,6 +5,7 @@ import PageLayout from "../../components/layout/PageLayout";
 import VirtualKeypad from "../../components/common/VirtualKeypad";
 import { ROUTES, getEWalletRoute } from "../../constants/routes";
 import { useEWallet } from "../../context/EWalletContext";
+import { isCashOut } from "../../constants/ewalletData";
 
 export default function EWalletAmountScreen() {
   const navigate = useNavigate();
@@ -28,7 +29,10 @@ export default function EWalletAmountScreen() {
   };
 
   const handleBack = () => {
-    navigate(getEWalletRoute(ROUTES.EWALLET_MOBILE, ewallet.serviceType));
+    const previousRoute = isCashOut(ewallet.serviceType)
+      ? ROUTES.EWALLET_FEE
+      : ROUTES.EWALLET_MOBILE;
+    navigate(getEWalletRoute(previousRoute, ewallet.serviceType));
   };
 
   return (

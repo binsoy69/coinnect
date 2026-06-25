@@ -20,6 +20,7 @@ from app.drivers.gpio_controller import GPIOControllerBase
 from app.ml.bill_authenticator import BillAuthenticatorBase
 from app.models.events import WSEvent, WSEventType
 from app.services.machine_status import MachineStatus
+from app.services.inventory_service import InventoryLocation, InventoryService
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ class BillAcceptor:
         machine_status: MachineStatus,
         ws_manager: ConnectionManager,
         settings: Settings,
+        inventory_service: InventoryService | None = None,
     ):
         self._gpio = gpio
         self._camera = camera
@@ -66,6 +68,7 @@ class BillAcceptor:
         self._status = machine_status
         self._ws = ws_manager
         self._settings = settings
+        self._inventory = inventory_service
         self._expected_currency: Optional[str] = None
 
     def set_expected_currency(self, currency: str) -> None:
@@ -213,7 +216,24 @@ class BillAcceptor:
             await self._store_bill()
 
             # Step 7: Update inventory
-            self._status.increment_bill_storage(denomination.value)
+            if self._inventory is not None:
+                storage_denom = denomination.value
+                if storage_denom.startswith("USD_"):
+                    storage_denom = "USD"
+                elif storage_denom.startswith("EUR_"):
+                    storage_denom = "EUR"
+                try:
+                    await self._inventory.adjust(
+                        InventoryLocation.BILL_STORAGE,
+                        storage_denom,
+                        1,
+                        reason="BILL_ACCEPTED",
+                    )
+                except Exception:
+                    self._status.set_inventory_consistent(False)
+                    raise
+            else:
+                self._status.increment_bill_storage(denomination.value)
             bill_value = BILL_DENOM_VALUES.get(denomination, 0)
 
             await self._broadcast(

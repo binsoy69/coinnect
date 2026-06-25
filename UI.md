@@ -92,7 +92,6 @@ frontend/src/
 │   └── ewallet/
 │       ├── TransactionFeeTable.jsx
 │       ├── QRCodeDisplay.jsx
-│       ├── AccountDetailsPanel.jsx
 │       └── EWalletTransactionCard.jsx
 │
 ├── pages/
@@ -134,9 +133,7 @@ frontend/src/
 │       ├── EWalletConfirmScreen.jsx
 │       ├── EWalletInsertBillsScreen.jsx
 │       ├── EWalletInsertCoinsScreen.jsx
-│       ├── EWalletAccountDetailsScreen.jsx
 │       ├── EWalletQRCodeScreen.jsx
-│       ├── EWalletVerifyPINScreen.jsx
 │       ├── EWalletProcessingScreen.jsx
 │       ├── EWalletSummaryScreen.jsx
 │       └── EWalletSuccessScreen.jsx
@@ -207,14 +204,12 @@ frontend/src/
 | `/ewallet/:provider/service`     | EWalletServiceScreen        | Select Cash In or Cash Out     |
 | `/ewallet/reminder`              | EWalletReminderScreen       | Blue disclaimer screen         |
 | `/ewallet/:type/fee`             | EWalletFeeScreen            | Transaction fee tiers display  |
-| `/ewallet/:type/mobile`          | EWalletMobileScreen         | Enter mobile number            |
+| `/ewallet/:type/mobile`          | EWalletMobileScreen         | Cash-in account name/mobile     |
 | `/ewallet/:type/amount`          | EWalletAmountScreen         | Enter amount with keypad       |
 | `/ewallet/:type/confirm`         | EWalletConfirmScreen        | Confirm transaction details    |
 | `/ewallet/:type/insert-bills`    | EWalletInsertBillsScreen    | Insert bills (Cash In only)    |
 | `/ewallet/:type/insert-coins`    | EWalletInsertCoinsScreen    | Insert coins (Cash In only)    |
-| `/ewallet/:type/details`         | EWalletAccountDetailsScreen | Account details review         |
 | `/ewallet/:type/qr`              | EWalletQRCodeScreen         | QR code scan (Cash Out only)   |
-| `/ewallet/:type/verify`          | EWalletVerifyPINScreen      | Verification PIN (Cash Out)    |
 | `/ewallet/:type/processing`      | EWalletProcessingScreen     | Checking spinner               |
 | `/ewallet/:type/summary`         | EWalletSummaryScreen        | Transaction summary card       |
 | `/ewallet/:type/success`         | EWalletSuccessScreen        | Success with checkmark         |
@@ -738,7 +733,7 @@ Fee is automatically deducted from the inserted amount.
   - [x] Helper functions: `calculateFee()`, `getEWalletConfig()`, `isCashIn()`, `isCashOut()`
   - [x] **File**: `frontend/src/constants/ewalletData.js`
 - [x] **Create EWalletContext**
-  - [x] State: provider, serviceType, mobileNumber, amount, fee, totalDue, insertedBills, insertedCoins, billerNumber
+  - [x] State: provider, serviceType, cash-in identity, amount, backend fee tiers, inserted cash, and gateway status
   - [x] Functions: startEWalletTransaction, setMobileNumber, setAmount, addInsertedBill, addInsertedCoin, resetTransaction
   - [x] Helper: isAmountMatched, getTotalInserted, getRemainingAmount
   - [x] **File**: `frontend/src/context/EWalletContext.jsx`
@@ -787,12 +782,6 @@ Fee is automatically deducted from the inserted amount.
   - [x] "After paying, click the button" text
   - [x] "Verify Transaction" button
   - [x] **File**: `frontend/src/components/ewallet/QRCodeDisplay.jsx`
-- [x] **AccountDetailsPanel Component**
-  - [x] Two-column layout
-  - [x] Left: Blue summary card (Money Inserted/Send, Transaction Fee, DateTime)
-  - [x] Right: Account Details (Biller, Mobile Number, Amount to Transfer)
-  - [x] Proceed button
-  - [x] **File**: `frontend/src/components/ewallet/AccountDetailsPanel.jsx`
 - [x] **EWalletTransactionCard Component**
   - [x] Blue background card (matching blue theme)
   - [x] "MY TRANSACTION" header with subtitle
@@ -879,9 +868,9 @@ Fee is automatically deducted from the inserted amount.
   - [x] Bill denomination counters (P20-P1000)
   - [x] Timer with progress bar (60s countdown)
   - [x] Auto-close warning text
-  - [x] If bills >= totalDue: auto-proceed to Account Details
+  - [x] If bills >= totalDue: auto-proceed to transfer processing
   - [x] If bills < totalDue: show "Insert Coins" option
-  - [x] Navigation: Amount matched → `/ewallet/:type/details`, need coins → `/ewallet/:type/insert-coins`
+  - [x] Navigation: Amount matched → `/ewallet/:type/processing`, need coins → `/ewallet/:type/insert-coins`
   - [x] **File**: `frontend/src/pages/ewallet/EWalletInsertBillsScreen.jsx`
   - [x] **Mockup**: `UI/e-wallet/GCASH CASH IN-6.png`
 - [x] **E-Wallet Insert Coins Screen**
@@ -890,7 +879,7 @@ Fee is automatically deducted from the inserted amount.
   - [x] Shows remaining amount needed after bills
   - [x] Timer with progress bar (60s countdown)
   - [x] If total (bills + coins) >= totalDue: auto-proceed
-  - [x] Navigation: Amount matched → `/ewallet/:type/details`
+  - [x] Navigation: Amount matched → `/ewallet/:type/processing`
   - [x] **File**: `frontend/src/pages/ewallet/EWalletInsertCoinsScreen.jsx`
 
 **Test**: Navigate through complete Cash In flow with bill/coin insertion ✅
@@ -901,39 +890,19 @@ Fee is automatically deducted from the inserted amount.
 
 - [x] **E-Wallet QR Code Screen**
   - [x] Header with service indicator
-  - [x] "Scan QR Code (GCash/Maya App)" heading
-  - [x] "Scan QR Code and input money you want to send." instruction
-  - [x] Static QR code placeholder image
-  - [x] "After paying, click the button" text
-  - [x] "Verify Transaction" button
-  - [x] Navigation: Button → `/ewallet/:type/verify`
+  - [x] Display the dynamic QR Ph image returned by PayMongo
+  - [x] Allow payment from any QR Ph-compatible wallet or bank application
+  - [x] Poll backend state while the signed webhook is independently verified
+  - [x] Navigate directly to the transaction result
   - [x] **File**: `frontend/src/pages/ewallet/EWalletQRCodeScreen.jsx`
   - [x] **Mockup**: `UI/e-wallet/GCASH CASH OUT-3.png`
-- [x] **E-Wallet Verify PIN Screen**
-  - [x] Header with service indicator
-  - [x] "Enter Verification PIN" heading
-  - [x] "We send Verification PIN to your mobile number." subtitle
-  - [x] VirtualKeypad (maxLength: 6)
-  - [x] "Proceed" button (accepts any input)
-  - [x] Navigation: Button → `/ewallet/:type/details`
-  - [x] **File**: `frontend/src/pages/ewallet/EWalletVerifyPINScreen.jsx`
-  - [x] **Mockup**: `UI/e-wallet/GCASH CASH OUT-4.png`
 
-**Test**: Navigate through QR Code → Verify PIN → Account Details ✅
+**Test**: Navigate from confirmation through QR payment to the result ✅
 
 ---
 
 ### Phase 1.10.7: Shared End Screens
 
-- [x] **E-Wallet Account Details Screen**
-  - [x] Header with service indicator
-  - [x] AccountDetailsPanel component
-  - [x] Left blue card: Money Inserted/Send, Transaction Fee, DateTime
-  - [x] Right: Account Details (Biller, Mobile Number, Amount to Transfer)
-  - [x] "Proceed" button
-  - [x] Navigation: Button → `/ewallet/:type/processing`
-  - [x] **File**: `frontend/src/pages/ewallet/EWalletAccountDetailsScreen.jsx`
-  - [x] **Mockups**: `UI/e-wallet/GCASH CASH IN-7.png`, `UI/e-wallet/GCASH CASH OUT-5.png`
 - [x] **E-Wallet Processing Screen**
   - [x] Full blue background
   - [x] LoadingSpinner animation (circular dots)
@@ -946,7 +915,7 @@ Fee is automatically deducted from the inserted amount.
   - [x] "MY TRANSACTION" header
   - [x] Transaction Type: "E-Wallet"
   - [x] Service Type: "GCash Cash In" / "Maya Cash Out" etc.
-  - [x] Mobile Number
+  - [x] Cash-in account name/mobile; no identity fields for cash-out
   - [x] Total Money Inserted, Transaction Fee, Money to Transfer, Total Due
   - [x] "Back" and "Proceed" buttons
   - [x] Navigation: Proceed → `/ewallet/:type/success`
@@ -962,7 +931,7 @@ Fee is automatically deducted from the inserted amount.
   - [x] **File**: `frontend/src/pages/ewallet/EWalletSuccessScreen.jsx`
   - [x] **Mockups**: `UI/e-wallet/GCASH CASH IN-10.png`, `UI/e-wallet/GCASH CASH OUT-9.png`
 
-**Test**: Navigate through Account Details → Processing → Summary → Success ✅
+**Test**: Navigate through Processing → Summary → Success ✅
 
 ---
 
@@ -987,46 +956,14 @@ Fee is automatically deducted from the inserted amount.
 
 ---
 
-## E-Wallet Mock Data Reference
+## E-Wallet Configuration Reference
 
 ```javascript
-// Fee tiers (same for all providers)
+// Returned by GET /api/v1/ewallet/config; backend is authoritative.
 const EWALLET_FEE_TIERS = [
   { min: 1, max: 500, fee: 15 },
-  { min: 501, max: 1000, fee: 25 },
+  { min: 501, max: null, fee: 25 },
 ];
-
-// Static values for navigation demo
-const EWALLET_MOCK_DATA = {
-  "gcash-cash-in": {
-    mobileNumber: "09924456533",
-    amount: 105,           // total due
-    transferAmount: 90,    // amount to e-wallet
-    fee: 15,               // transaction fee
-    billerNumber: "09099242851",
-  },
-  "gcash-cash-out": {
-    mobileNumber: "09924456533",
-    amount: 1025,          // total due
-    dispenseAmount: 1000,  // cash to dispense
-    fee: 25,               // transaction fee
-    billerNumber: "09099242851",
-  },
-  "maya-cash-in": {
-    mobileNumber: "09924456533",
-    amount: 105,
-    transferAmount: 90,
-    fee: 15,
-    billerNumber: "09099242851",
-  },
-  "maya-cash-out": {
-    mobileNumber: "09924456533",
-    amount: 105,
-    dispenseAmount: 90,
-    fee: 15,
-    billerNumber: "09099242851",
-  },
-};
 ```
 
 ---
@@ -1135,12 +1072,12 @@ const MOCK_DATA = {
 
 **E-Wallet Navigation Flows:**
 
-- [x] Initial → Transaction Type → E-Wallet Provider → Service Selection → Reminder → Fee → Mobile → Amount → Confirm → Insert Bills → [Insert Coins] → Account Details → Processing → Summary → Success
-- [x] Cash Out: ... → Confirm → QR Code → Verify PIN → Account Details → Processing → Summary → Success
+- [x] Cash In: Provider → Service → Reminder → Fee → Mobile/Name → Amount → Confirm → Insert Bills → [Insert Coins] → Processing → Summary → Success
+- [x] Cash Out: Provider → Service → Reminder → Fee → Amount → Confirm → QR Code → Summary → Success
 - [x] All 4 e-wallet service types complete flow (GCash/Maya Cash In/Out)
 - [x] Back button works on all e-wallet screens
 - [x] Bill/coin split insertion works (bills first, optional coins)
-- [x] VirtualKeypad works correctly on mobile, amount, and PIN screens
+- [x] VirtualKeypad works correctly on cash-in mobile and amount screens
 - [x] Exit → Home, Another Transaction → Transaction Type
 
 **Linting:**

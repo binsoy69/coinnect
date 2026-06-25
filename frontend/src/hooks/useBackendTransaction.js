@@ -32,15 +32,6 @@ export function useBackendTransaction() {
       }
     };
 
-    const handleBillAuth = (event) => {
-      if (event.payload?.transaction_id === txIdRef.current) {
-        const value = event.payload?.value;
-        if (value) {
-          addInsertedMoney(value);
-        }
-      }
-    };
-
     const handleBillStored = (event) => {
       if (event.payload) {
         const value = event.payload.value;

@@ -18,6 +18,7 @@ from app.models.serial_messages import (
     TamperEvent,
 )
 from app.services.machine_status import MachineStatus
+from app.services.inventory_service import InventoryLocation, InventoryService
 
 logger = logging.getLogger(__name__)
 
@@ -28,17 +29,24 @@ class EventDispatcher:
         event_queue: asyncio.Queue,
         machine_status: MachineStatus,
         ws_manager: ConnectionManager,
+        inventory_service: InventoryService | None = None,
         transaction_orchestrator: Any = None,
+        ewallet_orchestrator: Any = None,
     ):
         self._queue = event_queue
         self._status = machine_status
         self._ws = ws_manager
+        self._inventory = inventory_service
         self._transaction_orchestrator = transaction_orchestrator
+        self._ewallet_orchestrator = ewallet_orchestrator
         self._running = False
         self._task = None
 
     def set_transaction_orchestrator(self, transaction_orchestrator: Any) -> None:
         self._transaction_orchestrator = transaction_orchestrator
+
+    def set_ewallet_orchestrator(self, ewallet_orchestrator: Any) -> None:
+        self._ewallet_orchestrator = ewallet_orchestrator
 
     async def start(self) -> None:
         self._running = True
@@ -92,7 +100,20 @@ class EventDispatcher:
 
     async def _handle_coin_in(self, data: dict) -> None:
         parsed = CoinInEvent(**data)
-        self._status.increment_coin(f"PHP_{parsed.denom}", 1)
+        coin_denom = f"PHP_{parsed.denom}"
+        if self._inventory is not None:
+            try:
+                await self._inventory.adjust(
+                    InventoryLocation.COIN_DISPENSER,
+                    coin_denom,
+                    1,
+                    reason="COIN_ACCEPTED",
+                )
+            except Exception:
+                self._status.set_inventory_consistent(False)
+                raise
+        else:
+            self._status.increment_coin(coin_denom, 1)
         if (
             self._transaction_orchestrator is not None
             and self._transaction_orchestrator.has_active_transaction
@@ -101,6 +122,8 @@ class EventDispatcher:
                 denom=parsed.denom,
                 total=parsed.total,
             )
+        elif self._ewallet_orchestrator is not None:
+            await self._ewallet_orchestrator.handle_coin_inserted(parsed.denom)
         await self._ws.broadcast(WSEvent(
             type=WSEventType.COIN_INSERTED,
             payload={"denom": parsed.denom, "total": parsed.total},

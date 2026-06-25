@@ -118,6 +118,31 @@ def _mixed_plan(bill_dict, coin_dict):
 # ---------------------------------------------------------------------------
 
 class TestBillOnlyDispense:
+    async def test_persistent_inventory_is_reserved_and_reconciled(
+        self, bill_controller, coin_controller, machine_status, ws_manager
+    ):
+        inventory = AsyncMock()
+        bill_controller.dispense.return_value = MagicMock(dispensed=2)
+        orchestrator = DispenseOrchestrator(
+            bill_controller=bill_controller,
+            coin_controller=coin_controller,
+            machine_status=machine_status,
+            ws_manager=ws_manager,
+            inventory_service=inventory,
+        )
+
+        plan = _bill_plan({"PHP_100": (3, 100)})
+        await orchestrator.execute_dispense(plan, reference_id="tx-1")
+
+        inventory.reserve.assert_awaited_once_with(
+            {("BILL_DISPENSER", "PHP_100"): 3},
+            reference_id="tx-1",
+        )
+        inventory.restore.assert_awaited_once_with(
+            {("BILL_DISPENSER", "PHP_100"): 1},
+            reference_id="tx-1",
+        )
+
     async def test_successful_bill_dispense(self, orchestrator, bill_controller, ws_manager):
         """Dispense 5x PHP_100 bills successfully."""
         # Mock bill controller to return success

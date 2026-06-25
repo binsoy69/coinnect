@@ -59,12 +59,6 @@ export const EWALLET_SERVICES = {
   ],
 };
 
-// Fee tiers (same for all providers)
-export const EWALLET_FEE_TIERS = [
-  { min: 1, max: 500, fee: 15 },
-  { min: 501, max: 1000, fee: 25 },
-];
-
 // Bill denominations for insert bills screen
 export const EWALLET_BILL_DENOMINATIONS = [20, 50, 100, 200, 500, 1000];
 
@@ -122,48 +116,12 @@ export const EWALLET_TIMER_DURATIONS = {
   AUTO_ADVANCE: 2500,
 };
 
-// Mock data for navigation demo
-export const EWALLET_MOCK_DATA = {
-  [EWALLET_SERVICE_TYPES.GCASH_CASH_IN]: {
-    mobileNumber: "09924456533",
-    amount: 105,
-    transferAmount: 90,
-    fee: 15,
-    billerNumber: "09099242851",
-  },
-  [EWALLET_SERVICE_TYPES.GCASH_CASH_OUT]: {
-    mobileNumber: "09924456533",
-    amount: 1025,
-    dispenseAmount: 1000,
-    fee: 25,
-    billerNumber: "09099242851",
-  },
-  [EWALLET_SERVICE_TYPES.MAYA_CASH_IN]: {
-    mobileNumber: "09924456533",
-    amount: 105,
-    transferAmount: 90,
-    fee: 15,
-    billerNumber: "09099242851",
-  },
-  [EWALLET_SERVICE_TYPES.MAYA_CASH_OUT]: {
-    mobileNumber: "09924456533",
-    amount: 105,
-    dispenseAmount: 90,
-    fee: 15,
-    billerNumber: "09099242851",
-  },
-};
-
 // Calculate fee based on amount
-export const calculateFee = (amount) => {
-  for (const tier of EWALLET_FEE_TIERS) {
-    if (amount >= tier.min && amount <= tier.max) {
+export const calculateFee = (amount, feeTiers) => {
+  for (const tier of feeTiers) {
+    if (amount >= tier.min && (tier.max == null || amount <= tier.max)) {
       return tier.fee;
     }
-  }
-  // If above max tier, use highest fee
-  if (amount > EWALLET_FEE_TIERS[EWALLET_FEE_TIERS.length - 1].max) {
-    return EWALLET_FEE_TIERS[EWALLET_FEE_TIERS.length - 1].fee;
   }
   return 0;
 };

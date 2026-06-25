@@ -131,8 +131,11 @@ async def start_forex_transaction(req: ForexStartRequest, request: Request):
         )
         return ForexTransactionResponse(**_map_state(state))
     except Exception as e:
-        status = 409 if "already in progress" in str(e) else 400
-        raise HTTPException(status_code=status, detail=str(e))
+        detail = str(e)
+        response_status = 423 if "maintenance mode" in detail.lower() else (
+            409 if "already in progress" in detail else 400
+        )
+        raise HTTPException(status_code=response_status, detail=detail)
 
 
 @router.get("/transaction/{transaction_id}", response_model=ForexTransactionResponse)

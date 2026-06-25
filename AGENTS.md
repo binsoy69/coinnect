@@ -13,7 +13,7 @@ Coinnect is a self-service financial kiosk for cash-in/cash-out and money conver
 
 **Operational Modes:**
 - **Offline**: Money-changer only (PHP cash-to-cash, coin↔bill, bill↔bill)
-- **Online**: E-wallet transactions (GCash/Maya) and foreign exchange
+- **Online**: PayMongo-backed QR Ph cash-out, GCash/Maya disbursement cash-in, and foreign exchange
 
 ## Repository Structure
 
@@ -172,18 +172,19 @@ Planned environment settings:
 4. RPi authenticates via camera + ML, identifies denomination
 5. RPi commands Arduino #1 to align sorting slot
 6. Bill routed to storage, inventory updated
-7. On confirmation, RPi calls provider API (requires online)
-8. On success: finalize ledger, print receipt
-9. On failure: abort transaction, record incident
+7. On confirmation, RPi submits one idempotent PayMongo batch transfer
+8. On callback, RPi retrieves and verifies the batch before finalizing
+9. On failure after cash storage: persist the obligation and issue a claim ticket
 
 ### Cash-Out (E-Wallet → Cash)
 1. User selects provider, requests amount
 2. RPi validates capability (inventory, device status)
-3. RPi calls provider API to authorize/debit (requires online)
-4. RPi computes dispense plan (bills first, then coins)
-5. Commands Arduino #1 for bills, Arduino #2 for coins
-6. On completion: print receipt, finalize ledger
-7. On fault: record incident for operator resolution
+3. RPi creates a PayMongo Payment Intent and attaches a QR Ph Payment Method
+4. Customer pays with any QR Ph-compatible wallet or bank application
+5. RPi verifies `payment.paid`, then retrieves and verifies the Payment Intent
+6. RPi validates amount, PHP currency, metadata, status, and QR Ph source
+7. Commands Arduino #1 for bills and Arduino #2 for coins
+8. On completion, finalize; on partial dispense, issue a claim ticket
 
 ### Tamper/Maintenance Flow
 1. Arduino #2 detects shock → enters LOCKDOWN, sends TAMPER event

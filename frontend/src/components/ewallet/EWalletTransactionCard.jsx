@@ -10,12 +10,14 @@ import {
 export default function EWalletTransactionCard({
   serviceName = "",
   mobileNumber = "",
+  accountName = "",
   totalInserted = 0,
   fee = 0,
   transferAmount = 0,
   totalDue = 0,
   onBack,
   onProceed,
+  proceedLabel = "Proceed",
   className = "",
   provider = null,
 }) {
@@ -52,11 +54,13 @@ export default function EWalletTransactionCard({
         <p className="text-xl font-bold">{serviceName}</p>
       </div>
 
-      {/* Mobile Number */}
-      <div className="mb-4">
-        <p className="text-xs font-semibold text-white/70">Mobile Number</p>
-        <p className="text-3xl font-bold">{mobileNumber}</p>
-      </div>
+      {mobileNumber && (
+        <div className="mb-4">
+          <p className="text-xs font-semibold text-white/70">Account</p>
+          <p className="text-xl font-bold">{accountName}</p>
+          <p className="text-2xl font-bold">{mobileNumber}</p>
+        </div>
+      )}
 
       {/* Amount grid */}
       <div className="grid grid-cols-2 gap-x-4 gap-y-3 mb-6">
@@ -88,7 +92,7 @@ export default function EWalletTransactionCard({
           Back
         </Button>
         <Button variant={buttonVariant} size="lg" onClick={onProceed}>
-          Proceed
+          {proceedLabel}
         </Button>
       </div>
     </motion.div>

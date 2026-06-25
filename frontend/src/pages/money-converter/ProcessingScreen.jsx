@@ -31,8 +31,7 @@ export default function ProcessingScreen() {
   // Subscribe to dispense events
   useEffect(() => {
     const handleProgress = (event) => {
-      const { completed_items, total_items, dispensed_amount } =
-        event.payload || {};
+      const { completed_items, total_items } = event.payload || {};
       if (total_items) {
         setProgressText(
           `Dispensing ${completed_items}/${total_items} items...`

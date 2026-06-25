@@ -9,7 +9,7 @@
 ## Goals
 
 - **Physical Hardware Implementation**: Deliver a real, working kiosk using physical hardware components (sensors, motors, controllers), not just a simulation.
-- **Financial Services Integration**: Support **GCash** and **Maya** for seamless cash-in and cash-out transactions.
+- **Financial Services Integration**: Support **GCash**, **Maya**, and QR Ph through PayMongo for cash-in and cash-out transactions.
 - **Money Conversion**: Enable versatile currency exchange functionalities:
   - Coin ↔ Bill
   - Bill ↔ Bill
@@ -21,7 +21,7 @@
 ## Non-Goals
 
 - **No Credit Card Support**: The system accepts and dispenses cash only.
-- **Not a Mobile App**: This is a physical kiosk ecosystem, not a mobile application.
+- **Not a Consumer Wallet**: The product and repository provide the physical kiosk only. Customers use an existing QR Ph-compatible wallet or bank application.
 
 ## Operational Constraints (Prototype Phase)
 

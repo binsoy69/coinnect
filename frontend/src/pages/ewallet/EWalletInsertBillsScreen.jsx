@@ -11,23 +11,27 @@ import {
   EWALLET_ALL_DENOMINATIONS,
   EWALLET_TIMER_DURATIONS,
 } from "../../constants/ewalletData";
+import { ENABLE_KEYBOARD_SIM } from "../../constants/api";
 
 export default function EWalletInsertBillsScreen() {
   const navigate = useNavigate();
   const {
     ewallet,
-    addInsertedBill,
     getEWalletConfig,
     getProviderStyles,
     isAmountMatched,
+    simulateCashInsert,
+    acceptPhysicalBill,
   } = useEWallet();
   const config = getEWalletConfig();
   const styles = getProviderStyles();
 
-  // Handle timeout - go to insert coins if partial, else to details
+  // Handle timeout - proceed when complete, otherwise request coins.
   const handleTimeout = useCallback(() => {
     if (isAmountMatched()) {
-      navigate(getEWalletRoute(ROUTES.EWALLET_DETAILS, ewallet.serviceType));
+      navigate(
+        getEWalletRoute(ROUTES.EWALLET_PROCESSING, ewallet.serviceType),
+      );
     } else {
       // If not matched, go to coins screen to complete the amount
       navigate(
@@ -49,19 +53,40 @@ export default function EWalletInsertBillsScreen() {
       };
 
       if (keyMap[e.key]) {
-        addInsertedBill(keyMap[e.key]);
+        simulateCashInsert(keyMap[e.key]).catch(() => {});
       }
     };
 
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [addInsertedBill]);
+  }, [simulateCashInsert]);
+
+  useEffect(() => {
+    if (ENABLE_KEYBOARD_SIM || isAmountMatched()) return undefined;
+    let cancelled = false;
+    const acceptNext = async () => {
+      while (!cancelled) {
+        try {
+          const data = await acceptPhysicalBill();
+          if (data?.state === "CASH_ACCEPTED") break;
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 750));
+        }
+      }
+    };
+    acceptNext();
+    return () => {
+      cancelled = true;
+    };
+  }, [acceptPhysicalBill, isAmountMatched]);
 
   // Auto-advance when amount is matched
   useEffect(() => {
     if (isAmountMatched()) {
       const timer = setTimeout(() => {
-        navigate(getEWalletRoute(ROUTES.EWALLET_DETAILS, ewallet.serviceType));
+        navigate(
+          getEWalletRoute(ROUTES.EWALLET_PROCESSING, ewallet.serviceType),
+        );
       }, 1000);
       return () => clearTimeout(timer);
     }

@@ -4,6 +4,8 @@ import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.api.forex import router as forex_router
+from app.api.admin import router as admin_router
+from app.api.ewallet import router as ewallet_router
 from app.api.health import router as health_router
 from app.api.inventory import router as inventory_router
 from app.api.status import router as status_router
@@ -17,6 +19,8 @@ api_router.include_router(status_router)
 api_router.include_router(transaction_router)
 api_router.include_router(inventory_router)
 api_router.include_router(forex_router)
+api_router.include_router(ewallet_router)
+api_router.include_router(admin_router)
 
 
 @api_router.websocket("/ws")

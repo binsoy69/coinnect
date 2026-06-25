@@ -53,6 +53,11 @@ class TransactionResponse(BaseModel):
 async def start_transaction(req: StartTransactionRequest, request: Request):
     """Start a new money changer transaction."""
     orchestrator = request.app.state.transaction_orchestrator
+    ewallet = getattr(request.app.state, "ewallet_orchestrator", None)
+    if ewallet is not None and ewallet.has_active_transaction:
+        raise HTTPException(
+            status_code=409, detail="An e-wallet transaction is active"
+        )
     try:
         state = await orchestrator.start_transaction(
             transaction_type=req.type,
@@ -62,6 +67,8 @@ async def start_transaction(req: StartTransactionRequest, request: Request):
         )
         return TransactionResponse(**state)
     except Exception as e:
+        if "maintenance mode" in str(e).lower():
+            raise HTTPException(status_code=423, detail=str(e))
         if "already in progress" in str(e):
             raise HTTPException(status_code=409, detail=str(e))
         raise HTTPException(status_code=400, detail=str(e))

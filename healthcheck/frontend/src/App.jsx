@@ -28,6 +28,7 @@ import {
   login,
   runTest,
 } from './api';
+import EWalletSandboxPanel from './EWalletSandboxPanel';
 
 const KIND_ICONS = {
   connectivity: Radio,
@@ -148,6 +149,7 @@ function App() {
 
   return (
     <Dashboard
+      token={token}
       groups={groups}
       status={status}
       runs={runs}
@@ -234,6 +236,7 @@ function LoginScreen({ pin, setPin, onSubmit, loading, error }) {
 }
 
 function Dashboard({
+  token,
   groups,
   status,
   runs,
@@ -299,6 +302,7 @@ function Dashboard({
       <div className="mx-auto grid max-w-7xl gap-6 px-8 py-6 xl:grid-cols-[1fr_360px]">
         <section className="space-y-6">
           <StatusOverview status={status} testCount={testCount} />
+          <EWalletSandboxPanel token={token} />
 
           {error && (
             <div className="flex items-center gap-3 rounded-card bg-red-50 px-5 py-4 font-semibold text-red-700">

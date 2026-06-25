@@ -42,12 +42,14 @@ export const ROUTES = {
   EWALLET_CONFIRM: '/ewallet/:type/confirm',
   EWALLET_INSERT_BILLS: '/ewallet/:type/insert-bills',
   EWALLET_INSERT_COINS: '/ewallet/:type/insert-coins',
-  EWALLET_DETAILS: '/ewallet/:type/details',
   EWALLET_QR: '/ewallet/:type/qr',
-  EWALLET_VERIFY: '/ewallet/:type/verify',
   EWALLET_PROCESSING: '/ewallet/:type/processing',
   EWALLET_SUMMARY: '/ewallet/:type/summary',
   EWALLET_SUCCESS: '/ewallet/:type/success',
+
+  // Hidden maintenance routes
+  ADMIN_LOGIN: '/admin/login',
+  ADMIN_INVENTORY: '/admin/inventory',
 };
 
 // Service type constants

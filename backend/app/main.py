@@ -17,8 +17,13 @@ from app.services.dispense_orchestrator import DispenseOrchestrator
 from app.services.event_dispatcher import EventDispatcher
 from app.services.forex_rate_service import ForexRateService
 from app.services.forex_transaction_orchestrator import ForexTransactionOrchestrator
+from app.services.ewallet_orchestrator import EWalletOrchestrator
 from app.services.machine_status import MachineStatus
+from app.services.paymongo_client import PayMongoClient
 from app.services.transaction_orchestrator import TransactionOrchestrator
+from app.services.admin_session import AdminSessionService
+from app.services.inventory_service import InventoryService
+from app.services.operation_mode import OperationModeManager
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +43,21 @@ async def lifespan(app: FastAPI):
     serial_manager = SerialManager(settings)
     ws_manager = ConnectionManager()
     machine_status = MachineStatus(settings)
-    event_dispatcher = EventDispatcher(
-        serial_manager.event_queue, machine_status, ws_manager
-    )
 
     # --- Phase 3: Database ---
     await init_db()
+    inventory_service = InventoryService(
+        get_session_factory(), machine_status
+    )
+    await inventory_service.initialize()
+    operation_mode = OperationModeManager()
+    admin_sessions = AdminSessionService(settings, operation_mode)
+    event_dispatcher = EventDispatcher(
+        serial_manager.event_queue,
+        machine_status,
+        ws_manager,
+        inventory_service=inventory_service,
+    )
 
     # --- Phase 3: Hardware controllers (GPIO + Camera + ML) ---
     if settings.use_mock_hardware:
@@ -84,6 +98,7 @@ async def lifespan(app: FastAPI):
         machine_status=machine_status,
         ws_manager=ws_manager,
         settings=settings,
+        inventory_service=inventory_service,
     )
 
     dispense_orchestrator = DispenseOrchestrator(
@@ -91,6 +106,7 @@ async def lifespan(app: FastAPI):
         coin_controller=coin_controller,
         machine_status=machine_status,
         ws_manager=ws_manager,
+        inventory_service=inventory_service,
     )
 
     transaction_orchestrator = TransactionOrchestrator(
@@ -100,6 +116,7 @@ async def lifespan(app: FastAPI):
         machine_status=machine_status,
         ws_manager=ws_manager,
         db_session_factory=get_session_factory(),
+        operation_mode=operation_mode,
     )
     event_dispatcher.set_transaction_orchestrator(transaction_orchestrator)
 
@@ -112,7 +129,22 @@ async def lifespan(app: FastAPI):
         ws_manager=ws_manager,
         forex_rate_service=forex_rate_service,
         db_session_factory=get_session_factory(),
+        operation_mode=operation_mode,
     )
+
+    # --- Phase 4: PayMongo e-wallet services ---
+    paymongo_client = PayMongoClient(settings)
+    ewallet_orchestrator = EWalletOrchestrator(
+        settings=settings,
+        gateway=paymongo_client,
+        bill_acceptor=bill_acceptor,
+        dispenser=dispense_orchestrator,
+        machine_status=machine_status,
+        ws_manager=ws_manager,
+        db_session_factory=get_session_factory(),
+        operation_mode=operation_mode,
+    )
+    event_dispatcher.set_ewallet_orchestrator(ewallet_orchestrator)
 
     # Store on app state for dependency injection in endpoints
     app.state.serial_manager = serial_manager
@@ -127,6 +159,12 @@ async def lifespan(app: FastAPI):
     app.state.transaction_orchestrator = transaction_orchestrator
     app.state.forex_rate_service = forex_rate_service
     app.state.forex_transaction_orchestrator = forex_transaction_orchestrator
+    app.state.paymongo_client = paymongo_client
+    app.state.ewallet_orchestrator = ewallet_orchestrator
+    app.state.db_session_factory = get_session_factory()
+    app.state.inventory_service = inventory_service
+    app.state.operation_mode = operation_mode
+    app.state.admin_sessions = admin_sessions
 
     # Startup
     await serial_manager.startup()
@@ -138,6 +176,7 @@ async def lifespan(app: FastAPI):
 
     # Recover any transactions interrupted by crash/power loss
     await transaction_orchestrator.recover_pending_transactions()
+    await ewallet_orchestrator.recover_pending_transactions()
 
     # Start forex rate service (fetches initial rates + starts periodic refresh)
     await forex_rate_service.start()
@@ -148,6 +187,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Coinnect backend shutting down")
     await forex_rate_service.stop()
+    await paymongo_client.close()
     await event_dispatcher.stop()
     await serial_manager.shutdown()
     await camera.release()

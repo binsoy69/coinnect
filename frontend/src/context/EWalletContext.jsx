@@ -2,17 +2,18 @@
 import { createContext, useContext, useState, useCallback } from "react";
 import {
   EWALLET_CONFIG,
-  EWALLET_MOCK_DATA,
   EWALLET_PROVIDERS_CONFIG,
   calculateFee,
   isCashIn,
 } from "../constants/ewalletData";
+import { API_BASE, ENABLE_KEYBOARD_SIM } from "../constants/api";
 
 // Default state for e-wallet transaction
 const DEFAULT_EWALLET_STATE = {
   provider: null, // 'gcash' | 'maya'
   serviceType: null, // 'gcash-cash-in' | 'gcash-cash-out' | 'maya-cash-in' | 'maya-cash-out'
   mobileNumber: "",
+  accountName: "",
   amount: 0, // Total due (amount to transfer + fee)
   fee: 0, // Calculated transaction fee
   transferAmount: 0, // Amount that goes to e-wallet (cash-in) or dispensed (cash-out)
@@ -22,8 +23,10 @@ const DEFAULT_EWALLET_STATE = {
   totalBillsInserted: 0,
   totalCoinsInserted: 0,
   totalInserted: 0, // bills + coins total value
-  billerNumber: "",
-  verificationPIN: "",
+  transactionId: null,
+  backendState: null,
+  gatewayError: null,
+  feeTiers: [],
 };
 
 const EWalletContext = createContext(null);
@@ -44,12 +47,9 @@ export function EWalletProvider({ children }) {
     const config = EWALLET_CONFIG[serviceType];
     if (!config) return;
 
-    const mockData = EWALLET_MOCK_DATA[serviceType];
-
     setEWallet((prev) => ({
       ...prev,
       serviceType,
-      billerNumber: mockData?.billerNumber || "",
     }));
   }, []);
 
@@ -61,10 +61,14 @@ export function EWalletProvider({ children }) {
     }));
   }, []);
 
+  const setAccountName = useCallback((accountName) => {
+    setEWallet((prev) => ({ ...prev, accountName }));
+  }, []);
+
   // Set amount and calculate fee/totalDue
   const setAmount = useCallback((amount) => {
     setEWallet((prev) => {
-      const fee = calculateFee(amount);
+      const fee = calculateFee(amount, prev.feeTiers);
 
       if (isCashIn(prev.serviceType)) {
         // Cash In: user inserts totalDue, fee is deducted, rest goes to e-wallet
@@ -134,13 +138,107 @@ export function EWalletProvider({ children }) {
     });
   }, []);
 
-  // Set verification PIN
-  const setVerificationPIN = useCallback((pin) => {
+  const request = useCallback(async (path, options = {}) => {
+    const response = await fetch(`${API_BASE}${path}`, {
+      headers: { "Content-Type": "application/json", ...options.headers },
+      ...options,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.detail || `Request failed (${response.status})`);
+    }
+    return data;
+  }, []);
+
+  const syncBackendState = useCallback((data) => {
     setEWallet((prev) => ({
       ...prev,
-      verificationPIN: pin,
+      transactionId: data.transaction_id,
+      backendState: data,
+      gatewayError: data.error_message || null,
+      totalInserted: data.inserted_amount ?? prev.totalInserted,
+      insertedBillCounts:
+        data.inserted_denominations || prev.insertedBillCounts,
+      amount: data.amount ?? prev.amount,
+      fee: data.fee ?? prev.fee,
+      transferAmount: data.transfer_amount ?? prev.transferAmount,
+      totalDue: data.total_due ?? prev.totalDue,
     }));
+    return data;
   }, []);
+
+  const loadFeeTiers = useCallback(async () => {
+    const data = await request("/ewallet/config");
+    setEWallet((prev) => ({
+      ...prev,
+      feeTiers: data.fee_tiers || [],
+    }));
+    return data.fee_tiers || [];
+  }, [request]);
+
+  const startBackendTransaction = useCallback(async () => {
+    try {
+      const cashIn = isCashIn(ewallet.serviceType);
+      const payload = {
+        provider: ewallet.provider,
+        direction: cashIn ? "cash-in" : "cash-out",
+        amount: ewallet.totalDue,
+      };
+      if (cashIn) {
+        payload.mobile_number = ewallet.mobileNumber;
+        payload.account_name = ewallet.accountName;
+      }
+      const data = await request("/ewallet/transactions", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      return syncBackendState(data);
+    } catch (error) {
+      setEWallet((prev) => ({ ...prev, gatewayError: error.message }));
+      throw error;
+    }
+  }, [ewallet, request, syncBackendState]);
+
+  const refreshBackendTransaction = useCallback(async () => {
+    if (!ewallet.transactionId) return null;
+    const data = await request(
+      `/ewallet/transactions/${ewallet.transactionId}`,
+    );
+    return syncBackendState(data);
+  }, [ewallet.transactionId, request, syncBackendState]);
+
+  const simulateCashInsert = useCallback(
+    async (denomination) => {
+      if (!ewallet.transactionId || !ENABLE_KEYBOARD_SIM) return null;
+      const data = await request(
+        `/ewallet/transactions/${ewallet.transactionId}/simulate-insert`,
+        {
+          method: "POST",
+          body: JSON.stringify({ denomination }),
+        },
+      );
+      return syncBackendState(data);
+    },
+    [ewallet.transactionId, request, syncBackendState],
+  );
+
+  const acceptPhysicalBill = useCallback(async () => {
+    if (!ewallet.transactionId) return null;
+    const data = await request(
+      `/ewallet/transactions/${ewallet.transactionId}/accept-bill`,
+      { method: "POST" },
+    );
+    return syncBackendState(data);
+  }, [ewallet.transactionId, request, syncBackendState]);
+
+  const confirmBackendTransaction = useCallback(async () => {
+    if (!ewallet.transactionId) return null;
+    const data = await request(
+      `/ewallet/transactions/${ewallet.transactionId}/confirm`,
+      { method: "POST" },
+    );
+    return syncBackendState(data);
+  }, [ewallet.transactionId, request, syncBackendState]);
 
   // Reset transaction
   const resetTransaction = useCallback(() => {
@@ -184,10 +282,16 @@ export function EWalletProvider({ children }) {
     startEWalletTransaction,
     setServiceType,
     setMobileNumber,
+    setAccountName,
     setAmount,
     addInsertedBill,
     addInsertedCoin,
-    setVerificationPIN,
+    startBackendTransaction,
+    refreshBackendTransaction,
+    simulateCashInsert,
+    acceptPhysicalBill,
+    confirmBackendTransaction,
+    loadFeeTiers,
     resetTransaction,
     isAmountMatched,
     getRemainingAmount,

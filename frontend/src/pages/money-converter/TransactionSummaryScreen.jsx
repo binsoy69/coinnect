@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { motion } from "framer-motion";
 import PageLayout from "../../components/layout/PageLayout";
 import TransactionCard from "../../components/transaction/TransactionCard";
@@ -29,8 +29,6 @@ export default function TransactionSummaryScreen() {
   const { transaction, getServiceConfig, getMoneyToDispense } =
     useTransaction();
   const { confirmBackendTransaction } = useBackendTransaction();
-  const [isConfirming, setIsConfirming] = useState(false);
-
   const config = getServiceConfig() || SERVICE_CONFIG[type];
 
   const handleBack = () => {
@@ -38,14 +36,12 @@ export default function TransactionSummaryScreen() {
   };
 
   const handleProceed = async () => {
-    setIsConfirming(true);
     try {
       // Trigger backend confirmation and dispensing
       await confirmBackendTransaction();
     } catch {
       // Continue to processing screen even if backend call fails
     } finally {
-      setIsConfirming(false);
       navigate(getServiceRoute(ROUTES.PROCESSING, type));
     }
   };

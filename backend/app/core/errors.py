@@ -97,3 +97,19 @@ class RateUnavailableError(ForexError):
 
     def __init__(self, message: str = "Exchange rates unavailable"):
         super().__init__(message, "RATE_UNAVAILABLE")
+
+
+class PaymentGatewayError(CoinnectError):
+    """PayMongo request or response failure."""
+
+    def __init__(self, message: str, code: str = "PAYMENT_GATEWAY_ERROR"):
+        self.code = code
+        super().__init__(message)
+
+
+class EWalletTransactionError(CoinnectError):
+    """Invalid e-wallet lifecycle operation."""
+
+    def __init__(self, message: str, code: str = "EWALLET_ERROR"):
+        self.code = code
+        super().__init__(message)

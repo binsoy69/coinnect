@@ -13,7 +13,11 @@ export default function ForexWarningScreen() {
 
   const handleChooseDifferent = async () => {
     if (transactionId) {
-      try { await cancelForexTransaction(); } catch {}
+      try {
+        await cancelForexTransaction();
+      } catch {
+        // Navigation still lets the user recover if backend cancellation fails.
+      }
     }
     navigate(getForexRoute(ROUTES.FOREX_RATE, forex.serviceType));
   };

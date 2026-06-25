@@ -10,6 +10,7 @@ export default function VirtualKeypad({
   submitLabel = "Proceed",
   className = "",
   colorClass = "coinnect-ewallet", // 'coinnect-gcash' or 'coinnect-maya'
+  mask = false,
 }) {
   const borderColor = `border-${colorClass}`;
   const textColor = `text-${colorClass}`;
@@ -40,7 +41,7 @@ export default function VirtualKeypad({
             <span
               className={`text-2xl lg:text-3xl font-bold ${textColor} tracking-[0.3em] text-center`}
             >
-              {value}
+              {mask ? "•".repeat(value.length) : value}
             </span>
           ) : (
             <span className="text-2xl lg:text-3xl font-bold text-gray-300 tracking-[0.3em] text-center">
