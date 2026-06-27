@@ -29,6 +29,14 @@ LABEL_TO_DENOM: Dict[str, BillDenom] = {
     "USD_50": BillDenom.USD_50,
     "EUR_5": BillDenom.EUR_5,
     "EUR_10": BillDenom.EUR_10,
+    # NCNN model custom classification formats
+    "20php": BillDenom.PHP_20,
+    "50php": BillDenom.PHP_50,
+    "100php": BillDenom.PHP_100,
+    "200php": BillDenom.PHP_200,
+    "500php": BillDenom.PHP_500,
+    "1000php": BillDenom.PHP_1000,
+    "1000php_polymer": BillDenom.PHP_1000,
 }
 
 

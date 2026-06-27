@@ -13,6 +13,22 @@ class BillModelDiagnosticError(RuntimeError):
     """Raised when a configured bill ML model fails diagnostics."""
 
 
+def normalize_label(label: str) -> str:
+    """Normalize custom model labels (e.g., 20php, 1000php_polymer) to canonical enums (e.g., PHP_20, PHP_1000)."""
+    import re
+    label_upper = label.upper()
+    if label_upper.startswith(("PHP_", "USD_", "EUR_")):
+        return label_upper
+
+    # Match patterns like "20php", "1000php_polymer", "10usd", "5eur"
+    match = re.match(r"^(\d+)\s*(php|usd|eur)(?:_.*)?$", label.lower())
+    if match:
+        num, curr = match.groups()
+        return f"{curr.upper()}_{num}"
+
+    return label
+
+
 def validate_bill_model_pair(settings: Settings, currency: str) -> dict:
     selected_currency = Currency(currency.upper())
     auth_path, denom_path = _model_paths(settings, selected_currency)
@@ -32,8 +48,10 @@ def validate_bill_model_pair(settings: Settings, currency: str) -> dict:
         currency=selected_currency.value,
         path=auth_path,
     )
+    
+    normalized_denom_labels = {normalize_label(label) for label in denom_labels}
     _require_labels(
-        label_set=set(denom_labels),
+        label_set=normalized_denom_labels,
         expected=set(expected_denoms),
         model_type="denomination",
         currency=selected_currency.value,

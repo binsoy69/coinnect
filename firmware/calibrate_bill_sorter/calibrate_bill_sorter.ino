@@ -1,17 +1,17 @@
 #include <Arduino.h>
 #include <AccelStepper.h>
 
-static const uint8_t STEP_PIN = 2;
-static const uint8_t DIR_PIN = 3;
+static const uint8_t STEP_PIN = 6;
+static const uint8_t DIR_PIN = 7;
 static const uint8_t ENABLE_PIN = 4;
 static const uint8_t LIMIT_PIN = 5;
 
-static const long HOME_SPEED_STEPS_PER_SEC = -2500;
+static const long HOME_SPEED_STEPS_PER_SEC = -7500;
 static const long HOME_BACKOFF_STEPS = 800;
-static const unsigned long HOME_TIMEOUT_MS = 12000;
+static const unsigned long HOME_TIMEOUT_MS = 60000;
 
-static const float SORT_MAX_SPEED = 8000.0;
-static const float SORT_ACCELERATION = 5000.0;
+static const float SORT_MAX_SPEED = 12000.0;
+static const float SORT_ACCELERATION = 30000.0;
 
 static const long DEFAULT_SLOT_POSITIONS[8] = {
     2920, 8760, 14600, 20440, 26280, 32120, 37960, 43800
@@ -29,7 +29,15 @@ void disableStepper() {
 }
 
 bool limitTriggered() {
-    return digitalRead(LIMIT_PIN) == LOW;
+    // Require multiple consecutive LOW reads to filter EMI noise
+    const uint8_t DEBOUNCE_COUNT = 5;
+    for (uint8_t i = 0; i < DEBOUNCE_COUNT; i++) {
+        if (digitalRead(LIMIT_PIN) != LOW) {
+            return false;
+        }
+        delayMicroseconds(1000); // 1ms between reads
+    }
+    return true;
 }
 
 bool homeSorter() {
@@ -70,17 +78,21 @@ void moveRelative(long steps) {
         return;
     }
     enableStepper();
-    sorter.setMaxSpeed(SORT_MAX_SPEED);
-    sorter.setAcceleration(SORT_ACCELERATION);
-    
+
     long target = sorter.currentPosition() + steps;
+    float speed = (steps > 0) ? SORT_MAX_SPEED : -SORT_MAX_SPEED;
+
     Serial.print("Moving to target position: ");
     Serial.println(target);
-    
-    sorter.moveTo(target);
-    while (sorter.distanceToGo() != 0) {
-        sorter.run();
+
+    sorter.setMaxSpeed(SORT_MAX_SPEED);
+    sorter.setSpeed(speed);
+
+    while ((steps > 0 && sorter.currentPosition() < target) ||
+           (steps < 0 && sorter.currentPosition() > target)) {
+        sorter.runSpeed();
     }
+
     Serial.print("Current position: ");
     Serial.println(sorter.currentPosition());
 }

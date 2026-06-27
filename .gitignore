@@ -77,6 +77,9 @@ ipython_config.py
 *.pb
 *.tflite
 
+# Allow NCNN model binary weights
+!backend/models/**/*_ncnn_model/*.bin
+
 # Model checkpoints and training artifacts
 runs/
 weights/

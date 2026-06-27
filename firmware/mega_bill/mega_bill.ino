@@ -9,14 +9,14 @@ static const char *FIRMWARE_VERSION = "2.0.0";
 static const char *CONTROLLER_ID = "BILL";
 
 // Stepper / A4988 pins.
-static const uint8_t STEP_PIN = 2;
-static const uint8_t DIR_PIN = 3;
+static const uint8_t STEP_PIN = 6;
+static const uint8_t DIR_PIN = 7;
 static const uint8_t ENABLE_PIN = 4;
 static const uint8_t LIMIT_PIN = 5;
 
 // Conveyor motor pins (IN1-IN4 of single L298N driver controlling both conveyors)
-static const uint8_t CONVEYOR_PHP_IN1 = 6;
-static const uint8_t CONVEYOR_PHP_IN2 = 7;
+static const uint8_t CONVEYOR_PHP_IN1 = 2;
+static const uint8_t CONVEYOR_PHP_IN2 = 3;
 static const uint8_t CONVEYOR_FOREIGN_IN1 = 8;
 static const uint8_t CONVEYOR_FOREIGN_IN2 = 9;
 
@@ -24,12 +24,12 @@ static const uint8_t CONVEYOR_FOREIGN_IN2 = 9;
 static const unsigned long CONVEYOR_DURATION_MS = 3000;
 
 // A4988 enable is active LOW. Negative speed is the documented home direction.
-static const long HOME_SPEED_STEPS_PER_SEC = -2500;
+static const long HOME_SPEED_STEPS_PER_SEC = -7500;
 static const long HOME_BACKOFF_STEPS = 800;
-static const unsigned long HOME_TIMEOUT_MS = 12000;
-static const unsigned long SORT_TIMEOUT_MS = 12000;
-static const float SORT_MAX_SPEED = 8000.0;
-static const float SORT_ACCELERATION = 5000.0;
+static const unsigned long HOME_TIMEOUT_MS = 60000;
+static const unsigned long SORT_TIMEOUT_MS = 60000;
+static const float SORT_MAX_SPEED = 12000.0;
+static const float SORT_ACCELERATION = 30000.0;
 static const bool HOLD_SORTER_AFTER_MOVE = true;
 
 // Bill dispenser timing.
@@ -81,7 +81,7 @@ static const SortSlotMap sortSlotMap[] = {
 };
 
 static const long SLOT_POSITIONS[] = {
-    2920, 8760, 14600, 20440, 26280, 32120, 37960, 43800,
+    0, 30000, 60000, 90000, 122500, 153500, 187500, 219500,
 };
 
 AccelStepper sorter(AccelStepper::DRIVER, STEP_PIN, DIR_PIN);
@@ -125,7 +125,15 @@ void disableStepperIfAllowed() {
 }
 
 bool limitTriggered() {
-  return digitalRead(LIMIT_PIN) == LOW;
+  // Require multiple consecutive LOW reads to filter EMI noise
+  const uint8_t DEBOUNCE_COUNT = 5;
+  for (uint8_t i = 0; i < DEBOUNCE_COUNT; i++) {
+    if (digitalRead(LIMIT_PIN) != LOW) {
+      return false;
+    }
+    delayMicroseconds(1000); // 1ms between reads
+  }
+  return true;
 }
 
 void setPinLowIfPresent(uint8_t pin) {
@@ -259,14 +267,23 @@ bool moveSorterToSlot(uint8_t slot) {
   }
 
   const long targetPosition = SLOT_POSITIONS[slot - 1];
+  const long currentPos = sorter.currentPosition();
+  const long steps = targetPosition - currentPos;
+
+  if (steps == 0) {
+    currentSlot = slot;
+    return true;
+  }
+
   enableStepper();
+  float speed = (steps > 0) ? SORT_MAX_SPEED : -SORT_MAX_SPEED;
   sorter.setMaxSpeed(SORT_MAX_SPEED);
-  sorter.setAcceleration(SORT_ACCELERATION);
-  sorter.moveTo(targetPosition);
+  sorter.setSpeed(speed);
 
   const unsigned long startedAt = millis();
-  while (sorter.distanceToGo() != 0) {
-    sorter.run();
+  while ((steps > 0 && sorter.currentPosition() < targetPosition) ||
+         (steps < 0 && sorter.currentPosition() > targetPosition)) {
+    sorter.runSpeed();
     if (millis() - startedAt > SORT_TIMEOUT_MS) {
       sorter.stop();
       currentSlot = 0;
@@ -583,7 +600,9 @@ void setup() {
   setupConveyors();
   delay(250);
   sendReadyEvent();
-  homeSorter();
+  // NOTE: homeSorter() removed from setup() to avoid blocking serial
+  // command processing for up to 12s. The backend should send a HOME
+  // command after confirming the connection with VERSION/PING.
 }
 
 void loop() {

@@ -120,3 +120,27 @@ def test_validate_bill_model_pair_fails_for_wrong_currency_denom_labels(
 
     with pytest.raises(BillModelDiagnosticError, match="missing labels.*USD_50"):
         validate_bill_model_pair(settings, "USD")
+
+
+def test_validate_bill_model_pair_passes_for_custom_ncnn_labels(
+    monkeypatch, tmp_path
+):
+    install_fake_yolo(monkeypatch)
+    settings = settings_for_models(tmp_path)
+    FakeYOLO.names_by_path = {
+        str(tmp_path / "auth.pt"): {0: "genuine", 1: "fake"},
+        str(tmp_path / "denom.pt"): {
+            0: "20php",
+            1: "50php",
+            2: "100php",
+            3: "200php",
+            4: "500php",
+            5: "1000php_polymer",
+        },
+    }
+
+    result = validate_bill_model_pair(settings, "PHP")
+
+    assert result["currency"] == "PHP"
+    assert result["auth_model"]["loaded"] is True
+    assert "1000php_polymer" in result["denomination_model"]["labels"]

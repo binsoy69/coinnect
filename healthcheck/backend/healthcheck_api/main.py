@@ -6,6 +6,18 @@ import os
 from pathlib import Path
 import sys
 
+# Reconfigure standard streams to use UTF-8 and replace invalid characters, preventing UnicodeEncodeErrors on platforms with limited default locales (e.g. latin-1 on RPi)
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 SHARED_BACKEND_PATH = Path(__file__).resolve().parents[3] / "backend"
 if str(SHARED_BACKEND_PATH) not in sys.path:
     sys.path.insert(0, str(SHARED_BACKEND_PATH))
