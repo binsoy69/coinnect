@@ -39,6 +39,10 @@ class GPIOControllerBase(ABC):
         """Check if bill is detected at entry IR sensor (GPIO5)."""
 
     @abstractmethod
+    async def is_bill_at_position(self) -> bool:
+        """Check if bill is detected at position IR sensor (GPIO6)."""
+
+    @abstractmethod
     async def uv_led_on(self) -> None:
         """Turn on UV LED strip via relay (GPIO23)."""
 
@@ -72,6 +76,7 @@ class RPiGPIOController(GPIOControllerBase):
     MOTOR_IN2 = 27
     MOTOR_ENA = 22
     IR_ENTRY = 5
+    IR_POSITION = 6
     UV_LED = 23
     WHITE_LED = 24
     PWM_FREQUENCY = 1000  # 1kHz PWM
@@ -112,6 +117,9 @@ class RPiGPIOController(GPIOControllerBase):
         # Entry IR sensor input (with pull-up; LOW = detected)
         GPIO.setup(self.IR_ENTRY, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
+        # Position IR sensor input (with pull-up; LOW = detected)
+        GPIO.setup(self.IR_POSITION, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
         # LED outputs
         GPIO.setup(self.UV_LED, GPIO.OUT, initial=GPIO.LOW)
         GPIO.setup(self.WHITE_LED, GPIO.OUT, initial=GPIO.LOW)
@@ -149,6 +157,12 @@ class RPiGPIOController(GPIOControllerBase):
     async def is_bill_at_entry(self) -> bool:
         result = await self._loop.run_in_executor(
             None, self._gpio.input, self.IR_ENTRY
+        )
+        return result == self._gpio.LOW  # LOW = detected
+
+    async def is_bill_at_position(self) -> bool:
+        result = await self._loop.run_in_executor(
+            None, self._gpio.input, self.IR_POSITION
         )
         return result == self._gpio.LOW  # LOW = detected
 

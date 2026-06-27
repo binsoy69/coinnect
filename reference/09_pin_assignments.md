@@ -17,7 +17,7 @@
 | GPIO27 | 13 | L298N IN2 | Output | Bill acceptor motor direction |
 | GPIO22 | 15 | L298N ENA | Output PWM | Bill acceptor motor speed |
 | GPIO5 | 29 | Entry IR Sensor | Input | Bill entry, pull-up enabled |
-| GPIO6 | 31 | Unused | - | Available spare GPIO |
+| GPIO6 | 31 | Position IR Sensor | Input | Bill position, pull-up enabled |
 | GPIO23 | 16 | UV LED Control | Output | Relay or MOSFET driver |
 | GPIO24 | 18 | White LED Control | Output | MOSFET driver |
 | 3.3V | 1, 17 | Sensor Power | Power | IR sensor VCC |

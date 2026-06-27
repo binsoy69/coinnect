@@ -269,15 +269,27 @@ class BillAcceptor:
             return BillAcceptResult(error=str(e))
 
     async def _position_bill(self) -> bool:
-        """Pull bill from entry to camera position using calibrated timing.
+        """Pull bill from entry to camera position, stopping when the position IR sensor is triggered.
 
         Returns:
-            True if the timed motor run completed.
+            True if the bill reached the position sensor before the timeout.
+            False if it timed out.
         """
         try:
             await self._gpio.motor_forward(self._settings.bill_pull_speed)
-            await asyncio.sleep(self._settings.bill_pull_duration)
-            return True
+            
+            timeout = self._settings.bill_positioning_timeout
+            deadline = asyncio.get_event_loop().time() + timeout
+            poll_interval = 0.05  # 50ms polling
+            
+            while asyncio.get_event_loop().time() < deadline:
+                if await self._gpio.is_bill_at_position():
+                    logger.info("Bill detected at position IR sensor (GPIO6)")
+                    return True
+                await asyncio.sleep(poll_interval)
+                
+            logger.warning("Timeout waiting for bill to reach position IR sensor")
+            return False
         finally:
             await self._gpio.motor_stop()
 

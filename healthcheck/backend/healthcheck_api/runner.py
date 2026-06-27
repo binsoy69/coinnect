@@ -187,6 +187,10 @@ class DiagnosticsRunner:
         gpio = self._require_gpio()
         return {"detected": await gpio.is_bill_at_entry()}
 
+    async def _rpi_ir_position(self) -> dict:
+        gpio = self._require_gpio()
+        return {"detected": await gpio.is_bill_at_position()}
+
     async def _rpi_conveyor_forward(self) -> dict:
         gpio = self._require_gpio()
         speed = self._hardware.settings.bill_pull_speed

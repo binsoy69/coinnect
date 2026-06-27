@@ -94,6 +94,8 @@ class Settings(BaseSettings):
     bill_pull_duration: float = 1.5
     bill_store_duration: float = 2.0
     bill_eject_duration: float = 1.5
+    bill_positioning_timeout: float = 3.0
+    bill_at_position_delay: float = 0.05
 
     # Storage slot capacity
     storage_slot_capacity: int = 100

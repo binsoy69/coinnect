@@ -102,7 +102,7 @@ Planned environment settings:
 **Raspberry Pi (Bill Acceptor):**
 - GPIO17, GPIO27: L298N motor direction (IN1, IN2)
 - GPIO22: L298N PWM enable (ENA)
-- GPIO5: bill acceptor entry IR sensor; GPIO6 unused by bill acceptor
+- GPIO5, GPIO6: IR sensors (entry, position)
 - GPIO23: UV LED control (relay)
 - GPIO24: White LED control (MOSFET)
 

@@ -59,7 +59,7 @@ Raspberry Pi (bill acceptor):
 - GPIO27: L298N IN2 (motor direction)
 - GPIO22: L298N ENA (PWM)
 - GPIO5: IR sensor (bill entry)
-- GPIO6: unused by bill acceptor
+- GPIO6: IR sensor (bill position)
 - GPIO23: UV LED control (relay)
 - GPIO24: White LED control (MOSFET)
 

@@ -317,11 +317,11 @@ class TestAcceptBillUnknownDenomination:
 
         assert "motor_reverse(80)" in mock_gpio.call_log
 
-class TestAcceptBillTimedPositioning:
-    """Bill positioning uses a calibrated motor run instead of a second IR."""
+class TestAcceptBillSensorPositioning:
+    """Bill positioning uses a positioning IR sensor instead of calibrated timing."""
 
     @pytest.mark.asyncio
-    async def test_positioning_runs_motor_then_authenticates(self, acceptor, mock_gpio):
+    async def test_positioning_runs_motor_then_stops_at_sensor(self, acceptor, mock_gpio):
         result = await acceptor.accept_bill()
 
         assert result.success is True
@@ -355,6 +355,39 @@ class TestAcceptBillTimedPositioning:
         await acceptor.accept_bill()
 
         assert "motor_forward(42)" in mock_gpio.call_log
+
+    @pytest.mark.asyncio
+    async def test_positioning_timeout_ejects_bill(
+        self,
+        mock_gpio,
+        mock_camera,
+        mock_auth,
+        mock_bill_controller,
+        mock_machine_status,
+        mock_ws_manager,
+        test_settings,
+    ):
+        # Configure a short timeout
+        test_settings.bill_positioning_timeout = 0.05
+        # Set mock delay longer than timeout so it times out
+        mock_gpio.bill_at_position_delay = 0.2
+        
+        acceptor = BillAcceptor(
+            gpio=mock_gpio,
+            camera=mock_camera,
+            authenticator=mock_auth,
+            bill_controller=mock_bill_controller,
+            machine_status=mock_machine_status,
+            ws_manager=mock_ws_manager,
+            settings=test_settings,
+        )
+
+        result = await acceptor.accept_bill()
+
+        assert result.success is False
+        assert result.error == "POSITIONING_FAILED"
+        # Motor should reverse to eject
+        assert "motor_reverse(80)" in mock_gpio.call_log
 
 class TestAcceptBillStorageFull:
     """Storage full rejection."""

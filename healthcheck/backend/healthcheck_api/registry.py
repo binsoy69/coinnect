@@ -79,6 +79,13 @@ def build_component_groups() -> list[ComponentGroup]:
                     description="Read the bill entry IR sensor.",
                 ),
                 TestDefinition(
+                    id="rpi_ir_position",
+                    label="Read Position IR",
+                    component="GPIO6",
+                    kind="sensor",
+                    description="Read the bill position IR sensor.",
+                ),
+                TestDefinition(
                     id="rpi_conveyor_forward",
                     label="Conveyor Forward",
                     component="Bill acceptor motor",

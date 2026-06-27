@@ -194,7 +194,7 @@ class TestBillRejectionFlow:
 
 
 class TestBillPositioning:
-    """Tests verifying timed bill positioning."""
+    """Tests verifying sensor-based bill positioning."""
 
     @pytest.mark.asyncio
     async def test_wait_for_bill_returns_false_without_entry_detection(
@@ -211,7 +211,7 @@ class TestBillPositioning:
     async def test_accept_bill_runs_motor_before_authentication(
         self, bill_acceptor, mock_gpio, mock_authenticator
     ):
-        """Once triggered, accept_bill uses calibrated timing before imaging."""
+        """Once triggered, accept_bill runs the motor until the positioning sensor is triggered before imaging."""
         mock_gpio.set_bill_at_entry(True)
         mock_authenticator.set_accept_next()
 
