@@ -118,8 +118,9 @@ class YOLOBillAuthenticator(BillAuthenticatorBase):
 
             path = self._model_paths[currency][model_type]
             logger.info(f"Loading {model_type} model for {currency}: {path}")
-            self._loaded_models[currency][model_type] = YOLO(path)
-            logger.info(f"{model_type} model for {currency} loaded")
+            task = "classify" if "cls" in path.lower() else None
+            self._loaded_models[currency][model_type] = YOLO(path, task=task)
+            logger.info(f"{model_type} model for {currency} loaded (task={task})")
         return self._loaded_models[currency][model_type]
 
     def _get_active_auth_model(self):
@@ -145,14 +146,17 @@ class YOLOBillAuthenticator(BillAuthenticatorBase):
             return BillAuthResult(is_genuine=False, confidence=0.0)
 
         result = results[0]
-        if result.boxes is None or len(result.boxes) == 0:
+        if hasattr(result, "probs") and result.probs is not None:
+            best_idx = result.probs.top1
+            confidence = float(result.probs.top1conf)
+            label = result.names.get(best_idx, "unknown")
+        elif hasattr(result, "boxes") and result.boxes is not None and len(result.boxes) > 0:
+            best_idx = result.boxes.conf.argmax().item()
+            confidence = float(result.boxes.conf[best_idx])
+            class_id = int(result.boxes.cls[best_idx])
+            label = result.names.get(class_id, "unknown")
+        else:
             return BillAuthResult(is_genuine=False, confidence=0.0)
-
-        # Get highest confidence detection
-        best_idx = result.boxes.conf.argmax().item()
-        confidence = float(result.boxes.conf[best_idx])
-        class_id = int(result.boxes.cls[best_idx])
-        label = result.names.get(class_id, "unknown")
 
         is_genuine = label.lower() == "genuine" and confidence >= self._confidence_threshold
 
@@ -178,14 +182,17 @@ class YOLOBillAuthenticator(BillAuthenticatorBase):
             return BillAuthResult(is_genuine=True, confidence=0.0)
 
         result = results[0]
-        if result.boxes is None or len(result.boxes) == 0:
+        if hasattr(result, "probs") and result.probs is not None:
+            best_idx = result.probs.top1
+            confidence = float(result.probs.top1conf)
+            label = result.names.get(best_idx, "unknown")
+        elif hasattr(result, "boxes") and result.boxes is not None and len(result.boxes) > 0:
+            best_idx = result.boxes.conf.argmax().item()
+            confidence = float(result.boxes.conf[best_idx])
+            class_id = int(result.boxes.cls[best_idx])
+            label = result.names.get(class_id, "unknown")
+        else:
             return BillAuthResult(is_genuine=True, confidence=0.0)
-
-        # Get highest confidence detection
-        best_idx = result.boxes.conf.argmax().item()
-        confidence = float(result.boxes.conf[best_idx])
-        class_id = int(result.boxes.cls[best_idx])
-        label = result.names.get(class_id, "unknown")
 
         denomination = LABEL_TO_DENOM.get(label)
 
