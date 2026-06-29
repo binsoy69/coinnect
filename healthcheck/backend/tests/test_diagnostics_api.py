@@ -160,3 +160,46 @@ async def test_mock_live_bill_auth_test_returns_result(authed_client):
     assert result["status"] == "passed"
     assert result["response"]["currency"] == "PHP"
     assert result["response"]["raw_label"] == "genuine"
+    assert "annotated_image_b64" in result["response"]
+
+
+async def test_camera_stream_endpoint_requires_auth(app_client):
+    app, client = app_client
+    # Request without authentication
+    resp = await client.get("/api/v1/camera/stream")
+    assert resp.status_code == 401
+
+    # Request with invalid header
+    client.headers.update({"Authorization": "Bearer invalid_token"})
+    resp = await client.get("/api/v1/camera/stream")
+    assert resp.status_code == 401
+
+    # Request with invalid query param
+    if "Authorization" in client.headers:
+        del client.headers["Authorization"]
+    resp = await client.get("/api/v1/camera/stream?token=invalid")
+    assert resp.status_code == 401
+
+
+async def test_camera_stream_endpoint_passes_with_auth_header(authed_client):
+    app, client = authed_client
+    resp = await client.get("/api/v1/camera/stream")
+    assert resp.status_code == 200
+    assert "multipart/x-mixed-replace" in resp.headers["content-type"]
+    # Read a small chunk of stream to verify it yields frame data
+    async for chunk in resp.aiter_bytes():
+        assert b"--frame" in chunk
+        break
+
+
+async def test_camera_stream_endpoint_passes_with_token_query_param(app_client):
+    app, client = app_client
+    # Obtain a valid token first
+    resp = await client.post("/api/v1/auth/login", json={"pin": "123456"})
+    assert resp.status_code == 200
+    token = resp.json()["token"]
+
+    # Request with token query param (no Authorization header)
+    resp = await client.get(f"/api/v1/camera/stream?token={token}")
+    assert resp.status_code == 200
+    assert "multipart/x-mixed-replace" in resp.headers["content-type"]

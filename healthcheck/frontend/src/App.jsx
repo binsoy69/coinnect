@@ -27,6 +27,7 @@ import {
   fetchStatus,
   login,
   runTest,
+  API_BASE,
 } from './api';
 import EWalletSandboxPanel from './EWalletSandboxPanel';
 
@@ -320,6 +321,7 @@ function Dashboard({
               busy={Boolean(runningId || status?.busy)}
               onRun={onRun}
               onSelectResult={onSelectResult}
+              token={token}
             />
           ))}
         </section>
@@ -392,6 +394,71 @@ function MetricCard({ icon, label, value, tone }) {
   );
 }
 
+function CameraLivePreviewPanel({ token }) {
+  const [streamActive, setStreamActive] = useState(false);
+  const [streamSession, setStreamSession] = useState(0);
+
+  const toggleStream = () => {
+    if (streamActive) {
+      setStreamActive(false);
+    } else {
+      setStreamSession(Date.now());
+      setStreamActive(true);
+    }
+  };
+
+  return (
+    <div className="rounded-card bg-white p-5 shadow-sm mb-6 border border-gray-150">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-orange-50 text-coinnect-primary">
+            <Camera className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="text-lg font-extrabold leading-tight">Camera Live Preview</h3>
+            <p className="text-sm font-semibold text-gray-500">Real-time video feed from bill acceptor camera</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={toggleStream}
+          className={`flex h-10 items-center gap-2 rounded-button px-4 font-bold text-sm transition ${
+            streamActive
+              ? 'bg-red-500 hover:bg-red-600 text-white shadow-sm'
+              : 'bg-coinnect-primary hover:bg-coinnect-primary-dark text-white shadow-sm'
+          }`}
+        >
+          {streamActive ? 'Stop Stream' : 'Start Stream'}
+        </button>
+      </div>
+
+      <div className="relative overflow-hidden rounded-2xl bg-gray-950 flex items-center justify-center border border-gray-800" style={{ minHeight: '320px', maxHeight: '480px' }}>
+        {streamActive ? (
+          <img
+            src={`${API_BASE}/camera/stream?token=${token}&s=${streamSession}`}
+            alt="Live Stream Feed"
+            className="w-full h-auto max-h-[480px] object-contain"
+            onError={() => {
+              setStreamActive(false);
+              alert('Failed to load camera stream. Verify camera connection and try again.');
+            }}
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center text-center p-8 text-white/50">
+            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-white/5 text-white/40">
+              <Camera className="h-8 w-8" />
+            </div>
+            <p className="font-extrabold text-white text-base">Feed Offline</p>
+            <p className="text-sm max-w-sm mt-1 text-white/45">
+              Click &quot;Start Stream&quot; to connect to the active kiosk bill authentication camera.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ComponentSection({
   group,
   latestByTest,
@@ -399,6 +466,7 @@ function ComponentSection({
   busy,
   onRun,
   onSelectResult,
+  token,
 }) {
   return (
     <section>
@@ -413,6 +481,10 @@ function ComponentSection({
           {group.tests.length} tests
         </span>
       </div>
+
+      {group.id === 'rpi_bill_acceptor' && (
+        <CameraLivePreviewPanel token={token} />
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
         {group.tests.map((test) => (
@@ -579,7 +651,19 @@ function RecentRuns({ runs, selectedResult, onSelectResult }) {
               {active.error}
             </div>
           )}
-          <pre className="max-h-[360px] overflow-auto rounded-2xl bg-gray-950 p-4 text-xs leading-5 text-white">
+
+          {/* Display captured/processed image if present in response */}
+          {active.response && (active.response.image_b64 || active.response.annotated_image_b64) && (
+            <div className="mb-4 overflow-hidden rounded-2xl border border-gray-200 bg-gray-950 shadow-inner flex items-center justify-center">
+              <img
+                src={active.response.annotated_image_b64 || active.response.image_b64}
+                alt="Processed Capture"
+                className="w-full h-auto object-contain max-h-[300px]"
+              />
+            </div>
+          )}
+
+          <pre className="max-h-[200px] overflow-auto rounded-2xl bg-gray-950 p-4 text-xs leading-5 text-white">
             {JSON.stringify(active.response, null, 2)}
           </pre>
         </div>

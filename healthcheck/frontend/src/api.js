@@ -1,4 +1,4 @@
-const API_BASE =
+export const API_BASE =
   import.meta.env.VITE_HEALTHCHECK_API_BASE || 'http://localhost:8010/api/v1';
 
 export const TOKEN_KEY = 'coinnect_healthcheck_token';

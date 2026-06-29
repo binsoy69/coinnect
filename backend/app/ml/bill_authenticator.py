@@ -47,6 +47,7 @@ class BillAuthResult(BaseModel):
     confidence: float = 0.0
     denomination: Optional[BillDenom] = None
     raw_label: Optional[str] = None
+    annotated_image_b64: Optional[str] = None
 
 
 class BillAuthenticatorBase(ABC):
@@ -159,11 +160,13 @@ class YOLOBillAuthenticator(BillAuthenticatorBase):
             return BillAuthResult(is_genuine=False, confidence=0.0)
 
         is_genuine = label.lower() == "genuine" and confidence >= self._confidence_threshold
+        annotated_image_b64 = self._get_annotated_image_b64(result)
 
         return BillAuthResult(
             is_genuine=is_genuine,
             confidence=confidence,
             raw_label=label,
+            annotated_image_b64=annotated_image_b64,
         )
 
     async def identify_denomination(
@@ -195,10 +198,25 @@ class YOLOBillAuthenticator(BillAuthenticatorBase):
             return BillAuthResult(is_genuine=True, confidence=0.0)
 
         denomination = LABEL_TO_DENOM.get(label)
+        annotated_image_b64 = self._get_annotated_image_b64(result)
 
         return BillAuthResult(
             is_genuine=True,
             confidence=confidence,
             denomination=denomination,
             raw_label=label,
+            annotated_image_b64=annotated_image_b64,
         )
+
+    def _get_annotated_image_b64(self, result) -> Optional[str]:
+        try:
+            import cv2
+            import base64
+            plotted_frame = result.plot()
+            if plotted_frame is not None:
+                _, buffer = cv2.imencode('.jpg', plotted_frame)
+                b64_str = base64.b64encode(buffer).decode('utf-8')
+                return f"data:image/jpeg;base64,{b64_str}"
+        except Exception as e:
+            logger.warning(f"Failed to plot and encode YOLO results: {e}")
+        return None

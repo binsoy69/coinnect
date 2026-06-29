@@ -235,9 +235,19 @@ class DiagnosticsRunner:
         camera = self._require_camera()
         frame = await camera.capture_frame()
         shape = getattr(frame, "shape", None)
+        import cv2
+        import base64
+        try:
+            _, buffer = cv2.imencode(".jpg", frame)
+            b64_str = base64.b64encode(buffer).decode("utf-8")
+            image_b64 = f"data:image/jpeg;base64,{b64_str}"
+        except Exception as exc:
+            image_b64 = None
+
         return {
             "captured": True,
             "shape": list(shape) if shape is not None else None,
+            "image_b64": image_b64,
         }
 
     async def _paperang_sample_receipt(self) -> dict:
@@ -267,6 +277,7 @@ class DiagnosticsRunner:
                     "confidence": result.confidence,
                     "raw_label": result.raw_label,
                     "image_shape": self._image_shape(frame),
+                    "annotated_image_b64": result.annotated_image_b64,
                 }
             finally:
                 await gpio.uv_led_off()
@@ -294,6 +305,7 @@ class DiagnosticsRunner:
                     "confidence": result.confidence,
                     "raw_label": result.raw_label,
                     "image_shape": self._image_shape(frame),
+                    "annotated_image_b64": result.annotated_image_b64,
                 }
             finally:
                 await gpio.white_led_off()

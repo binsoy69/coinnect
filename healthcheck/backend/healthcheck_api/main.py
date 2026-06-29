@@ -1,6 +1,7 @@
 """FastAPI app for the Coinnect health check maintenance program."""
 
 from contextlib import asynccontextmanager
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -24,6 +25,7 @@ if str(SHARED_BACKEND_PATH) not in sys.path:
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 
 from app.core.config import Settings
@@ -164,6 +166,60 @@ def register_routes(app: FastAPI) -> None:
                 detail="Invalid PIN",
             )
         return LoginResponse(token=token)
+
+    @app.get("/api/v1/camera/stream")
+    async def camera_stream(request: Request, token: str | None = None):
+        # Validate authentication using either query parameter or Bearer token header
+        auth_manager = request.app.state.auth_manager
+        auth_header = request.headers.get("Authorization")
+        actual_token = None
+        if auth_header and auth_header.lower().startswith("bearer "):
+            actual_token = auth_header[7:]
+        elif token:
+            actual_token = token
+
+        if not actual_token or not auth_manager.verify(actual_token):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required",
+            )
+
+        camera = request.app.state.hardware.camera
+        if camera is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Camera hardware is not initialized",
+            )
+
+        async def frame_generator():
+            import cv2
+            import logging
+            logger = logging.getLogger("camera_stream")
+            while True:
+                try:
+                    frame = await camera.capture_frame()
+                    ret, jpeg = cv2.imencode(".jpg", frame)
+                    if not ret:
+                        await asyncio.sleep(0.1)
+                        continue
+                    yield (
+                        b"--frame\r\n"
+                        b"Content-Type: image/jpeg\r\n\r\n"
+                        + jpeg.tobytes()
+                        + b"\r\n"
+                    )
+                    # Limit frame rate to ~15 FPS to avoid CPU hogging
+                    await asyncio.sleep(0.066)
+                except asyncio.CancelledError:
+                    break
+                except Exception as exc:
+                    logger.error("Error in camera stream: %s", exc)
+                    await asyncio.sleep(0.5)
+
+        return StreamingResponse(
+            frame_generator(),
+            media_type="multipart/x-mixed-replace; boundary=frame",
+        )
 
     @app.get(
         "/api/v1/components",

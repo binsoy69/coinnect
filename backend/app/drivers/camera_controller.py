@@ -42,6 +42,7 @@ class USBCameraController(CameraControllerBase):
         self._resolution = resolution
         self._cap = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._lock = asyncio.Lock()
 
     async def initialize(self) -> None:
         self._loop = asyncio.get_event_loop()
@@ -66,8 +67,9 @@ class USBCameraController(CameraControllerBase):
     async def capture_frame(self) -> np.ndarray:
         if self._cap is None:
             raise RuntimeError("Camera not initialized. Call initialize() first.")
-        frame = await self._loop.run_in_executor(None, self._read_frame)
-        return frame
+        async with self._lock:
+            frame = await self._loop.run_in_executor(None, self._read_frame)
+            return frame
 
     def _read_frame(self) -> np.ndarray:
         ret, frame = self._cap.read()

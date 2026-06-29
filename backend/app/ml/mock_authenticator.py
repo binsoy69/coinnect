@@ -29,21 +29,57 @@ class MockBillAuthenticator(BillAuthenticatorBase):
 
     async def authenticate(self, uv_image: np.ndarray) -> BillAuthResult:
         self.auth_call_count += 1
+        import cv2
+        import base64
+        try:
+            annotated = uv_image.copy()
+            # Draw a green (genuine) or red (fake) bounding box border
+            color = (0, 255, 0) if self.next_auth_genuine else (0, 0, 255)
+            cv2.rectangle(annotated, (20, 20), (annotated.shape[1] - 20, annotated.shape[0] - 20), color, 3)
+            label = "GENUINE" if self.next_auth_genuine else "FAKE"
+            cv2.putText(annotated, f"AUTH: {label} ({self.auth_confidence:.1%})", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+            
+            _, buffer = cv2.imencode('.jpg', annotated)
+            b64_str = base64.b64encode(buffer).decode('utf-8')
+            annotated_image_b64 = f"data:image/jpeg;base64,{b64_str}"
+        except Exception as e:
+            logger.warning(f"Failed to draw mock auth annotation: {e}")
+            annotated_image_b64 = None
+
         return BillAuthResult(
             is_genuine=self.next_auth_genuine,
             confidence=self.auth_confidence,
             raw_label="genuine" if self.next_auth_genuine else "fake",
+            annotated_image_b64=annotated_image_b64,
         )
 
     async def identify_denomination(
         self, visible_image: np.ndarray
     ) -> BillAuthResult:
         self.denom_call_count += 1
+        import cv2
+        import base64
+        try:
+            annotated = visible_image.copy()
+            label = self.next_denomination.value if self.next_denomination else "unknown"
+            # Draw an orange bounding box border
+            color = (0, 165, 255)  # BGR for orange
+            cv2.rectangle(annotated, (20, 20), (annotated.shape[1] - 20, annotated.shape[0] - 20), color, 3)
+            cv2.putText(annotated, f"DENOM: {label} ({self.denom_confidence:.1%})", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+            
+            _, buffer = cv2.imencode('.jpg', annotated)
+            b64_str = base64.b64encode(buffer).decode('utf-8')
+            annotated_image_b64 = f"data:image/jpeg;base64,{b64_str}"
+        except Exception as e:
+            logger.warning(f"Failed to draw mock denom annotation: {e}")
+            annotated_image_b64 = None
+
         return BillAuthResult(
             is_genuine=True,
             confidence=self.denom_confidence,
             denomination=self.next_denomination,
-            raw_label=self.next_denomination.value if self.next_denomination else "unknown",
+            raw_label=label,
+            annotated_image_b64=annotated_image_b64,
         )
 
     # --- Configuration helpers ---
