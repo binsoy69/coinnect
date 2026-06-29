@@ -505,3 +505,20 @@ async def test_coin_rfid_listen_timeout():
     finally:
         await serial.shutdown()
 
+
+async def test_all_registered_tests_have_handlers():
+    settings = Settings(use_mock_serial=True, use_mock_hardware=True, _env_file=None)
+    hardware = HardwareContext(
+        settings=settings,
+        serial_manager=object(),
+        bill_controller=object(),
+        coin_controller=object(),
+        machine_status=object(),
+        gpio=object(),
+        camera=object(),
+    )
+    runner = DiagnosticsRunner(hardware)
+    for test_id in runner._tests.keys():
+        assert test_id in runner._handlers, f"Missing handler for test ID: {test_id}"
+
+
