@@ -391,6 +391,13 @@ def build_component_groups() -> list[ComponentGroup]:
                     kind="sensor",
                     description="Wait up to 10 seconds for a TAMPER event.",
                 ),
+                TestDefinition(
+                    id="coin_rfid_listen",
+                    label="Listen for RFID Scan",
+                    component="MFRC522 RFID reader",
+                    kind="sensor",
+                    description="Wait up to 10 seconds for an RFID card to be swiped.",
+                ),
             ],
         ),
     ]

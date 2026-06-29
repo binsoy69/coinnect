@@ -42,6 +42,10 @@ class FakeGPIO:
         self.call_log.append("is_bill_at_entry")
         return self.entry_detected
 
+    async def is_bill_at_position(self):
+        self.call_log.append("is_bill_at_position")
+        return True
+
     async def motor_forward(self, speed: int):
         self.call_log.append(f"motor_forward({speed})")
 
@@ -446,3 +450,58 @@ async def test_full_bill_acceptor_flow_camera_error_stops_motor_and_leds():
     assert "uv_led_off" in gpio.call_log
     assert "white_led_off" in gpio.call_log
     bill_controller.sort.assert_not_awaited()
+
+
+async def test_coin_rfid_listen_success():
+    settings = Settings(use_mock_serial=True, use_mock_hardware=True, _env_file=None)
+    serial = PartialSerialManager(settings)
+    await serial.startup()
+    try:
+        hardware = HardwareContext(
+            settings=settings,
+            serial_manager=serial,
+            bill_controller=object(),
+            coin_controller=object(),
+            machine_status=object(),
+            gpio=object(),
+            camera=object(),
+        )
+        runner = DiagnosticsRunner(hardware)
+
+        # Inject mock RFID scan event into the queue
+        event_data = {"event": "RFID", "uid": "A1B2C3D4"}
+        serial.event_queue.put_nowait(event_data)
+
+        result = await runner.run("coin_rfid_listen")
+        assert result.status == "passed"
+        assert result.response == {"event": event_data}
+    finally:
+        await serial.shutdown()
+
+
+async def test_coin_rfid_listen_timeout():
+    settings = Settings(use_mock_serial=True, use_mock_hardware=True, _env_file=None)
+    serial = PartialSerialManager(settings)
+    await serial.startup()
+    try:
+        hardware = HardwareContext(
+            settings=settings,
+            serial_manager=serial,
+            bill_controller=object(),
+            coin_controller=object(),
+            machine_status=object(),
+            gpio=object(),
+            camera=object(),
+        )
+        runner = DiagnosticsRunner(hardware)
+
+        async def mock_wait_for_event(event_name: str, timeout: float):
+            raise TimeoutError(f"Timed out waiting for {event_name}")
+
+        runner._wait_for_event = mock_wait_for_event
+        result = await runner.run("coin_rfid_listen")
+        assert result.status == "failed"
+        assert "Timed out waiting for RFID" in result.error
+    finally:
+        await serial.shutdown()
+
