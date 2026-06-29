@@ -23,6 +23,9 @@ class FailingGPIO:
     async def motor_stop(self):
         self.stopped = True
 
+    async def motor_brake(self) -> None:
+        pass
+
 
 class FakeCoinController:
     def __init__(self):
@@ -54,6 +57,9 @@ class FakeGPIO:
 
     async def motor_stop(self):
         self.call_log.append("motor_stop")
+
+    async def motor_brake(self) -> None:
+        self.call_log.append("motor_brake")
 
     async def uv_led_on(self):
         self.call_log.append("uv_led_on")

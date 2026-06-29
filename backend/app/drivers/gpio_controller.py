@@ -35,6 +35,10 @@ class GPIOControllerBase(ABC):
         """Stop conveyor motor."""
 
     @abstractmethod
+    async def motor_brake(self) -> None:
+        """Active brake conveyor motor."""
+
+    @abstractmethod
     async def is_bill_at_entry(self) -> bool:
         """Check if bill is detected at entry IR sensor (GPIO5)."""
 
@@ -153,6 +157,13 @@ class RPiGPIOController(GPIOControllerBase):
             self._gpio.output(self.MOTOR_IN2, self._gpio.LOW)
             self._pwm.ChangeDutyCycle(0)
         await self._loop.run_in_executor(None, _stop)
+
+    async def motor_brake(self) -> None:
+        def _brake():
+            self._gpio.output(self.MOTOR_IN1, self._gpio.HIGH)
+            self._gpio.output(self.MOTOR_IN2, self._gpio.HIGH)
+            self._pwm.ChangeDutyCycle(100)
+        await self._loop.run_in_executor(None, _brake)
 
     async def is_bill_at_entry(self) -> bool:
         result = await self._loop.run_in_executor(

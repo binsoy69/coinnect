@@ -280,11 +280,13 @@ class BillAcceptor:
             
             timeout = self._settings.bill_positioning_timeout
             deadline = asyncio.get_event_loop().time() + timeout
-            poll_interval = 0.05  # 50ms polling
+            poll_interval = self._settings.bill_position_poll_interval
             
             while asyncio.get_event_loop().time() < deadline:
                 if await self._gpio.is_bill_at_position():
                     logger.info("Bill detected at position IR sensor (GPIO6)")
+                    await self._gpio.motor_brake()
+                    await asyncio.sleep(self._settings.bill_brake_duration)
                     return True
                 await asyncio.sleep(poll_interval)
                 

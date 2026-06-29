@@ -78,6 +78,8 @@ def test_settings():
         bill_store_duration=0.0,
         bill_eject_duration=0.0,
         storage_slot_capacity=100,
+        bill_position_poll_interval=0.001,
+        bill_brake_duration=0.0,
     )
 
 
@@ -329,6 +331,16 @@ class TestAcceptBillSensorPositioning:
         first_stop = mock_gpio.call_log.index("motor_stop")
         uv_on = mock_gpio.call_log.index("uv_led_on")
         assert first_stop < uv_on
+
+    @pytest.mark.asyncio
+    async def test_positioning_applies_active_braking(self, acceptor, mock_gpio):
+        result = await acceptor.accept_bill()
+
+        assert result.success is True
+        assert "motor_brake" in mock_gpio.call_log
+        brake_idx = mock_gpio.call_log.index("motor_brake")
+        stop_idx = mock_gpio.call_log.index("motor_stop")
+        assert brake_idx < stop_idx
 
     @pytest.mark.asyncio
     async def test_positioning_uses_configured_pull_speed(

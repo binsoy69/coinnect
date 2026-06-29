@@ -71,6 +71,12 @@ class MockGPIOController(GPIOControllerBase):
         self.motor_speed = 0
         self._motor_forward_start_time = None
 
+    async def motor_brake(self) -> None:
+        self.call_log.append("motor_brake")
+        self.motor_state = "braking"
+        self.motor_speed = 100
+        self._motor_forward_start_time = None
+
     async def is_bill_at_entry(self) -> bool:
         # If externally set, use that
         if self._bill_at_entry:
