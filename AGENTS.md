@@ -107,8 +107,8 @@ Planned environment settings:
 - GPIO24: White LED control (MOSFET)
 
 **Arduino Mega #1 (Bill):**
-- D2-D5: Stepper control (STEP, DIR, ENABLE, LIMIT)
-- D22-D53 + A0-A15: Dispenser control (see `reference/09_pin_assignments.md`)
+- D6, D7, D4, D5: Stepper control (STEP, DIR, ENABLE, LIMIT)
+- D10-D49 + A0-A9: Dispenser control (see `reference/09_pin_assignments.md`)
 
 **Arduino Mega #2 (Coin/Security):**
 - D18: Coin acceptor pulse (INT5)

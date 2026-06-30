@@ -10,7 +10,7 @@
 
 ## 4.1 Overview
 
-The bill dispensing system consists of 12 independent dispenser units, each capable of dispensing one denomination. Each unit uses two DC motors controlled by one L298N driver and one IR sensor for bill detection.
+The bill dispensing system has hardware capacity for 12 independent dispenser units. The firmware currently maps and implements 10 units for the standard supported denominations. Each unit uses two DC motors controlled by one L298N driver and one IR sensor for bill detection.
 
 **Components per Dispenser Unit:**
 
@@ -20,12 +20,12 @@ The bill dispensing system consists of 12 independent dispenser units, each capa
 - 1x L298N Dual H-Bridge Driver
 - 1x IR Sensor (detects dispensed bill)
 
-**Total Components:**
+**Total Components (Capacity / Active in Firmware):**
 
-- 12 Dispenser Units
-- 24 DC Motors
-- 12 L298N Drivers
-- 12 IR Sensors
+- 12 Dispenser Units (10 active in firmware)
+- 24 DC Motors (20 active in firmware)
+- 12 L298N Drivers (10 active in firmware)
+- 12 IR Sensors (10 active in firmware)
 
 **Dispenser Allocation:**
 
@@ -138,90 +138,109 @@ The bill dispensing system consists of 12 independent dispenser units, each capa
     ┌─────────────────────────┐
     │ Receive command from Pi │
     │ {"cmd":"DISPENSE",      │
-    │  "unit":3,              │
+    │  "denom":"PHP_100",     │
     │  "count":2}             │
     └───────────┬─────────────┘
                 │
                 ▼
     ┌─────────────────────────┐
-    │ Validate unit number    │
-    │ (1-12)                  │
+    │ Validate denom & count  │
+    │ (count: 1 to 20)        │
     └───────────┬─────────────┘
                 │
                 ▼
     ┌─────────────────────────┐
-    │ Set bills_remaining =   │
-    │ requested count         │
+    │ Spin up Roller Motor B  │
+    │ (keeps running during   │
+    │ entire session)         │
     └───────────┬─────────────┘
                 │
                 ▼
           ┌─────┴─────┐
-          │bills_rem >│
-          │    0?     │
+          │ bills_rem │
+          │   > 0?    │
           └─────┬─────┘
                 │
          YES    │    NO ────────────────────────────────┐
                 │                                       │
                 ▼                                       │
     ┌─────────────────────────┐                        │
-    │ STEP 1: Activate Pusher │                        │
-    │ Motor A: Forward        │                        │
-    │ Duration: 200ms         │                        │
+    │ Attempt = 0             │                        │
     └───────────┬─────────────┘                        │
+                │                                       │
+                ▼◄──────────────────────────┐           │
+          ┌─────┴─────┐                     │           │
+          │ Attempt < │                     │           │
+          │ 5?        │                     │           │
+          └─────┬─────┘                     │           │
+                │                           │           │
+         YES    │    NO ──────────────────┐ │           │
+                │                         │ │           │
+                ▼                         ▼ │           │
+    ┌─────────────────────────┐     ┌───────────┐       │
+    │ Pulse Pusher Motor A    │     │ Stop B    │       │
+    │ (Forward for 200ms)     │     │ return    │       │
+    │ Then Stop Pusher A      │     │ JAM error │       │
+    └───────────┬─────────────┘     └───────────┘       │
                 │                                       │
                 ▼                                       │
-    ┌─────────────────────────┐                        │
-    │ STEP 2: Activate Roller │                        │
-    │ Motor B: Forward        │                        │
-    │ (Motor A stops)         │                        │
-    └───────────┬─────────────┘                        │
+          ┌─────┴─────┐                                 │
+          │ Bill IR   │                                 │
+          │ Detected? │                                 │
+          └─────┬─────┘                                 │
                 │                                       │
-                ▼                                       │
-    ┌─────────────────────────┐                        │
-    │ STEP 3: Wait for IR     │                        │
-    │ Timeout: 2 seconds      │                        │
-    └───────────┬─────────────┘                        │
-                │                                       │
-         ┌──────┴──────┐                               │
-         │             │                               │
-    IR TRIGGERED   TIMEOUT                             │
-         │             │                               │
-         ▼             ▼                               │
-    ┌─────────┐  ┌──────────────────┐                  │
-    │ Success │  │ ERROR: JAM or    │                  │
-    │         │  │ EMPTY STACK      │                  │
-    └────┬────┘  └────────┬─────────┘                  │
-         │                │                            │
-         ▼                ▼                            │
-    ┌─────────┐  ┌──────────────────┐                  │
-    │bills_rem│  │ Stop all motors  │                  │
-    │  -= 1   │  │ Report error     │                  │
-    └────┬────┘  │ Exit loop        │                  │
-         │       └────────┬─────────┘                  │
-         │                │                            │
-         ▼                │                            │
-    ┌─────────────────────┴────┐                       │
-    │ STEP 4: Continue roller  │                       │
-    │ for 300ms more           │                       │
-    │ (ensure bill clears)     │                       │
-    └───────────┬──────────────┘                       │
-                │                                      │
-                ▼                                      │
-    ┌─────────────────────────┐                        │
-    │ STEP 5: Stop Motor B    │                        │
-    │ Brief delay (100ms)     │                        │
-    └───────────┬─────────────┘                        │
-                │                                      │
-                └───────────────►(loop back)           │
-                                                       │
-    ◄──────────────────────────────────────────────────┘
+         YES    │    NO ────────────────► [Attempt++] ──┘
                 │
                 ▼
     ┌─────────────────────────┐
-    │ Report completion       │
-    │ {"status":"OK",         │
-    │  "dispensed":2}         │
-    └─────────────────────────┘
+    │ Delay ROLLER_EXTRA      │
+    │ (300ms) to pull bill    │
+    └───────────┬─────────────┘
+                │
+                ▼
+    ┌─────────────────────────┐
+    │ bills_rem -= 1          │
+    └───────────┬─────────────┘
+                │
+                ▼
+          ┌─────┴─────┐
+          │ Wait for  │
+          │ IR clear  │
+          │ (1000ms)? │
+          └─────┬─────┘
+                │
+         YES    │    NO ──────────────────┐
+                │                         │
+                ▼                         ▼
+          ┌─────┴─────┐             ┌───────────┐
+          │ bills_rem │             │ Stop B    │
+          │   == 0?   │             │ return    │
+          └─────┬─────┘             │ JAM error │
+                │                   └───────────┘
+         NO     │    YES ───────────────┐
+                │                       │
+                ▼                       │
+    ┌─────────────────────────┐         │
+    │ Delay INTER_BILL        │         │
+    │ (100ms)                 │         │
+    └───────────┬─────────────┘         │
+                │                       │
+                └───────────────────────┼───────┐
+                                        │       │
+    ◄───────────────────────────────────┘       │
+                │                               │
+                ▼                               ▼
+    ┌─────────────────────────┐           ┌───────────┐
+    │ Stop Roller Motor B     │           │ Run       │
+    │                         │           │ Conveyor  │
+    │                         │           │ (3s)      │
+    └─────────────────────────┘           └─────┬─────┘
+                                                │
+                                                ▼
+                                           ┌─────────┐
+                                           │ Return  │
+                                           │ OK      │
+                                           └─────────┘
                 │
                 ▼
               END
@@ -455,187 +474,206 @@ Using Option D (ENA/ENB tied HIGH with jumpers, driving only IN1-IN4):
 
 // Dispenser Unit Structure
 struct DispenserUnit {
-    uint8_t motorA_IN1;
-    uint8_t motorA_IN2;
-    uint8_t motorB_IN3;
-    uint8_t motorB_IN4;
+    uint8_t motorAIn1;
+    uint8_t motorAIn2;
+    uint8_t motorBIn3;
+    uint8_t motorBIn4;
     uint8_t irSensorPin;
-    String denomination;
+    const char *denom;
 };
 
 // Define all 10 dispensers
-DispenserUnit dispensers[10] = {
-    // Unit 1: PHP 20
+DispenserUnit dispensers[] = {
     {10, 11, 12, 13, A0, "PHP_20"},
-    // Unit 2: PHP 50
     {14, 15, 16, 17, A1, "PHP_50"},
-    // Unit 3: PHP 100
     {18, 19, 20, 21, A2, "PHP_100"},
-    // Unit 4: PHP 200
     {22, 23, 24, 25, A3, "PHP_200"},
-    // Unit 5: PHP 500
     {26, 27, 28, 29, A4, "PHP_500"},
-    // Unit 6: PHP 1000
     {30, 31, 32, 33, A5, "PHP_1000"},
-    // Unit 7: USD 10
     {34, 35, 36, 37, A6, "USD_10"},
-    // Unit 8: USD 50
     {38, 39, 40, 41, A7, "USD_50"},
-    // Unit 9: EUR 5
     {42, 43, 44, 45, A8, "EUR_5"},
-    // Unit 10: EUR 10
     {46, 47, 48, 49, A9, "EUR_10"}
 };
 
+static const uint8_t DISPENSER_COUNT = sizeof(dispensers) / sizeof(dispensers[0]);
+
 // Conveyor motor control pins
-#define CONVEYOR_PHP_IN1     6
-#define CONVEYOR_PHP_IN2     7
-#define CONVEYOR_FOREIGN_IN1 8
-#define CONVEYOR_FOREIGN_IN2 9
+static const uint8_t CONVEYOR_PHP_IN1 = 2;
+static const uint8_t CONVEYOR_PHP_IN2 = 3;
+static const uint8_t CONVEYOR_FOREIGN_IN1 = 8;
+static const uint8_t CONVEYOR_FOREIGN_IN2 = 9;
+
+// Configurable conveyor run duration (in milliseconds)
+static const unsigned long CONVEYOR_DURATION_MS = 3000;
 
 // Timing constants (milliseconds)
-#define PUSHER_DURATION     200
-#define ROLLER_TIMEOUT      2000
-#define ROLLER_EXTRA        300
-#define INTER_BILL_DELAY    100
+static const unsigned long PUSHER_DURATION_MS = 200;
+static const uint8_t DISPENSE_RETRY_ATTEMPTS = 5;
+static const unsigned long ROLLER_SPINUP_MS = 500;
+static const unsigned long IR_DETECT_TIMEOUT_MS = 1000;
+static const unsigned long BILL_CLEAR_TIMEOUT_MS = 1000;
+static const unsigned long ROLLER_EXTRA_MS = 300;
+static const unsigned long INTER_BILL_DELAY_MS = 100;
+static const uint8_t NO_PIN = 255;
 ```
 
 ### 4.8.2 Setup Function
 
 ```cpp
 void setupDispensers() {
-    for (int i = 0; i < 12; i++) {
+    for (uint8_t i = 0; i < DISPENSER_COUNT; i++) {
         // Motor control pins as output
-        pinMode(dispensers[i].motorA_IN1, OUTPUT);
-        pinMode(dispensers[i].motorA_IN2, OUTPUT);
-        pinMode(dispensers[i].motorB_IN3, OUTPUT);
-        pinMode(dispensers[i].motorB_IN4, OUTPUT);
+        pinMode(dispensers[i].motorAIn1, OUTPUT);
+        pinMode(dispensers[i].motorAIn2, OUTPUT);
+        pinMode(dispensers[i].motorBIn3, OUTPUT);
+        if (dispensers[i].motorBIn4 != NO_PIN) {
+            pinMode(dispensers[i].motorBIn4, OUTPUT);
+        }
 
         // IR sensor as input
-        pinMode(dispensers[i].irSensorPin, INPUT);
-
-        // Initialize motors to OFF
-        stopMotorA(i);
-        stopMotorB(i);
+        pinMode(dispensers[i].irSensorPin, INPUT_PULLUP);
     }
+    stopAllDispensers();
 }
 ```
 
 ### 4.8.3 Motor Control Functions
 
 ```cpp
-void motorA_Forward(int unitIndex) {
-    digitalWrite(dispensers[unitIndex].motorA_IN1, HIGH);
-    digitalWrite(dispensers[unitIndex].motorA_IN2, LOW);
+void setPinLowIfPresent(uint8_t pin) {
+    if (pin != NO_PIN) {
+        digitalWrite(pin, LOW);
+    }
 }
 
-void motorA_Reverse(int unitIndex) {
-    digitalWrite(dispensers[unitIndex].motorA_IN1, LOW);
-    digitalWrite(dispensers[unitIndex].motorA_IN2, HIGH);
+void setPinHighIfPresent(uint8_t pin) {
+    if (pin != NO_PIN) {
+        digitalWrite(pin, HIGH);
+    }
 }
 
-void stopMotorA(int unitIndex) {
-    digitalWrite(dispensers[unitIndex].motorA_IN1, LOW);
-    digitalWrite(dispensers[unitIndex].motorA_IN2, LOW);
+void stopMotorA(uint8_t unitIndex) {
+    setPinLowIfPresent(dispensers[unitIndex].motorAIn1);
+    setPinLowIfPresent(dispensers[unitIndex].motorAIn2);
 }
 
-void motorB_Forward(int unitIndex) {
-    digitalWrite(dispensers[unitIndex].motorB_IN3, HIGH);
-    digitalWrite(dispensers[unitIndex].motorB_IN4, LOW);
+void stopMotorB(uint8_t unitIndex) {
+    setPinLowIfPresent(dispensers[unitIndex].motorBIn3);
+    setPinLowIfPresent(dispensers[unitIndex].motorBIn4);
 }
 
-void motorB_Reverse(int unitIndex) {
-    digitalWrite(dispensers[unitIndex].motorB_IN3, LOW);
-    digitalWrite(dispensers[unitIndex].motorB_IN4, HIGH);
+void stopAllDispensers() {
+    for (uint8_t i = 0; i < DISPENSER_COUNT; i++) {
+        stopMotorA(i);
+        stopMotorB(i);
+    }
 }
 
-void stopMotorB(int unitIndex) {
-    digitalWrite(dispensers[unitIndex].motorB_IN3, LOW);
-    digitalWrite(dispensers[unitIndex].motorB_IN4, LOW);
+void motorAForward(uint8_t unitIndex) {
+    setPinHighIfPresent(dispensers[unitIndex].motorAIn1);
+    setPinLowIfPresent(dispensers[unitIndex].motorAIn2);
 }
 
-bool isBillDetected(int unitIndex) {
+void motorBForward(uint8_t unitIndex) {
+    setPinHighIfPresent(dispensers[unitIndex].motorBIn3);
+    setPinLowIfPresent(dispensers[unitIndex].motorBIn4);
+}
+
+bool isBillDetected(uint8_t unitIndex) {
     // IR sensor: LOW = obstacle detected (bill present)
     return digitalRead(dispensers[unitIndex].irSensorPin) == LOW;
+}
+
+bool waitForBillDetected(uint8_t unitIndex, unsigned long timeoutMs) {
+    const unsigned long startedAt = millis();
+    while (millis() - startedAt < timeoutMs) {
+        if (isBillDetected(unitIndex)) {
+            return true;
+        }
+        delay(10);
+    }
+    return false;
+}
+
+bool waitForBillCleared(uint8_t unitIndex, unsigned long timeoutMs) {
+    const unsigned long startedAt = millis();
+    while (millis() - startedAt < timeoutMs) {
+        if (!isBillDetected(unitIndex)) {
+            return true;
+        }
+        delay(10);
+    }
+    return false;
 }
 ```
 
 ### 4.8.4 Dispense Function
 
 ```cpp
-struct DispenseResult {
-    bool success;
-    int dispensed;
-    String error;
-};
+int dispenseBills(uint8_t unitIndex, int count, const char **errorCode) {
+    int dispensed = 0;
+    *errorCode = nullptr;
 
-DispenseResult dispenseBills(int unitIndex, int count) {
-    DispenseResult result = {true, 0, ""};
-
-    // Validate unit index
-    if (unitIndex < 0 || unitIndex >= 12) {
-        result.success = false;
-        result.error = "INVALID_UNIT";
-        return result;
-    }
+    // Roller Motor B starts before loop and spins during the whole dispense operation
+    motorBForward(unitIndex);
+    delay(ROLLER_SPINUP_MS);
 
     for (int i = 0; i < count; i++) {
-        // Step 1: Activate pusher motor
-        motorA_Forward(unitIndex);
-        delay(PUSHER_DURATION);
-        stopMotorA(unitIndex);
+        bool detected = false;
 
-        // Step 2: Activate roller motor
-        motorB_Forward(unitIndex);
+        for (uint8_t attempt = 0; attempt < DISPENSE_RETRY_ATTEMPTS; attempt++) {
+            motorAForward(unitIndex);
+            delay(PUSHER_DURATION_MS);
+            stopMotorA(unitIndex);
 
-        // Step 3: Wait for IR sensor to detect bill
-        unsigned long startTime = millis();
-        bool billDetected = false;
-
-        while (millis() - startTime < ROLLER_TIMEOUT) {
-            if (isBillDetected(unitIndex)) {
-                billDetected = true;
+            if (waitForBillDetected(unitIndex, IR_DETECT_TIMEOUT_MS)) {
+                detected = true;
                 break;
             }
-            delay(10);  // 10ms polling
         }
 
-        if (!billDetected) {
-            // Timeout - bill jam or empty
+        if (!detected) {
+            stopMotorA(unitIndex);
             stopMotorB(unitIndex);
-            result.success = false;
-            result.error = "JAM_OR_EMPTY";
-            return result;
+            *errorCode = "JAM";
+            return dispensed;
         }
 
-        // Step 4: Continue roller to clear bill
-        delay(ROLLER_EXTRA);
+        delay(ROLLER_EXTRA_MS);
+        dispensed++;
 
-        // Step 5: Stop roller
-        stopMotorB(unitIndex);
+        if (!waitForBillCleared(unitIndex, BILL_CLEAR_TIMEOUT_MS)) {
+            stopMotorA(unitIndex);
+            stopMotorB(unitIndex);
+            *errorCode = "JAM";
+            return dispensed;
+        }
 
-        result.dispensed++;
-
-        // Brief delay between bills
         if (i < count - 1) {
-            delay(INTER_BILL_DELAY);
+            delay(INTER_BILL_DELAY_MS);
         }
     }
 
-    return result;
+    stopMotorA(unitIndex);
+    stopMotorB(unitIndex);
+    return dispensed;
 }
 ```
 
 ### 4.8.5 Find Unit by Denomination
 
 ```cpp
-int findUnitByDenomination(String denom) {
-    for (int i = 0; i < 12; i++) {
-        if (dispensers[i].denomination == denom) {
+int findDispenserIndex(const char *denom) {
+    if (denom == nullptr) {
+        return -1;
+    }
+    for (uint8_t i = 0; i < DISPENSER_COUNT; i++) {
+        if (strcmp(dispensers[i].denom, denom) == 0) {
             return i;
         }
     }
-    return -1;  // Not found
+    return -1;
 }
 ```
 
@@ -644,41 +682,69 @@ int findUnitByDenomination(String denom) {
 ## 4.9 Serial Command Handler
 
 ```cpp
-void handleDispenseCommand(String command) {
-    // Expected format: {"cmd":"DISPENSE","denom":"PHP_100","count":2}
+#include <ArduinoJson.h>
 
-    // Extract denomination
-    int denomStart = command.indexOf("denom") + 8;
-    int denomEnd = command.indexOf("\"", denomStart);
-    String denom = command.substring(denomStart, denomEnd);
+void sendDocument(JsonDocument &doc) {
+    serializeJson(doc, Serial);
+    Serial.println();
+}
 
-    // Extract count
-    int countStart = command.indexOf("count") + 7;
-    int countEnd = command.indexOf("}", countStart);
-    int count = command.substring(countStart, countEnd).toInt();
+void sendError(const char *code, int dispensed = -1) {
+    StaticJsonDocument<128> doc;
+    doc["status"] = "ERROR";
+    doc["code"] = code;
+    if (dispensed >= 0) {
+        doc["dispensed"] = dispensed;
+    }
+    sendDocument(doc);
+}
 
-    // Find dispenser unit
-    int unitIndex = findUnitByDenomination(denom);
+void runConveyorForDenom(const char *denom) {
+    bool isPhp = (strncmp(denom, "PHP_", 4) == 0);
+    if (isPhp) {
+        digitalWrite(CONVEYOR_PHP_IN1, HIGH);
+        digitalWrite(CONVEYOR_PHP_IN2, LOW);
+        delay(CONVEYOR_DURATION_MS);
+        digitalWrite(CONVEYOR_PHP_IN1, LOW);
+        digitalWrite(CONVEYOR_PHP_IN2, LOW);
+    } else {
+        digitalWrite(CONVEYOR_FOREIGN_IN1, HIGH);
+        digitalWrite(CONVEYOR_FOREIGN_IN2, LOW);
+        delay(CONVEYOR_DURATION_MS);
+        digitalWrite(CONVEYOR_FOREIGN_IN1, LOW);
+        digitalWrite(CONVEYOR_FOREIGN_IN2, LOW);
+    }
+}
 
+void handleDispense(JsonDocument &cmdDoc) {
+    const char *denom = cmdDoc["denom"] | "";
+    const int count = cmdDoc["count"] | 0;
+    const int unitIndex = findDispenserIndex(denom);
     if (unitIndex < 0) {
-        Serial.println("{\"status\":\"ERROR\",\"code\":\"UNKNOWN_DENOM\"}");
+        sendError("INVALID_DENOM");
+        return;
+    }
+    if (count < 1 || count > 20) {
+        sendError("INVALID_COUNT");
         return;
     }
 
-    // Dispense bills
-    DispenseResult result = dispenseBills(unitIndex, count);
-
-    if (result.success) {
-        Serial.print("{\"status\":\"OK\",\"dispensed\":");
-        Serial.print(result.dispensed);
-        Serial.println("}");
-    } else {
-        Serial.print("{\"status\":\"ERROR\",\"code\":\"");
-        Serial.print(result.error);
-        Serial.print("\",\"dispensed\":");
-        Serial.print(result.dispensed);
-        Serial.println("}");
+    const char *errorCode = nullptr;
+    const int dispensed = dispenseBills((uint8_t)unitIndex, count, &errorCode);
+    
+    if (dispensed > 0) {
+        runConveyorForDenom(denom);
     }
+
+    if (errorCode != nullptr) {
+        sendError(errorCode, dispensed);
+        return;
+    }
+
+    StaticJsonDocument<96> doc;
+    doc["status"] = "OK";
+    doc["dispensed"] = dispensed;
+    sendDocument(doc);
 }
 ```
 

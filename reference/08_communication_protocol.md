@@ -78,7 +78,7 @@ The Raspberry Pi communicates with **two Arduino Mega controllers** via separate
 | ----------- | ---------------------------------- | -------------------------------------------------------- |
 | SORT        | `{"cmd":"SORT","denom":"PHP_100"}` | `{"status":"READY","slot":3}`                            |
 | HOME        | `{"cmd":"HOME"}`                   | `{"status":"OK","position":0}`                           |
-| SORT_STATUS | `{"cmd":"SORT_STATUS"}`            | `{"status":"OK","position":14600,"slot":3,"homed":true}` |
+| SORT_STATUS | `{"cmd":"SORT_STATUS"}`            | `{"status":"OK","position":60000,"slot":3,"homed":true}` |
 
 Valid denominations: PHP_20, PHP_50, PHP_100, PHP_200, PHP_500, PHP_1000, USD_10, USD_50, EUR_5, EUR_10
 

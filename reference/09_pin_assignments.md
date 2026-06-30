@@ -55,8 +55,8 @@ signals and do not conflict.
 
 | Pin | Function | Type | Notes |
 | --- | -------- | ---- | ----- |
-| D2 | A4988 STEP | Output | Step pulse |
-| D3 | A4988 DIR | Output | Direction |
+| D6 | A4988 STEP | Output | Step pulse |
+| D7 | A4988 DIR | Output | Direction |
 | D4 | A4988 ENABLE | Output | Active LOW |
 | D5 | Limit Switch | Input | `INPUT_PULLUP`, LOW = home |
 
@@ -79,10 +79,10 @@ signals and do not conflict.
 
 | Conveyor | Driver Input | Arduino Mega #1 Pin | Notes |
 | -------- | ------------ | ------------------- | ----- |
-| PHP Conveyor | IN1 / IN2 | D6 / D7 | DC motor driven, stops after timeout |
+| PHP Conveyor | IN1 / IN2 | D2 / D3 | DC motor driven, stops after timeout |
 | Foreign Conveyor | IN3 / IN4 | D8 / D9 | DC motor driven, stops after timeout |
 
-Analog pins `A0-A9` are used as digital inputs for IR sensors on Mega #1. Low digital pins `D6-D9` are reserved for the conveyor motors.
+Analog pins `A0-A9` are used as digital inputs for IR sensors on Mega #1. Low digital pins `D2-D3` and `D8-D9` are reserved for the conveyor motors, and `D6-D7` are reserved for the stepper motor (swapped to optimize signal routing).
 
 ---
 

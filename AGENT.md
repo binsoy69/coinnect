@@ -64,8 +64,8 @@ Raspberry Pi (bill acceptor):
 - GPIO24: White LED control (MOSFET)
 
 Arduino Mega #1 (bill sorting + dispensing):
-- Stepper: D2 (STEP), D3 (DIR), D4 (ENABLE), D5 (LIMIT)
-- Dispensers: D22-D53 and A0-A15 (see `reference/09_pin_assignments.md`)
+- Stepper: D6 (STEP), D7 (DIR), D4 (ENABLE), D5 (LIMIT)
+- Dispensers: D10-D49 and A0-A9 (see `reference/09_pin_assignments.md`)
 
 Arduino Mega #2 (coin + security):
 - D18: Coin acceptor pulse (INT5)
