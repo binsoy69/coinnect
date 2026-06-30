@@ -133,7 +133,7 @@ def test_config_reports_public_url_problems(config, missing):
     assert missing in readiness["missing"]
 
 
-def test_config_rejects_live_or_non_test_credentials():
+def test_config_accepts_valid_live_credentials():
     config = EWalletSandboxConfig(
         public_base_url="https://healthcheck.example.com",
         database_url="sqlite+aiosqlite:///:memory:",
@@ -144,15 +144,50 @@ def test_config_rejects_live_or_non_test_credentials():
         paymongo_public_key="pk_live_public",
         paymongo_webhook_secret="whsec_live",
         paymongo_source_account_number="source-001",
+        paymongo_source_account_name="Coinnect",
+        paymongo_source_account_bic="PAEYPHM2XXX",
         _env_file=None,
     )
 
     readiness = config.readiness(settings)
+    assert readiness["ready"] is True
+    assert readiness["sandbox"] is False
 
-    assert readiness["ready"] is False
-    assert "PAYMONGO_SANDBOX must be true" in readiness["missing"]
-    assert "PAYMONGO_SECRET_KEY must be a test key" in readiness["missing"]
-    assert "PAYMONGO_PUBLIC_KEY must be a test key" in readiness["missing"]
+
+def test_config_rejects_mismatched_credentials():
+    config = EWalletSandboxConfig(
+        public_base_url="https://healthcheck.example.com",
+        database_url="sqlite+aiosqlite:///:memory:",
+    )
+    # Test case 1: sandbox=True, but using live keys
+    settings_live_keys_in_sandbox = Settings(
+        paymongo_sandbox=True,
+        paymongo_secret_key="sk_live_secret",
+        paymongo_public_key="pk_live_public",
+        paymongo_webhook_secret="whsec_live",
+        paymongo_source_account_number="source-001",
+        paymongo_source_account_name="Coinnect",
+        paymongo_source_account_bic="PAEYPHM2XXX",
+        _env_file=None,
+    )
+    readiness_1 = config.readiness(settings_live_keys_in_sandbox)
+    assert readiness_1["ready"] is False
+    assert any("must be a test key when sandbox is enabled" in m for m in readiness_1["missing"])
+
+    # Test case 2: sandbox=False, but using test keys
+    settings_test_keys_in_live = Settings(
+        paymongo_sandbox=False,
+        paymongo_secret_key="sk_test_secret",
+        paymongo_public_key="pk_test_public",
+        paymongo_webhook_secret="whsec_live",
+        paymongo_source_account_number="source-001",
+        paymongo_source_account_name="Coinnect",
+        paymongo_source_account_bic="PAEYPHM2XXX",
+        _env_file=None,
+    )
+    readiness_2 = config.readiness(settings_test_keys_in_live)
+    assert readiness_2["ready"] is False
+    assert any("must be a live key when sandbox is disabled" in m for m in readiness_2["missing"])
 
 
 async def test_cash_out_creates_qr_without_hardware(sandbox_dependencies):

@@ -181,12 +181,17 @@ export default function EWalletSandboxPanel({ token }) {
             <p className="text-sm font-black uppercase tracking-[0.16em] text-sky-700">
               Gateway diagnostics
             </p>
-            <h2 className="text-2xl font-extrabold tracking-tight">
-              PayMongo Sandbox
+            <h2 className={`text-2xl font-extrabold tracking-tight ${config?.sandbox === false ? 'text-red-600' : ''}`}>
+              {config?.sandbox === false ? 'PayMongo Live Gateway' : 'PayMongo Sandbox'}
             </h2>
             <p className="mt-1 max-w-3xl text-sm font-medium text-gray-500">
-              Tests live sandbox QR Ph and wallet transfers without accepting or
-              dispensing physical cash.
+              {config?.sandbox === false ? (
+                <>
+                  Tests live production QR Ph and wallet transfers. <strong className="text-red-600 font-extrabold">Real money will be moved.</strong> No physical cash is accepted or dispensed.
+                </>
+              ) : (
+                'Tests live sandbox QR Ph and wallet transfers without accepting or dispensing physical cash.'
+              )}
             </p>
           </div>
         </div>
@@ -205,6 +210,18 @@ export default function EWalletSandboxPanel({ token }) {
         <div className="mb-5 flex items-center gap-3 rounded-2xl bg-red-50 px-4 py-3 font-semibold text-red-700">
           <AlertTriangle className="h-5 w-5 shrink-0" />
           {error}
+        </div>
+      )}
+
+      {!loading && config && config.sandbox === false && (
+        <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-5">
+          <div className="flex items-center gap-2 font-extrabold text-red-950">
+            <AlertTriangle className="h-5 w-5 text-red-700" />
+            WARNING: Live Gateway Active
+          </div>
+          <p className="mt-2 text-sm text-red-900 font-semibold">
+            This panel is currently running in LIVE mode using production credentials. Any actions performed here will result in real financial transactions (actual InstaPay transfers and QR Ph charges). The physical kiosk will NOT accept or dispense cash during this diagnostic run.
+          </p>
         </div>
       )}
 
@@ -267,8 +284,8 @@ export default function EWalletSandboxPanel({ token }) {
                   </span>
                   <span className="mt-1 block text-sm text-gray-500">
                     {flow.direction === 'cash-in'
-                      ? 'Send a sandbox wallet transfer'
-                      : 'Create and verify a QR Ph payment'}
+                      ? (config?.sandbox === false ? 'Send a live wallet transfer' : 'Send a sandbox wallet transfer')
+                      : (config?.sandbox === false ? 'Create and verify a live QR Ph payment' : 'Create and verify a sandbox QR Ph payment')}
                   </span>
                 </button>
               );
@@ -322,10 +339,10 @@ export default function EWalletSandboxPanel({ token }) {
               <button
                 type="submit"
                 disabled={!formValid || submitting}
-                className="flex h-12 w-full items-center justify-center gap-2 rounded-button bg-sky-700 px-5 font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-45"
+                className={`flex h-12 w-full items-center justify-center gap-2 rounded-button px-5 font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-45 ${config?.sandbox === false ? 'bg-red-600 hover:bg-red-700' : 'bg-sky-700 hover:bg-sky-800'}`}
               >
                 {submitting && <Loader2 className="h-5 w-5 animate-spin" />}
-                Start sandbox test
+                {config?.sandbox === false ? 'Start live test (moves real money)' : 'Start sandbox test'}
               </button>
             </form>
           )}
@@ -335,14 +352,15 @@ export default function EWalletSandboxPanel({ token }) {
           session={activeSession}
           submitting={submitting}
           onCancel={handleCancel}
+          config={config}
         />
       </div>
 
       <div className="mt-7 border-t border-gray-200 pt-5">
-        <h3 className="mb-3 text-lg font-extrabold">Sandbox session history</h3>
+        <h3 className="mb-3 text-lg font-extrabold">{config?.sandbox === false ? 'Live' : 'Sandbox'} session history</h3>
         {sessions.length === 0 ? (
           <p className="rounded-2xl bg-gray-50 p-4 text-sm font-semibold text-gray-500">
-            No e-wallet sandbox sessions yet.
+            No e-wallet {config?.sandbox === false ? 'live' : 'sandbox'} sessions yet.
           </p>
         ) : (
           <div className="grid gap-2">
@@ -380,7 +398,7 @@ function CallbackUrl({ label, value }) {
   );
 }
 
-function SessionDetail({ session, submitting, onCancel }) {
+function SessionDetail({ session, submitting, onCancel, config }) {
   if (!session) {
     return (
       <div className="flex min-h-[300px] items-center justify-center rounded-2xl border-2 border-dashed border-gray-200 p-6 text-center text-sm font-semibold text-gray-500">
@@ -415,9 +433,9 @@ function SessionDetail({ session, submitting, onCancel }) {
               href={session.test_url}
               target="_blank"
               rel="noreferrer"
-              className="mt-3 inline-flex items-center gap-2 font-bold text-sky-700"
+              className={`mt-3 inline-flex items-center gap-2 font-bold ${config?.sandbox === false ? 'text-red-600 hover:text-red-700' : 'text-sky-700 hover:text-sky-800'}`}
             >
-              Open sandbox payment
+              {config?.sandbox === false ? 'Open live payment' : 'Open sandbox payment'}
               <ExternalLink className="h-4 w-4" />
             </a>
           )}

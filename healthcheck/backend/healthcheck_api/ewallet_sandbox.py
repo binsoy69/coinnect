@@ -151,12 +151,16 @@ class EWalletSandboxConfig:
             missing.append(
                 "HEALTHCHECK_PUBLIC_BASE_URL must use HTTPS"
             )
-        if not settings.paymongo_sandbox:
-            missing.append("PAYMONGO_SANDBOX must be true")
-        if not settings.paymongo_secret_key.startswith("sk_test_"):
-            missing.append("PAYMONGO_SECRET_KEY must be a test key")
-        if not settings.paymongo_public_key.startswith("pk_test_"):
-            missing.append("PAYMONGO_PUBLIC_KEY must be a test key")
+        if settings.paymongo_sandbox:
+            if not settings.paymongo_secret_key.startswith("sk_test_"):
+                missing.append("PAYMONGO_SECRET_KEY must be a test key when sandbox is enabled")
+            if not settings.paymongo_public_key.startswith("pk_test_"):
+                missing.append("PAYMONGO_PUBLIC_KEY must be a test key when sandbox is enabled")
+        else:
+            if not settings.paymongo_secret_key.startswith("sk_live_"):
+                missing.append("PAYMONGO_SECRET_KEY must be a live key when sandbox is disabled")
+            if not settings.paymongo_public_key.startswith("pk_live_"):
+                missing.append("PAYMONGO_PUBLIC_KEY must be a live key when sandbox is disabled")
         if not settings.paymongo_webhook_secret:
             missing.append("PAYMONGO_WEBHOOK_SECRET")
         if not settings.paymongo_source_account_number:

@@ -271,8 +271,7 @@ HEALTHCHECK_EWALLET_RETENTION_LIMIT=100
 
 The healthcheck rejects session creation unless:
 
-- `PAYMONGO_SANDBOX=true`
-- The keys begin with `sk_test_` and `pk_test_`
+- `PAYMONGO_SANDBOX` matches the key prefixes (`true` for `sk_test_`/`pk_test_`, and `false` for `sk_live_`/`pk_live_`)
 - A webhook secret is configured
 - Source account fields are configured
 - `HEALTHCHECK_PUBLIC_BASE_URL` uses HTTPS
@@ -364,11 +363,15 @@ Typical causes include insufficient wallet balance, invalid destination account
 details, or unavailable receiving institutions. Review the sanitized error in
 the healthcheck panel and the full transaction in PayMongo.
 
-## 8. Live-mode warning
+## 8. Live-mode support
 
-The healthcheck integration is intentionally sandbox-only. It rejects live
-keys and `PAYMONGO_SANDBOX=false`. Do not weaken this safeguard to test
-production transactions from the maintenance application.
+The healthcheck integration supports both sandbox keys (`sk_test_`/`pk_test_`) and live keys (`sk_live_`/`pk_live_`).
+
+> [!WARNING]
+> Running diagnostics using live credentials (`PAYMONGO_SANDBOX=false`) **will result in real financial transactions**.
+> - Sandbox cash-out will create a live QR Ph Payment Intent, which will deduct real money from the customer's e-wallet upon payment.
+> - Sandbox cash-in will execute real batch transfers (InstaPay) out of your live PayMongo source wallet to the destination account.
+> - Because the healthcheck does not interface with physical cash handling hardware for e-wallet diagnostics, **no physical cash is accepted or dispensed**. Use the smallest possible amounts when testing live connections.
 
 ### Testing live keys on Windows with mock hardware
 
