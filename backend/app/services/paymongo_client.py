@@ -166,32 +166,30 @@ class PayMongoClient:
         bic = PROVIDER_BICS.get(provider)
         if not bic:
             raise PaymentGatewayError(f"Unsupported wallet provider: {provider}")
+        transfer_data = {
+            "provider": "instapay",
+            "amount": amount_centavos,
+            "currency": "PHP",
+            "purpose": "Disbursement",
+            "description": f"Coinnect cash-in {reference}",
+            "reference_number": reference,
+            "source_account": {
+                "number": self._settings.paymongo_source_account_number,
+                "name": self._settings.paymongo_source_account_name,
+                "bic": self._settings.paymongo_source_account_bic,
+            },
+            "destination_account": {
+                "number": account_number,
+                "name": account_name,
+                "bic": bic,
+            },
+            "metadata": {"coinnect_transaction_id": reference},
+        }
+        if callback_url:
+            transfer_data["callback_url"] = callback_url
+
         payload = {
-            "transfers": [
-                {
-                    "provider": "instapay",
-                    "amount": amount_centavos,
-                    "currency": "PHP",
-                    "purpose": "Disbursement",
-                    "description": f"Coinnect cash-in {reference}",
-                    "reference_number": reference,
-                    "source_account": {
-                        "number": self._settings.paymongo_source_account_number,
-                        "name": self._settings.paymongo_source_account_name,
-                        "bic": self._settings.paymongo_source_account_bic,
-                    },
-                    "destination_account": {
-                        "number": account_number,
-                        "name": account_name,
-                        "bic": bic,
-                    },
-                    "callback_url": (
-                        callback_url
-                        or self._settings.paymongo_transfer_callback_url
-                    ),
-                    "metadata": {"coinnect_transaction_id": reference},
-                }
-            ]
+            "transfers": [transfer_data]
         }
         response = await self._request(
             "POST",

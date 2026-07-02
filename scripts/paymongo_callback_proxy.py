@@ -12,7 +12,6 @@ BACKEND_HOST = "127.0.0.1"
 BACKEND_PORT = 8000
 ALLOWED_PATHS = {
     "/api/v1/ewallet/webhook",
-    "/api/v1/ewallet/transfer-callback",
 }
 FORWARDED_HEADERS = {
     "content-type",

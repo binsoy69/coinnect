@@ -201,7 +201,7 @@ async def test_cash_out_creates_qr_without_hardware(sandbox_dependencies):
     gateway.create_qr_payment.assert_awaited_once()
 
 
-async def test_cash_in_uses_healthcheck_transfer_callback(sandbox_dependencies):
+async def test_cash_in_does_not_pass_transfer_callback(sandbox_dependencies):
     service, gateway, _factory = sandbox_dependencies
 
     session = await service.create_session(cash_in_request())
@@ -209,10 +209,7 @@ async def test_cash_in_uses_healthcheck_transfer_callback(sandbox_dependencies):
     assert session["state"] == SandboxState.PENDING_CALLBACK
     kwargs = gateway.create_disbursement.await_args.kwargs
     assert kwargs["amount_centavos"] == 10_000
-    assert kwargs["callback_url"] == (
-        "https://healthcheck.example.com/api/v1/"
-        "ewallet-sandbox/callbacks/transfer"
-    )
+    assert "callback_url" not in kwargs or kwargs["callback_url"] is None
 
 
 async def test_payment_callback_verifies_gateway_resource(sandbox_dependencies):
@@ -335,7 +332,7 @@ async def test_unknown_callback_is_audited_without_session_change(
         assert audit.outcome == "session_not_found"
 
 
-async def test_transfer_callback_reconciles_before_verifying(
+async def test_transfer_webhook_reconciles_before_verifying(
     sandbox_dependencies,
 ):
     service, gateway, _factory = sandbox_dependencies
@@ -347,12 +344,18 @@ async def test_transfer_callback_reconciles_before_verifying(
                 "id": session["gateway_transfer_id"],
                 "status": "succeeded",
                 "reference_number": session["transaction_id"],
+                "amount": session["amount"] * 100,
+                "currency": "PHP",
             }
         ],
     }
 
-    result = await service.process_transfer_callback(
-        session["gateway_batch_transfer_id"]
+    result = await service.process_payment_event(
+        {
+            "id": "evt_transfer_1",
+            "type": "transfer.outward.successful",
+            "resource_id": session["gateway_transfer_id"],
+        }
     )
 
     assert result["state"] == SandboxState.VERIFIED
@@ -368,12 +371,18 @@ async def test_transfer_mismatch_fails_session(sandbox_dependencies):
                 "id": "wrong-transfer",
                 "status": "succeeded",
                 "reference_number": session["transaction_id"],
+                "amount": session["amount"] * 100,
+                "currency": "PHP",
             }
         ],
     }
 
-    result = await service.process_transfer_callback(
-        session["gateway_batch_transfer_id"]
+    result = await service.process_payment_event(
+        {
+            "id": "evt_transfer_1",
+            "type": "transfer.outward.successful",
+            "resource_id": session["gateway_transfer_id"],
+        }
     )
 
     assert result["state"] == SandboxState.FAILED

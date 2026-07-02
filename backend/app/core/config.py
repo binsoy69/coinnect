@@ -129,15 +129,7 @@ class Settings(BaseSettings):
     paymongo_sandbox: bool = True
     paymongo_timeout_seconds: int = 15
     paymongo_max_retries: int = 3
-    paymongo_transfer_callback_url: str = Field(
-        default="",
-        validation_alias=AliasChoices(
-            "PAYMONGO_TRANSFER_CALLBACK_URL",
-            "PAYMONGO_CALLBACK_URL",
-            "paymongo_transfer_callback_url",
-            "paymongo_callback_url",
-        ),
-    )
+
     paymongo_source_account_number: str = ""
     paymongo_source_account_name: str = "Coinnect"
     paymongo_source_account_bic: str = "PAEYPHM2XXX"

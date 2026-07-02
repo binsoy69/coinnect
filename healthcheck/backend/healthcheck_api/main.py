@@ -195,7 +195,12 @@ def register_routes(app: FastAPI) -> None:
             import cv2
             import logging
             logger = logging.getLogger("camera_stream")
-            while True:
+            is_test = request.app.state.settings.environment == "test"
+            frames_sent = 0
+            while not await request.is_disconnected():
+                if is_test and frames_sent >= 2:
+                    logger.info("Test mode: limiting stream to 2 frames")
+                    break
                 try:
                     frame = await camera.capture_frame()
                     ret, jpeg = cv2.imencode(".jpg", frame)
@@ -208,6 +213,7 @@ def register_routes(app: FastAPI) -> None:
                         + jpeg.tobytes()
                         + b"\r\n"
                     )
+                    frames_sent += 1
                     # Limit frame rate to ~15 FPS to avoid CPU hogging
                     await asyncio.sleep(0.066)
                 except asyncio.CancelledError:
@@ -382,24 +388,6 @@ def register_routes(app: FastAPI) -> None:
             ) from exc
         return {"accepted": True}
 
-    @app.post(
-        "/api/v1/ewallet-sandbox/callbacks/transfer",
-        status_code=status.HTTP_202_ACCEPTED,
-    )
-    async def ewallet_sandbox_transfer_callback(request: Request):
-        payload = await request.json()
-        batch_transfer_id = _extract_batch_transfer_id(payload)
-        if not batch_transfer_id:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Missing batch_transfer_id",
-            )
-        service: EWalletSandboxService = (
-            request.app.state.ewallet_sandbox_service
-        )
-        await service.process_transfer_callback(batch_transfer_id)
-        return {"accepted": True}
-
 
 def _normalize_gateway_event(payload: dict) -> dict:
     data = payload.get("data", payload)
@@ -420,25 +408,6 @@ def _normalize_gateway_event(payload: dict) -> dict:
         "resource_id": resource_id,
         "payment_id": payment_id,
     }
-
-
-def _extract_batch_transfer_id(payload: dict) -> str | None:
-    candidates = [
-        payload.get("batch_transfer_id"),
-        payload.get("data", {}).get("batch_transfer_id"),
-        payload.get("data", {}).get("attributes", {}).get(
-            "batch_transfer_id"
-        ),
-    ]
-    data_id = payload.get("data", {}).get("id")
-    if isinstance(data_id, str) and data_id.startswith(
-        ("batch_tr_", "btr_")
-    ):
-        candidates.append(data_id)
-    return next(
-        (str(candidate) for candidate in candidates if candidate),
-        None,
-    )
 
 
 app = create_app()

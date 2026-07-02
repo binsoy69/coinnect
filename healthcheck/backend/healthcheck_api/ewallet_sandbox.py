@@ -136,13 +136,6 @@ class EWalletSandboxConfig:
             "ewallet-sandbox/callbacks/payment"
         )
 
-    @property
-    def transfer_callback_url(self) -> str:
-        return (
-            f"{self.public_base_url}/api/v1/"
-            "ewallet-sandbox/callbacks/transfer"
-        )
-
     def readiness(self, settings: Settings) -> dict:
         missing: list[str] = []
         if not self.public_base_url:
@@ -175,9 +168,6 @@ class EWalletSandboxConfig:
             "missing": missing,
             "payment_callback_url": (
                 self.payment_callback_url if self.public_base_url else None
-            ),
-            "transfer_callback_url": (
-                self.transfer_callback_url if self.public_base_url else None
             ),
             "timeout_seconds": self.timeout_seconds,
         }
@@ -285,7 +275,6 @@ class EWalletSandboxService:
                     idempotency_key=(
                         f"healthcheck:{session_id}:transfer"
                     ),
-                    callback_url=self._config.transfer_callback_url,
                 )
                 record.gateway_batch_transfer_id = (
                     result.batch_transfer_id
@@ -339,161 +328,181 @@ class EWalletSandboxService:
 
     async def process_payment_event(self, event: dict) -> dict:
         event_id = str(event["id"])
-        audit_id = f"payment:{event_id}"
-        resource_id = event.get("resource_id")
-        async with self._db_factory() as session:
-            if await session.get(CallbackAuditRecord, audit_id):
-                return {"duplicate": True}
-            result = await session.execute(
-                select(SandboxSessionRecord).where(
-                    SandboxSessionRecord.gateway_payment_intent_id
-                    == resource_id
+        event_type = event.get("type")
+
+        if event_type.startswith("payment."):
+            audit_id = f"payment:{event_id}"
+            resource_id = event.get("resource_id")
+            async with self._db_factory() as session:
+                if await session.get(CallbackAuditRecord, audit_id):
+                    return {"duplicate": True}
+                result = await session.execute(
+                    select(SandboxSessionRecord).where(
+                        SandboxSessionRecord.gateway_payment_intent_id
+                        == resource_id
+                    )
                 )
-            )
-            record = result.scalar_one_or_none()
-            audit = CallbackAuditRecord(
-                id=audit_id,
-                callback_type="payment",
-                resource_id=resource_id,
-                session_id=record.id if record else None,
-                outcome="received",
-            )
-            session.add(audit)
-            if record is None:
-                audit.outcome = "session_not_found"
-                await session.commit()
-                return {
-                    "processed": False,
-                    "reason": "session_not_found",
-                }
-            if record.state in TERMINAL_STATES:
-                audit.outcome = "ignored_terminal"
-                await session.commit()
-                return self._serialize(record)
-            session_id = record.id
-            intent_id = record.gateway_payment_intent_id
-            expected_amount = record.amount * 100
-            await session.commit()
-
-        if event.get("type") != "payment.paid":
-            return await self._fail_session(
-                session_id,
-                "PAYMENT_EVENT_INVALID",
-                "Expected payment.paid event",
-                audit_id,
-            )
-
-        try:
-            intent = await self._gateway.get_payment_intent(intent_id)
-            self._validate_payment(
-                intent,
-                intent_id,
-                session_id,
-                expected_amount,
-                event.get("payment_id"),
-            )
-        except SandboxVerificationError as exc:
-            return await self._fail_session(
-                session_id, exc.code, str(exc), audit_id
-            )
-        except Exception as exc:
-            return await self._fail_session(
-                session_id,
-                "PAYMENT_RETRIEVAL_FAILED",
-                str(exc),
-                audit_id,
-            )
-        return await self._verify_session(
-            session_id, "paid", audit_id
-        )
-
-    async def process_transfer_callback(
-        self, batch_transfer_id: str
-    ) -> dict:
-        audit_id = f"transfer:{uuid.uuid4()}"
-        async with self._db_factory() as session:
-            result = await session.execute(
-                select(SandboxSessionRecord).where(
-                    SandboxSessionRecord.gateway_batch_transfer_id
-                    == batch_transfer_id
+                record = result.scalar_one_or_none()
+                audit = CallbackAuditRecord(
+                    id=audit_id,
+                    callback_type="payment",
+                    resource_id=resource_id,
+                    session_id=record.id if record else None,
+                    outcome="received",
                 )
-            )
-            record = result.scalar_one_or_none()
-            audit = CallbackAuditRecord(
-                id=audit_id,
-                callback_type="transfer",
-                resource_id=batch_transfer_id,
-                session_id=record.id if record else None,
-                outcome="received",
-            )
-            session.add(audit)
-            if record is None:
-                audit.outcome = "session_not_found"
+                session.add(audit)
+                if record is None:
+                    audit.outcome = "session_not_found"
+                    await session.commit()
+                    return {
+                        "processed": False,
+                        "reason": "session_not_found",
+                    }
+                if record.state in TERMINAL_STATES:
+                    audit.outcome = "ignored_terminal"
+                    await session.commit()
+                    return self._serialize(record)
+                session_id = record.id
+                intent_id = record.gateway_payment_intent_id
+                expected_amount = record.amount * 100
                 await session.commit()
-                return {
-                    "processed": False,
-                    "reason": "session_not_found",
-                }
-            if record.state in TERMINAL_STATES:
-                audit.outcome = "ignored_terminal"
-                await session.commit()
-                return self._serialize(record)
-            session_id = record.id
-            transfer_id = record.gateway_transfer_id
-            await session.commit()
 
-        try:
-            batch = await self._gateway.get_batch_transfer(
-                batch_transfer_id
-            )
-            transfer = next(
-                (
-                    item
-                    for item in (batch.get("transfers") or [])
-                    if item.get("id") == transfer_id
-                ),
-                None,
-            )
-            if (
-                batch.get("id") != batch_transfer_id
-                or transfer is None
-                or transfer.get("reference_number") != session_id
-            ):
-                raise SandboxVerificationError(
-                    "TRANSFER_RECONCILIATION_MISMATCH",
-                    "Batch transfer identifiers or reference did not match",
+            if event.get("type") != "payment.paid":
+                return await self._fail_session(
+                    session_id,
+                    "PAYMENT_EVENT_INVALID",
+                    "Expected payment.paid event",
+                    audit_id,
                 )
-            status = str(transfer.get("status") or "").lower()
-        except SandboxVerificationError as exc:
-            return await self._fail_session(
-                session_id, exc.code, str(exc), audit_id
-            )
-        except Exception as exc:
-            return await self._fail_session(
-                session_id,
-                "TRANSFER_RETRIEVAL_FAILED",
-                str(exc),
-                audit_id,
-            )
 
-        if status in {"success", "succeeded", "paid"}:
+            try:
+                intent = await self._gateway.get_payment_intent(intent_id)
+                self._validate_payment(
+                    intent,
+                    intent_id,
+                    session_id,
+                    expected_amount,
+                    event.get("payment_id"),
+                )
+            except SandboxVerificationError as exc:
+                return await self._fail_session(
+                    session_id, exc.code, str(exc), audit_id
+                )
+            except Exception as exc:
+                return await self._fail_session(
+                    session_id,
+                    "PAYMENT_RETRIEVAL_FAILED",
+                    str(exc),
+                    audit_id,
+                )
             return await self._verify_session(
-                session_id, status, audit_id
+                session_id, "paid", audit_id
             )
-        if status in {
-            "failed",
-            "cancelled",
-            "returned",
-            "rejected",
-        }:
-            return await self._fail_session(
-                session_id,
-                "TRANSFER_FAILED",
-                f"PayMongo transfer status: {status}",
-                audit_id,
-            )
-        await self._update_audit(audit_id, "pending")
-        return await self.get_session(session_id)
+
+        elif event_type in {"transfer.outward.successful", "transfer.outward.failed"}:
+            audit_id = f"transfer:{event_id}"
+            resource_id = event.get("resource_id")
+            async with self._db_factory() as session:
+                if await session.get(CallbackAuditRecord, audit_id):
+                    return {"duplicate": True}
+                result = await session.execute(
+                    select(SandboxSessionRecord).where(
+                        SandboxSessionRecord.gateway_transfer_id
+                        == resource_id
+                    )
+                )
+                record = result.scalar_one_or_none()
+                audit = CallbackAuditRecord(
+                    id=audit_id,
+                    callback_type="transfer",
+                    resource_id=resource_id,
+                    session_id=record.id if record else None,
+                    outcome="received",
+                )
+                session.add(audit)
+                if record is None:
+                    audit.outcome = "session_not_found"
+                    await session.commit()
+                    return {
+                        "processed": False,
+                        "reason": "session_not_found",
+                    }
+                if record.state in TERMINAL_STATES:
+                    audit.outcome = "ignored_terminal"
+                    await session.commit()
+                    return self._serialize(record)
+                session_id = record.id
+                batch_transfer_id = record.gateway_batch_transfer_id
+                transfer_id = record.gateway_transfer_id
+                await session.commit()
+
+            try:
+                batch = await self._gateway.get_batch_transfer(
+                    batch_transfer_id
+                )
+                transfer = next(
+                    (
+                        item
+                        for item in (batch.get("transfers") or [])
+                        if item.get("id") == transfer_id
+                    ),
+                    None,
+                )
+                if (
+                    batch.get("id") != batch_transfer_id
+                    or transfer is None
+                    or transfer.get("reference_number") != session_id
+                ):
+                    raise SandboxVerificationError(
+                        "TRANSFER_RECONCILIATION_MISMATCH",
+                        "Batch transfer identifiers or reference did not match",
+                    )
+                expected_amount = record.amount * 100
+                if transfer.get("amount") != expected_amount:
+                    raise SandboxVerificationError(
+                        "TRANSFER_AMOUNT_MISMATCH",
+                        "Transfer amount did not match",
+                    )
+                if str(transfer.get("currency") or "").upper() != "PHP":
+                    raise SandboxVerificationError(
+                        "TRANSFER_CURRENCY_MISMATCH",
+                        "Transfer currency was not PHP",
+                    )
+                status = str(transfer.get("status") or "").lower()
+            except SandboxVerificationError as exc:
+                return await self._fail_session(
+                    session_id, exc.code, str(exc), audit_id
+                )
+            except Exception as exc:
+                return await self._fail_session(
+                    session_id,
+                    "TRANSFER_RETRIEVAL_FAILED",
+                    str(exc),
+                    audit_id,
+                )
+
+            if status in {"success", "succeeded", "paid"}:
+                return await self._verify_session(
+                    session_id, status, audit_id
+                )
+            if status in {
+                "failed",
+                "cancelled",
+                "returned",
+                "rejected",
+            }:
+                return await self._fail_session(
+                    session_id,
+                    "TRANSFER_FAILED",
+                    f"PayMongo transfer status: {status}",
+                    audit_id,
+                )
+            await self._update_audit(audit_id, "pending")
+            return await self.get_session(session_id)
+
+        else:
+            raise ValueError(f"Unsupported event type: {event_type}")
+
 
     async def expire_pending_sessions(self) -> int:
         now = _utcnow()

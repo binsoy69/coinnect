@@ -176,20 +176,68 @@ async def test_webhook_accepts_valid_signature(ewallet_client):
 
 
 @pytest.mark.asyncio
-async def test_transfer_callback_accepts_batch_id(ewallet_client):
+async def test_webhook_accepts_transfer_successful(ewallet_client):
+    payload = {
+        "data": {
+            "id": "evt_transfer_success",
+            "attributes": {
+                "type": "transfer.outward.successful",
+                "data": {
+                    "id": "tr_success",
+                    "attributes": {
+                        "status": "succeeded",
+                        "reference_number": "tx_success",
+                    },
+                },
+            },
+        }
+    }
+    body = json.dumps(payload, separators=(",", ":")).encode()
+    timestamp = int(time.time())
+    signature = hmac.new(
+        b"whsec_test",
+        f"{timestamp}.".encode() + body,
+        hashlib.sha256,
+    ).hexdigest()
     response = await ewallet_client.post(
-        "/api/v1/ewallet/transfer-callback",
-        json={"batch_transfer_id": "batch_tr_1"},
+        "/api/v1/ewallet/webhook",
+        content=body,
+        headers={
+            "Paymongo-Signature": f"t={timestamp},te={signature},li="
+        },
     )
-
-    assert response.status_code == 202
+    assert response.status_code == 200
 
 
 @pytest.mark.asyncio
-async def test_transfer_callback_rejects_missing_batch_id(ewallet_client):
+async def test_webhook_accepts_transfer_failed(ewallet_client):
+    payload = {
+        "data": {
+            "id": "evt_transfer_fail",
+            "attributes": {
+                "type": "transfer.outward.failed",
+                "data": {
+                    "id": "tr_failed",
+                    "attributes": {
+                        "status": "failed",
+                        "reference_number": "tx_failed",
+                    },
+                },
+            },
+        }
+    }
+    body = json.dumps(payload, separators=(",", ":")).encode()
+    timestamp = int(time.time())
+    signature = hmac.new(
+        b"whsec_test",
+        f"{timestamp}.".encode() + body,
+        hashlib.sha256,
+    ).hexdigest()
     response = await ewallet_client.post(
-        "/api/v1/ewallet/transfer-callback",
-        json={"status": "succeeded"},
+        "/api/v1/ewallet/webhook",
+        content=body,
+        headers={
+            "Paymongo-Signature": f"t={timestamp},te={signature},li="
+        },
     )
-
-    assert response.status_code == 422
+    assert response.status_code == 200

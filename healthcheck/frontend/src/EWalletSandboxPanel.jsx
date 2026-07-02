@@ -243,14 +243,10 @@ export default function EWalletSandboxPanel({ token }) {
       )}
 
       {config && (
-        <div className="mb-6 grid gap-3 lg:grid-cols-2">
+        <div className="mb-6">
           <CallbackUrl
-            label="Payment webhook"
+            label="Webhook endpoint"
             value={config.payment_callback_url}
-          />
-          <CallbackUrl
-            label="Transfer callback"
-            value={config.transfer_callback_url}
           />
         </div>
       )}

@@ -161,23 +161,6 @@ async def paymongo_webhook(request: Request, background_tasks: BackgroundTasks):
     return {"accepted": True}
 
 
-@router.post("/transfer-callback", status_code=status.HTTP_202_ACCEPTED)
-async def transfer_callback(
-    request: Request,
-    background_tasks: BackgroundTasks,
-):
-    payload = await request.json()
-    batch_transfer_id = _extract_batch_transfer_id(payload)
-    if not batch_transfer_id:
-        raise HTTPException(
-            status_code=422,
-            detail="Missing batch_transfer_id",
-        )
-    background_tasks.add_task(
-        request.app.state.ewallet_orchestrator.process_transfer_callback,
-        batch_transfer_id,
-    )
-    return {"accepted": True}
 
 
 def _normalize_gateway_event(payload: dict) -> dict:
@@ -215,22 +198,3 @@ def _normalize_gateway_event(payload: dict) -> dict:
     }
 
 
-def _extract_batch_transfer_id(payload: dict) -> str | None:
-    candidates = [
-        payload.get("batch_transfer_id"),
-        payload.get("data", {}).get("batch_transfer_id"),
-        payload.get("data", {}).get("attributes", {}).get(
-            "batch_transfer_id"
-        ),
-    ]
-    data_id = payload.get("data", {}).get("id")
-    if isinstance(data_id, str) and data_id.startswith("batch_tr_"):
-        candidates.append(data_id)
-    return next(
-        (
-            str(candidate)
-            for candidate in candidates
-            if candidate
-        ),
-        None,
-    )

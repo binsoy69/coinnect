@@ -220,7 +220,7 @@ async def test_payment_mismatch_never_dispenses(ewallet_dependencies):
 
 
 @pytest.mark.asyncio
-async def test_transfer_callback_is_reconciled_before_completion(
+async def test_transfer_webhook_is_reconciled_before_completion(
     ewallet_dependencies,
 ):
     orchestrator, gateway, _, factory = ewallet_dependencies
@@ -244,12 +244,19 @@ async def test_transfer_callback_is_reconciled_before_completion(
                 "id": pending["gateway_transfer_id"],
                 "status": "succeeded",
                 "reference_number": tx["transaction_id"],
+                "amount": pending["transfer_amount"] * 100,
+                "currency": "PHP",
             }
         ],
     }
 
-    result = await orchestrator.process_transfer_callback(
-        pending["gateway_batch_transfer_id"]
+    result = await orchestrator.process_gateway_event(
+        {
+            "id": "evt_transfer_success",
+            "type": "transfer.outward.successful",
+            "resource_id": pending["gateway_transfer_id"],
+            "status": "succeeded",
+        }
     )
 
     assert result["state"] == "COMPLETE"

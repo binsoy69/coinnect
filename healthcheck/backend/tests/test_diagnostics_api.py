@@ -183,13 +183,13 @@ async def test_camera_stream_endpoint_requires_auth(app_client):
 
 async def test_camera_stream_endpoint_passes_with_auth_header(authed_client):
     app, client = authed_client
-    resp = await client.get("/api/v1/camera/stream")
-    assert resp.status_code == 200
-    assert "multipart/x-mixed-replace" in resp.headers["content-type"]
-    # Read a small chunk of stream to verify it yields frame data
-    async for chunk in resp.aiter_bytes():
-        assert b"--frame" in chunk
-        break
+    async with client.stream("GET", "/api/v1/camera/stream") as resp:
+        assert resp.status_code == 200
+        assert "multipart/x-mixed-replace" in resp.headers["content-type"]
+        # Read a small chunk of stream to verify it yields frame data
+        async for chunk in resp.aiter_bytes():
+            assert b"--frame" in chunk
+            break
 
 
 async def test_camera_stream_endpoint_passes_with_token_query_param(app_client):
@@ -200,6 +200,6 @@ async def test_camera_stream_endpoint_passes_with_token_query_param(app_client):
     token = resp.json()["token"]
 
     # Request with token query param (no Authorization header)
-    resp = await client.get(f"/api/v1/camera/stream?token={token}")
-    assert resp.status_code == 200
-    assert "multipart/x-mixed-replace" in resp.headers["content-type"]
+    async with client.stream("GET", f"/api/v1/camera/stream?token={token}") as resp:
+        assert resp.status_code == 200
+        assert "multipart/x-mixed-replace" in resp.headers["content-type"]

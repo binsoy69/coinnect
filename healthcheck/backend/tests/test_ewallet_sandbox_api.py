@@ -181,7 +181,7 @@ async def test_payment_callback_is_public_and_signature_verified(app_client):
     assert valid.json()["accepted"] is True
 
 
-async def test_transfer_callback_accepts_batch_identifier(app_client):
+async def test_transfer_webhook_is_public_and_signature_verified(app_client):
     app, client = app_client
     gateway = install_gateway(app)
     login = await client.post(
@@ -207,14 +207,47 @@ async def test_transfer_callback_accepts_batch_identifier(app_client):
                 "id": session["gateway_transfer_id"],
                 "status": "succeeded",
                 "reference_number": session["transaction_id"],
+                "amount": session["amount"] * 100,
+                "currency": "PHP",
             }
         ],
     }
+    payload = {
+        "data": {
+            "id": "evt_api_transfer_1",
+            "attributes": {
+                "type": "transfer.outward.successful",
+                "data": {
+                    "id": session["gateway_transfer_id"],
+                    "attributes": {
+                        "status": "succeeded",
+                    },
+                },
+            },
+        }
+    }
+    body = json.dumps(payload, separators=(",", ":")).encode()
+    timestamp = int(time.time())
+    digest = hmac.new(
+        b"whsec_healthcheck",
+        f"{timestamp}.".encode() + body,
+        hashlib.sha256,
+    ).hexdigest()
 
-    callback = await client.post(
-        "/api/v1/ewallet-sandbox/callbacks/transfer",
-        json={"batch_transfer_id": session["gateway_batch_transfer_id"]},
+    invalid = await client.post(
+        "/api/v1/ewallet-sandbox/callbacks/payment",
+        content=body,
+        headers={"Content-Type": "application/json"},
+    )
+    valid = await client.post(
+        "/api/v1/ewallet-sandbox/callbacks/payment",
+        content=body,
+        headers={
+            "Content-Type": "application/json",
+            "Paymongo-Signature": f"t={timestamp},te={digest}",
+        },
     )
 
-    assert callback.status_code == 202
-    assert callback.json()["accepted"] is True
+    assert invalid.status_code == 401
+    assert valid.status_code == 202
+    assert valid.json()["accepted"] is True

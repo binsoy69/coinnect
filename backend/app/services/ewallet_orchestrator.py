@@ -312,6 +312,11 @@ class EWalletOrchestrator:
                     record.id,
                     event.get("payment_id"),
                 )
+            elif (
+                record.direction == "cash-in"
+                and event.get("type") in {"transfer.outward.successful", "transfer.outward.failed"}
+            ):
+                result_payload = await self._verify_and_complete_cash_in(record.id)
             elif status in {"failed", "cancelled", "expired", "returned"}:
                 async with self._db_factory() as session:
                     record = await session.get(
@@ -352,21 +357,18 @@ class EWalletOrchestrator:
             await session.commit()
         return result_payload
 
-    async def process_transfer_callback(
-        self, batch_transfer_id: str
+    async def _verify_and_complete_cash_in(
+        self,
+        transaction_id: str,
     ) -> dict:
         async with self._db_factory() as session:
-            result = await session.execute(
-                select(EWalletTransactionRecord).where(
-                    EWalletTransactionRecord.gateway_batch_transfer_id
-                    == batch_transfer_id
-                )
-            )
-            record = result.scalar_one_or_none()
+            record = await session.get(EWalletTransactionRecord, transaction_id)
             if record is None:
-                return {"processed": False, "reason": "transaction_not_found"}
-            transaction_id = record.id
+                raise EWalletTransactionError("Transaction not found")
+            batch_transfer_id = record.gateway_batch_transfer_id
             transfer_id = record.gateway_transfer_id
+            if not batch_transfer_id or not transfer_id:
+                raise EWalletTransactionError("Missing transfer identifiers")
 
         try:
             batch = await self._gateway.get_batch_transfer(batch_transfer_id)
@@ -388,6 +390,11 @@ class EWalletOrchestrator:
                     "PayMongo transfer reconciliation mismatch"
                 )
             status = str(transfer.get("status") or "").lower()
+            expected_amount = record.transfer_amount * 100
+            if transfer.get("amount") != expected_amount:
+                raise EWalletTransactionError("Transfer amount mismatch")
+            if str(transfer.get("currency") or "").upper() != "PHP":
+                raise EWalletTransactionError("Transfer currency mismatch")
         except Exception as exc:
             return await self._mark_claim_required(
                 transaction_id,
