@@ -16,33 +16,33 @@ The Arduino Uno offers 20 usable GPIO pins (Digital 0–13 and Analog A0–A5 co
 | | MISO | D50 | **D12** | Hardware SPI MISO (Fixed on Uno) |
 | | SCK | D52 | **D13** | Hardware SPI SCK (Fixed on Uno) |
 | | SDA (SS) | D53 | **D10** | Digital Output (Chip Select, keeps SPI in Master mode) |
-| | RST | D5 | **D5** | Digital Output (Reset) |
+| | RST | D5 | **A1** *(D15)* | Digital Output (Reset, Analog A1 configured as Digital Out) |
 | **Coin Intake** | COIN Pulse | D18 | **D2** | External Interrupt (`INT0`) |
 | | COIN Enable | D24 | **D4** | Digital Output (Active HIGH) |
 | **Coin Sorting** | Sorter Servo | D7 | **D7** | Servo Output |
 | **Coin Dispensers** | Servo PHP 1 | D44 | **D8** | Servo Output |
 | | Servo PHP 5 | D45 | **D9** | Servo Output |
-| | Servo PHP 10 | D46 | **A1** *(D15)* | Servo Output (Analog A1 configured as Digital Out) |
+| | Servo PHP 10 | D46 | **D5** | Servo Output |
 | | Servo PHP 20 | D6 | **D6** | Servo Output |
 | **Security & Alarms** | Shock Sensor A | D19 | **D3** | External Interrupt (`INT1`) |
 | | Shock Sensor B | D20 | **A0** *(D14)* | **Pin Change Interrupt (PCINT8)** |
-| | Solenoid Lock | D21 | **A2** *(D16)* | Digital Output (Lock Relay control) |
+| | Solenoid Lock | D21 | **A5** *(D19)* | Digital Output (Lock Relay control) |
 | | Status Red LED | D22 | **A3** *(D17)* | Digital Output |
 | | Status Green LED | D23 | **A4** *(D18)* | Digital Output |
-| **Spare / Available** | Unused | - | **A5** *(D19)* | Free Pin |
+| **Spare / Available** | Unused | - | **A2** *(D16)* | Free Pin |
 
 ---
 
 ## 2. Software Requirements: PinChangeInterrupt
 
-Because the Arduino Uno only has two native external hardware interrupt pins (`D2`/`INT0` and `D3`/`INT1`), we utilize the NicoHood **PinChangeInterrupt** library to listen for falling-edge trigger events from Shock Sensor B on analog pin `A0`.
+Because the Arduino Uno only has two native external hardware interrupt pins (`D2`/`INT0` and `D3`/`INT1`), we utilize the NicoHood **PinChangeInterrupt** library to listen for rising-edge trigger events from Shock Sensor B on analog pin `A0`.
 
 ### Installation
 In the Arduino IDE Library Manager or PlatformIO project dependencies, search for and install:
 `PinChangeInterrupt` by NicoHood (v1.2.9 or newer).
 
 ### Firmware Implementation Note
-The Pin Change Interrupt operates on the falling edge of pin `A0` (PCINT8) and routes directly to the existing `shockBISR` interrupt service routine:
+The Pin Change Interrupt operates on the rising edge of pin `A0` (PCINT8) and routes directly to the existing `shockBISR` interrupt service routine:
 
 ```cpp
 #include <PinChangeInterrupt.h>
@@ -51,7 +51,7 @@ The Pin Change Interrupt operates on the falling edge of pin `A0` (PCINT8) and r
 void setup() {
   ...
   // Attach PinChangeInterrupt to SHOCK_B_PIN using NicoHood's library
-  attachPinChangeInterrupt(digitalPinToPinChangeInterrupt(SHOCK_B_PIN), shockBISR, FALLING);
+  attachPinChangeInterrupt(digitalPinToPinChangeInterrupt(SHOCK_B_PIN), shockBISR, RISING);
 }
 ```
 

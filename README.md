@@ -153,6 +153,10 @@ sudo systemctl restart coinnect.service
 sudo journalctl -u coinnect.service -f
 ```
 
+### 🖥️ Touchscreen Kiosk Display Mode (Wayland / Trixie)
+For setting up the full-screen touchscreen interface running on the Raspberry Pi under Debian Trixie (Wayland), see the detailed guide:
+👉 **[Coinnect Kiosk Mode Setup Guide (KIOSK_SETUP.md)](file:///d:/projects/coinnect/KIOSK_SETUP.md)**
+
 ---
 
 ## 💻 Windows PC (Development & Emulation) Commands

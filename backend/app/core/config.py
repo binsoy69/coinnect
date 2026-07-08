@@ -99,6 +99,7 @@ class Settings(BaseSettings):
     bill_position_poll_interval: float = 0.005
     bill_brake_duration: float = 0.15
 
+
     # Storage slot capacity
     storage_slot_capacity: int = 100
 
@@ -107,7 +108,7 @@ class Settings(BaseSettings):
 
     # Forex
     forex_api_key: str = ""
-    forex_api_url: str = "https://exchange-rates.abstractapi.com/v1/live/"
+    forex_api_url: str = "https://api.frankfurter.dev/v1/latest"
     forex_cache_ttl_seconds: int = 86400  # 24 hours
     forex_rate_refresh_interval: int = 3600  # Auto-refresh every 1 hour
 
@@ -118,7 +119,7 @@ class Settings(BaseSettings):
     forex_fee_php_to_eur: float = 5.0
 
     # Forex connectivity
-    forex_connectivity_check_url: str = "https://exchange-rates.abstractapi.com"
+    forex_connectivity_check_url: str = "https://api.frankfurter.dev"
     forex_connectivity_timeout: int = 5
 
     # PayMongo e-wallet integration

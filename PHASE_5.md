@@ -30,7 +30,7 @@ These decisions were confirmed with the project owner:
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Rate API provider | **Abstract API** | Free plan available, simple JSON response |
+| Rate API provider | **Frankfurter API** | Free, open-source, no API key required, simple JSON response |
 | Orchestrator pattern | **Separate `ForexTransactionOrchestrator`** | Forex has different flow (rate locking, currency conversion, online requirement) |
 | ML model strategy | **Separate models per currency** | Different `.pt` files per currency (PHP, USD, EUR). More modular. |
 | Online requirement | **Strict online only** | Require active internet. Block forex entirely when offline. |
@@ -67,8 +67,8 @@ Add these fields to the `Settings` class:
 # --- ADD AFTER existing settings (line ~66, before model_config) ---
 
 # Forex
-forex_api_key: str = ""  # Abstract API key
-forex_api_url: str = "https://exchange-rates.abstractapi.com/v1/live/"
+forex_api_key: str = ""  # Optional key (not required for Frankfurter)
+forex_api_url: str = "https://api.frankfurter.dev/v1/latest"
 forex_cache_ttl_seconds: int = 86400  # 24 hours
 forex_rate_refresh_interval: int = 3600  # Auto-refresh every 1 hour
 
@@ -79,7 +79,7 @@ forex_fee_eur_to_php: float = 5.0
 forex_fee_php_to_eur: float = 5.0
 
 # Forex connectivity
-forex_connectivity_check_url: str = "https://exchange-rates.abstractapi.com"
+forex_connectivity_check_url: str = "https://api.frankfurter.dev"
 forex_connectivity_timeout: int = 5  # seconds
 
 # ML models per currency
@@ -119,8 +119,8 @@ FOREX_PAIRS: Dict[ForexServiceType, tuple] = {
 CURRENCY_BILL_DENOMS: Dict[Currency, list] = {
     Currency.PHP: [BillDenom.PHP_20, BillDenom.PHP_50, BillDenom.PHP_100,
                    BillDenom.PHP_200, BillDenom.PHP_500, BillDenom.PHP_1000],
-    Currency.USD: [BillDenom.USD_10, BillDenom.USD_50, BillDenom.USD_100],
-    Currency.EUR: [BillDenom.EUR_5, BillDenom.EUR_10, BillDenom.EUR_20],
+    Currency.USD: [BillDenom.USD_10, BillDenom.USD_50],
+    Currency.EUR: [BillDenom.EUR_5, BillDenom.EUR_10],
 }
 
 # Bill denomination -> currency
@@ -282,13 +282,13 @@ class RateUnavailableError(ForexError):
 
 ### 2.1 Create `backend/app/services/forex_rate_service.py` (NEW FILE)
 
-This service fetches rates from Abstract API, caches them locally, and provides rate-locking for transactions.
+This service fetches rates from Frankfurter API, caches them locally, and provides rate-locking for transactions.
 
 ```python
-"""Forex rate service using Abstract API with local caching.
+"""Forex rate service using Frankfurter API with local caching.
 
 Responsibilities:
-- Fetch live rates from Abstract API
+- Fetch live rates from Frankfurter API
 - Cache rates locally (24h TTL)
 - Provide rate locking for transactions
 - Check internet connectivity
@@ -495,11 +495,10 @@ class ForexRateService:
             await self._ws.broadcast(event)
 
     async def _fetch_rates(self) -> None:
-        """Fetch live rates from Abstract API.
+        """Fetch live rates from Frankfurter API.
 
-        Abstract API endpoint:
-          GET https://exchange-rates.abstractapi.com/v1/live/
-              ?api_key=YOUR_KEY&base=PHP&target=USD,EUR
+        Frankfurter API endpoint:
+          GET https://api.frankfurter.dev/v1/latest?base=PHP&symbols=USD,EUR
 
         We request PHP as base, so we get PHP->USD and PHP->EUR.
         We store the inverse (USD->PHP, EUR->PHP) for convenience.
@@ -508,16 +507,15 @@ class ForexRateService:
             resp = await self._http_client.get(
                 self._settings.forex_api_url,
                 params={
-                    "api_key": self._settings.forex_api_key,
                     "base": "PHP",
-                    "target": "USD,EUR",
+                    "symbols": "USD,EUR",
                 },
             )
             resp.raise_for_status()
             data = resp.json()
 
-            # Abstract API returns: {"base": "PHP", "exchange_rates": {"USD": 0.017, "EUR": 0.016}}
-            exchange_rates = data.get("exchange_rates", {})
+            # Frankfurter API returns: {"amount": 1.0, "base": "PHP", "date": "...", "rates": {"USD": 0.017, "EUR": 0.016}}
+            exchange_rates = data.get("rates", {})
 
             # Store as foreign->PHP rates (inverse of what API gives us)
             rates = {}
@@ -2036,7 +2034,7 @@ Ensure `init_db()` in `backend/app/core/database.py` calls `Base.metadata.create
 | File | Purpose |
 |---|---|
 | `backend/app/models/forex.py` | Pydantic models for forex data (ExchangeRateCache, ForexQuote, etc.) |
-| `backend/app/services/forex_rate_service.py` | Abstract API client with caching, connectivity check, rate locking |
+| `backend/app/services/forex_rate_service.py` | Frankfurter API client with caching, connectivity check, rate locking |
 | `backend/app/services/forex_change_calculator.py` | Forex-specific dispense plan calculation |
 | `backend/app/services/forex_transaction_orchestrator.py` | Forex transaction lifecycle coordinator |
 | `backend/app/api/forex.py` | REST API endpoints for forex |
@@ -2120,8 +2118,9 @@ Step 4: Multi-Currency ML ──────────┐   │    │    │
 Add these to `backend/.env`:
 
 ```env
-# Forex - Abstract API
-FOREX_API_KEY=your_abstract_api_key_here
+# Forex - Frankfurter API (No API key required)
+FOREX_API_URL=https://api.frankfurter.dev/v1/latest
+FOREX_CONNECTIVITY_CHECK_URL=https://api.frankfurter.dev
 FOREX_CACHE_TTL_SECONDS=86400
 FOREX_RATE_REFRESH_INTERVAL=3600
 

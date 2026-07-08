@@ -202,11 +202,10 @@ class ForexRateService:
             await self._ws.broadcast(event)
 
     async def _fetch_rates(self) -> None:
-        """Fetch live rates from Abstract API.
+        """Fetch live rates from Frankfurter API.
 
-        Abstract API endpoint:
-          GET https://exchange-rates.abstractapi.com/v1/live/
-              ?api_key=YOUR_KEY&base=PHP&target=USD,EUR
+        Frankfurter API endpoint:
+          GET https://api.frankfurter.dev/v1/latest?base=PHP&symbols=USD,EUR
 
         We request PHP as base, so we get PHP->USD and PHP->EUR.
         We store the inverse (USD->PHP, EUR->PHP) for convenience.
@@ -215,16 +214,15 @@ class ForexRateService:
             resp = await self._http_client.get(
                 self._settings.forex_api_url,
                 params={
-                    "api_key": self._settings.forex_api_key,
                     "base": "PHP",
-                    "target": "USD,EUR",
+                    "symbols": "USD,EUR",
                 },
             )
             resp.raise_for_status()
             data = resp.json()
 
-            # Abstract API returns: {"base": "PHP", "exchange_rates": {"USD": 0.017, "EUR": 0.016}}
-            exchange_rates = data.get("exchange_rates", {})
+            # Frankfurter API returns: {"amount": 1.0, "base": "PHP", "date": "...", "rates": {"USD": 0.017, "EUR": 0.016}}
+            exchange_rates = data.get("rates", {})
 
             # Store as foreign->PHP rates (inverse of what API gives us)
             rates = {}

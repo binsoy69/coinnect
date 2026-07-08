@@ -23,10 +23,10 @@ static const uint8_t SERVO_PHP_5_PIN = 45;
 static const uint8_t SERVO_PHP_10_PIN = 46;
 static const uint8_t SERVO_PHP_20_PIN = 6;
 
-// Security pins. SW-420 modules use a normally closed sensing element, but
-// the module DO line idles HIGH and falls LOW when vibration is detected.
-static const uint8_t SHOCK_A_PIN = 19;  // INT4, active-low DO
-static const uint8_t SHOCK_B_PIN = 20;  // INT3, active-low DO
+// Security pins. SW-420 modules configured as active-high (idles LOW,
+// rises HIGH when vibration/tamper is detected).
+static const uint8_t SHOCK_A_PIN = 19;  // INT4, active-high DO
+static const uint8_t SHOCK_B_PIN = 20;  // INT3, active-high DO
 static const uint8_t SOLENOID_PIN = 21;
 static const uint8_t LED_RED_PIN = 22;
 static const uint8_t LED_GREEN_PIN = 23;
@@ -79,6 +79,7 @@ static const uint8_t COIN_DISPENSER_COUNT =
 static String inputLine;
 static bool doorLocked = true;
 static bool tamperLatched = false;
+static bool securityArmed = false; // Starts disarmed/not listening on boot
 static volatile bool coinAcceptorEnabled = false;
 static const char *coinSorterPosition = "CENTER";
 static int coinSessionTotal = 0;
@@ -272,6 +273,14 @@ void shockBISR() {
 }
 
 void serviceTamperEvents() {
+  if (!securityArmed) {
+    noInterrupts();
+    shockAFlag = false;
+    shockBFlag = false;
+    interrupts();
+    return;
+  }
+
   bool a = false;
   bool b = false;
 
@@ -416,6 +425,7 @@ void handleReset() {
 
   coinSessionTotal = 0;
   tamperLatched = false;
+  securityArmed = true; // Armed during initialization/reconciliation
   setCoinAcceptorEnabled(false);
   setCoinSorterPosition("CENTER");
   lockDoor(true);
@@ -567,6 +577,7 @@ void handleCoinSorterPosition(JsonDocument &cmdDoc) {
 }
 
 void handleSecurityLock() {
+  securityArmed = true; // Armed/listening
   lockDoor(true);
   StaticJsonDocument<96> doc;
   doc["status"] = "OK";
@@ -575,6 +586,7 @@ void handleSecurityLock() {
 }
 
 void handleSecurityUnlock() {
+  securityArmed = false; // Disarmed/not listening
   unlockDoor(true);
   StaticJsonDocument<96> doc;
   doc["status"] = "OK";
@@ -662,9 +674,9 @@ void setupCoinServos() {
 }
 
 void setupSecurityPins() {
-  // Pull-ups keep module DO at a stable HIGH when idle/no vibration.
-  pinMode(SHOCK_A_PIN, INPUT_PULLUP);
-  pinMode(SHOCK_B_PIN, INPUT_PULLUP);
+  // Active-high logic (idles LOW, rises HIGH). No pull-up needed.
+  pinMode(SHOCK_A_PIN, INPUT);
+  pinMode(SHOCK_B_PIN, INPUT);
   pinMode(SOLENOID_PIN, OUTPUT);
   pinMode(LED_RED_PIN, OUTPUT);
   pinMode(LED_GREEN_PIN, OUTPUT);
@@ -685,9 +697,9 @@ void setup() {
   mfrc522.PCD_Init();
 
   attachInterrupt(digitalPinToInterrupt(COIN_PULSE_PIN), coinPulseISR, FALLING);
-  // Tamper is detected when the normally closed SW-420 module DO falls LOW.
-  attachInterrupt(digitalPinToInterrupt(SHOCK_A_PIN), shockAISR, FALLING);
-  attachInterrupt(digitalPinToInterrupt(SHOCK_B_PIN), shockBISR, FALLING);
+  // Tamper is detected when the active-high SW-420 module DO rises HIGH.
+  attachInterrupt(digitalPinToInterrupt(SHOCK_A_PIN), shockAISR, RISING);
+  attachInterrupt(digitalPinToInterrupt(SHOCK_B_PIN), shockBISR, RISING);
 
   delay(250);
   sendReadyEvent();

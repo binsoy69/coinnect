@@ -419,8 +419,11 @@ class TransactionOrchestrator:
         """
         async with self._db_factory() as session:
             result = await session.execute(
-                select(WALEntry).where(
-                    WALEntry.status == WALStatus.PENDING.value
+                select(WALEntry)
+                .join(TransactionRecord, WALEntry.transaction_id == TransactionRecord.id)
+                .where(
+                    WALEntry.status == WALStatus.PENDING.value,
+                    ~TransactionRecord.type.like("forex-%")
                 )
             )
             pending_entries = result.scalars().all()

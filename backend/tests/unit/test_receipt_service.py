@@ -94,3 +94,70 @@ async def test_print_claim_ticket():
     
     # Should run without throwing errors in mock mode
     await service.print_claim_ticket(record)
+
+
+@pytest.mark.anyio
+async def test_print_receipt_forex_currency():
+    settings = Settings(
+        paperang_enabled=True,
+        use_mock_hardware=True
+    )
+    service = ReceiptService(settings)
+    
+    record = MockTransactionRecord(
+        id="test-tx-forex-1",
+        type="forex-usd-to-php",
+        created_at=datetime(2026, 6, 25, 12, 0, 0),
+        inserted_amount=10,
+        dispensed_amount=550,
+        fee=30,
+        provider=None,
+        from_currency="USD",
+        to_currency="PHP",
+        exchange_rate=58.0,
+        converted_amount=580
+    )
+    
+    rendered_lines = []
+    def mock_render(lines):
+        rendered_lines.extend(lines)
+        return Image.new("1", (PAPERANG_WIDTH, 16), 1)
+        
+    service._render_text_lines = mock_render
+    await service.print_receipt(record)
+    
+    assert "Inserted : USD 10" in rendered_lines
+    assert "Dispensed : PHP 550" in rendered_lines
+    assert "Fee : PHP 30" in rendered_lines
+    assert "Conversion : USD -> PHP" in rendered_lines
+
+
+@pytest.mark.anyio
+async def test_print_claim_ticket_forex_currency():
+    settings = Settings(
+        paperang_enabled=True,
+        use_mock_hardware=True
+    )
+    service = ReceiptService(settings)
+    
+    record = MockTransactionRecord(
+        id="test-tx-forex-2",
+        type="forex-php-to-usd",
+        created_at=datetime(2026, 6, 25, 12, 0, 0),
+        inserted_amount=600,
+        dispensed_amount=0,
+        claim_ticket_code="CLAIM789",
+        error_message="Dispenser empty",
+        to_currency="USD"
+    )
+    
+    rendered_lines = []
+    def mock_render(lines):
+        rendered_lines.extend(lines)
+        return Image.new("1", (PAPERANG_WIDTH, 16), 1)
+        
+    service._render_text_lines = mock_render
+    await service.print_claim_ticket(record, shortfall=10)
+    
+    assert "Shortfall : USD 10" in rendered_lines
+

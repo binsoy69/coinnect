@@ -772,6 +772,43 @@ class TestRecoverPendingTransactions:
             record = await session.get(TransactionRecord, tx_id)
             assert record.state == TransactionState.COMPLETE.value
 
+    async def test_recovery_ignores_forex_transactions(
+        self, orchestrator, db_session_factory
+    ):
+        """Standard recovery ignores forex transactions (type starting with 'forex-')."""
+        tx_id = str(uuid.uuid4())
+
+        async with db_session_factory() as session:
+            record = TransactionRecord(
+                id=tx_id,
+                type="forex-usd-to-php",
+                state=TransactionState.DISPENSING.value,
+                target_amount=100,
+                fee=0,
+                total_due=100,
+            )
+            session.add(record)
+
+            wal = WALEntry(
+                transaction_id=tx_id,
+                action="FOREX_RATE_LOCKED",
+                data={},
+                status=WALStatus.PENDING.value,
+            )
+            session.add(wal)
+            await session.commit()
+            wal_id = wal.id
+
+        await orchestrator.recover_pending_transactions()
+
+        # Transaction and WAL entry should remain unchanged
+        async with db_session_factory() as session:
+            record = await session.get(TransactionRecord, tx_id)
+            assert record.state == TransactionState.DISPENSING.value
+            wal = await session.get(WALEntry, wal_id)
+            assert wal.status == WALStatus.PENDING.value
+
+
 
 # ---------------------------------------------------------------------------
 # TestSingleActiveTransactionEnforcement

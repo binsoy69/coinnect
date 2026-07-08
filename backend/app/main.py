@@ -198,6 +198,7 @@ async def lifespan(app: FastAPI):
     # Recover any transactions interrupted by crash/power loss
     await transaction_orchestrator.recover_pending_transactions()
     await ewallet_orchestrator.recover_pending_transactions()
+    await forex_transaction_orchestrator.recover_pending_transactions()
 
     # Start forex rate service (fetches initial rates + starts periodic refresh)
     await forex_rate_service.start()

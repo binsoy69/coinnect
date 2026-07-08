@@ -414,7 +414,17 @@ class DiagnosticsRunner:
 
     async def _coin_tamper_listen(self) -> dict:
         self._hardware.serial_manager.require_coin_controller()
-        return await self._wait_for_event("TAMPER", timeout=10.0)
+        # Arm the security/shock sensors so they are active during the test
+        await self._hardware.coin_controller.security_lock()
+        try:
+            return await self._wait_for_event("TAMPER", timeout=10.0)
+        finally:
+            # Restore the controller to a clean, disarmed state to avoid persistent lockdown
+            try:
+                await self._hardware.coin_controller.reset()
+                await self._hardware.coin_controller.security_unlock()
+            except Exception as e:
+                logger.warning(f"Failed to reset/unlock security after tamper test: {e}")
 
     async def _coin_rfid_listen(self) -> dict:
         self._hardware.serial_manager.require_coin_controller()

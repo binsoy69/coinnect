@@ -411,3 +411,60 @@ class ForexTransactionOrchestrator:
             self._operation_owner = None
         # Reset bill acceptor to PHP
         self._bill_acceptor.set_expected_currency("PHP")
+
+    async def recover_pending_transactions(self) -> None:
+        """Recover from pending WAL entries for forex transactions on startup.
+
+        Called during app initialization to handle forex transactions that
+        were interrupted by power loss or crash.
+        """
+        async with self._db_factory() as session:
+            result = await session.execute(
+                select(WALEntry)
+                .join(TransactionRecord, WALEntry.transaction_id == TransactionRecord.id)
+                .where(
+                    WALEntry.status == WALStatus.PENDING.value,
+                    TransactionRecord.type.like("forex-%")
+                )
+            )
+            pending_entries = result.scalars().all()
+
+            if not pending_entries:
+                logger.info("No pending forex WAL entries to recover")
+                return
+
+            logger.warning(
+                f"Found {len(pending_entries)} pending forex WAL entries to recover"
+            )
+
+            for entry in pending_entries:
+                try:
+                    logger.info(
+                        f"Recovering forex WAL entry {entry.id}: "
+                        f"tx={entry.transaction_id} action={entry.action}"
+                    )
+                    # Find the transaction record
+                    result = await session.execute(
+                        select(TransactionRecord).where(
+                            TransactionRecord.id == entry.transaction_id
+                        )
+                    )
+                    record = result.scalar_one_or_none()
+
+                    if record:
+                        # Mark transaction as ERROR with recovery note
+                        record.state = TransactionState.ERROR.value
+                        record.error_code = "CRASH_RECOVERY"
+                        record.error_message = f"Recovered from pending action: {entry.action}"
+                        record.completed_at = datetime.utcnow()
+
+                    # Mark WAL entry as rolled back
+                    entry.status = WALStatus.ROLLED_BACK.value
+                    logger.info(f"Forex WAL entry {entry.id} recovered (rolled back)")
+                except Exception as e:
+                    logger.error(
+                        f"Failed to recover forex WAL entry {entry.id}: {e}",
+                        exc_info=True,
+                    )
+
+            await session.commit()

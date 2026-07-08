@@ -640,6 +640,14 @@ sudo systemctl disable coinnect.service
 sudo systemctl enable coinnect.service
 ```
 
+### 7.5 Touchscreen Kiosk Setup
+
+To configure the touchscreen monitor connected to the Raspberry Pi to boot directly into a full-screen, secured kiosk UI (utilizing Wayland and the `cage` compositor in Debian Trixie), refer to the dedicated kiosk guide:
+
+👉 **[Coinnect Kiosk Mode Setup Guide (KIOSK_SETUP.md)](file:///d:/projects/coinnect/KIOSK_SETUP.md)**
+
+This document details how to serve the React application, set up the automatic graphical kiosk service, calibrate your touch panel, configure rotation, and run safe pre-production tests.
+
 ---
 
 ## 8. Testing & Verification

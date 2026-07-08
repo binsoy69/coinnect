@@ -12,7 +12,7 @@ static const char *FIRMWARE_VERSION = "2.2.0-uno";
 static const char *CONTROLLER_ID = "COIN_SECURITY";
 
 // MFRC522 RFID reader pins.
-static const uint8_t MFRC522_RST_PIN = 5;
+static const uint8_t MFRC522_RST_PIN = A1;  // D15 on Uno
 static const uint8_t MFRC522_SS_PIN = 10;  // Uno hardware SS pin
 
 // Coin acceptor, sorter, and dispenser pins.
@@ -21,14 +21,14 @@ static const uint8_t COIN_SORTER_SERVO_PIN = 7;
 static const uint8_t COIN_ACCEPTOR_ENABLE_PIN = 4;
 static const uint8_t SERVO_PHP_1_PIN = 8;
 static const uint8_t SERVO_PHP_5_PIN = 9;
-static const uint8_t SERVO_PHP_10_PIN = A1;  // D15 on Uno
+static const uint8_t SERVO_PHP_10_PIN = 5;
 static const uint8_t SERVO_PHP_20_PIN = 6;
 
-// Security pins. SW-420 modules use a normally closed sensing element, but
-// the module DO line idles HIGH and falls LOW when vibration is detected.
-static const uint8_t SHOCK_A_PIN = 3;   // INT1 on Uno, active-low DO
-static const uint8_t SHOCK_B_PIN = A0;  // PCINT8 on Uno (Analog A0), active-low DO
-static const uint8_t SOLENOID_PIN = A2;  // D16 on Uno
+// Security pins. SW-420 modules configured as active-high (idles LOW,
+// rises HIGH when vibration/tamper is detected).
+static const uint8_t SHOCK_A_PIN = 3;   // INT1 on Uno, active-high DO
+static const uint8_t SHOCK_B_PIN = A0;  // PCINT8 on Uno (Analog A0), active-high DO
+static const uint8_t SOLENOID_PIN = A5;  // D19 on Uno
 static const uint8_t LED_RED_PIN = A3;   // D17 on Uno
 static const uint8_t LED_GREEN_PIN = A4; // D18 on Uno
 
@@ -45,7 +45,7 @@ static const unsigned long SERVO_CYCLE_SETTLE_MS = 300;
 // Three-position coin sorter servo.
 static const uint8_t COIN_SORTER_CENTER_DEG = 81;
 static const uint8_t COIN_SORTER_LEFT_DEG = 45;
-static const uint8_t COIN_SORTER_RIGHT_DEG = 120;
+static const uint8_t COIN_SORTER_RIGHT_DEG = 110;
 static const unsigned long COIN_SORTER_SETTLE_MS = 250;
 static const unsigned long COIN_SORTER_HOLD_MS = 500;
 
@@ -80,6 +80,7 @@ static const uint8_t COIN_DISPENSER_COUNT =
 static String inputLine;
 static bool doorLocked = true;
 static bool tamperLatched = false;
+static bool securityArmed = false; // Starts disarmed/not listening on boot
 static volatile bool coinAcceptorEnabled = false;
 static const char *coinSorterPosition = "CENTER";
 static int coinSessionTotal = 0;
@@ -273,6 +274,14 @@ void shockBISR() {
 }
 
 void serviceTamperEvents() {
+  if (!securityArmed) {
+    noInterrupts();
+    shockAFlag = false;
+    shockBFlag = false;
+    interrupts();
+    return;
+  }
+
   bool a = false;
   bool b = false;
 
@@ -417,6 +426,7 @@ void handleReset() {
 
   coinSessionTotal = 0;
   tamperLatched = false;
+  securityArmed = true; // Armed during initialization/reconciliation
   setCoinAcceptorEnabled(false);
   setCoinSorterPosition("CENTER");
   lockDoor(true);
@@ -568,6 +578,7 @@ void handleCoinSorterPosition(JsonDocument &cmdDoc) {
 }
 
 void handleSecurityLock() {
+  securityArmed = true; // Armed/listening
   lockDoor(true);
   StaticJsonDocument<96> doc;
   doc["status"] = "OK";
@@ -576,6 +587,7 @@ void handleSecurityLock() {
 }
 
 void handleSecurityUnlock() {
+  securityArmed = false; // Disarmed/not listening
   unlockDoor(true);
   StaticJsonDocument<96> doc;
   doc["status"] = "OK";
@@ -663,9 +675,9 @@ void setupCoinServos() {
 }
 
 void setupSecurityPins() {
-  // Pull-ups keep module DO at a stable HIGH when idle/no vibration.
-  pinMode(SHOCK_A_PIN, INPUT_PULLUP);
-  pinMode(SHOCK_B_PIN, INPUT_PULLUP);
+  // Active-high logic (idles LOW, rises HIGH). No pull-up needed.
+  pinMode(SHOCK_A_PIN, INPUT);
+  pinMode(SHOCK_B_PIN, INPUT);
   pinMode(SOLENOID_PIN, OUTPUT);
   pinMode(LED_RED_PIN, OUTPUT);
   pinMode(LED_GREEN_PIN, OUTPUT);
@@ -686,11 +698,11 @@ void setup() {
   mfrc522.PCD_Init();
 
   attachInterrupt(digitalPinToInterrupt(COIN_PULSE_PIN), coinPulseISR, FALLING);
-  // Tamper is detected when the normally closed SW-420 module DO falls LOW.
-  attachInterrupt(digitalPinToInterrupt(SHOCK_A_PIN), shockAISR, FALLING);
+  // Tamper is detected when the active-high SW-420 module DO rises HIGH.
+  attachInterrupt(digitalPinToInterrupt(SHOCK_A_PIN), shockAISR, RISING);
   
   // Attach PinChangeInterrupt to SHOCK_B_PIN using NicoHood's library
-  attachPinChangeInterrupt(digitalPinToPinChangeInterrupt(SHOCK_B_PIN), shockBISR, FALLING);
+  attachPinChangeInterrupt(digitalPinToPinChangeInterrupt(SHOCK_B_PIN), shockBISR, RISING);
 
   delay(250);
   sendReadyEvent();

@@ -3,7 +3,7 @@
 // Standalone solenoid relay bench test for Coinnect Mega #2 wiring.
 // The sketch boots locked/off and only energizes the relay after Serial input.
 
-static const uint8_t SOLENOID_PIN = 21;
+static const uint8_t SOLENOID_PIN = A5;
 static const uint8_t LED_RED_PIN = 22;
 static const uint8_t LED_GREEN_PIN = 23;
 
@@ -16,9 +16,9 @@ static String inputLine;
 
 void printHelp() {
   Serial.println("Commands: LOCK, UNLOCK, PULSE, STATUS, HELP");
-  Serial.println("LOCK: D21 LOW, red LED on, green LED off");
-  Serial.println("UNLOCK: D21 HIGH, red LED off, green LED on");
-  Serial.println("PULSE: D21 HIGH briefly, then locked/off");
+  Serial.println("LOCK: A5 (D19) LOW, red LED on, green LED off");
+  Serial.println("UNLOCK: A5 (D19) HIGH, red LED off, green LED on");
+  Serial.println("PULSE: A5 (D19) HIGH briefly, then locked/off");
 }
 
 void setLocked(bool locked) {
@@ -37,7 +37,7 @@ void setLocked(bool locked) {
 void printStatus() {
   Serial.print("STATUS locked=");
   Serial.print(doorLocked ? "true" : "false");
-  Serial.print(" D21=");
+  Serial.print(" A5=");
   Serial.println(digitalRead(SOLENOID_PIN) == HIGH ? "HIGH" : "LOW");
 }
 

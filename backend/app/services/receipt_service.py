@@ -225,11 +225,15 @@ class ReceiptService:
                 lines.append(f"Rate : {rate:.4f}")
                 lines.append(f"Converted : {to_curr} {converted}")
 
+            inserted_currency = from_curr if from_curr else "PHP"
+            dispensed_currency = to_curr if to_curr else "PHP"
+            fee_currency = to_curr if to_curr else "PHP"
+
             lines.extend([
                 "------------------------",
-                f"Inserted : PHP {inserted}",
-                f"Dispensed : PHP {dispensed}",
-                f"Fee : PHP {fee}",
+                f"Inserted : {inserted_currency} {inserted}",
+                f"Dispensed : {dispensed_currency} {dispensed}",
+                f"Fee : {fee_currency} {fee}",
                 "------------------------",
                 "[CENTER]Thank you for using Coinnect!",
                 "[CENTER]Self-Service Financial Kiosk",
@@ -258,6 +262,9 @@ class ReceiptService:
             ticket_code = claim_code or self._get_field(record, "claim_ticket_code", "N/A")
             reason = error_reason or self._get_field(record, "error_message") or self._get_field(record, "error_code") or "PARTIAL_DISPENSE"
             
+            to_curr = self._get_field(record, "to_currency")
+            shortfall_currency = to_curr if to_curr else "PHP"
+
             lines = [
                 "[CENTER]COINNECT",
                 "[CENTER]*** CLAIM TICKET ***",
@@ -265,7 +272,7 @@ class ReceiptService:
                 f"Transaction : {tx_id}",
                 f"Date : {date_str}",
                 "Status : PARTIAL DISPENSE",
-                f"Shortfall : PHP {shortfall}",
+                f"Shortfall : {shortfall_currency} {shortfall}",
                 f"Reason : {reason}",
                 "------------------------",
                 f"[CENTER]TICKET CODE: {ticket_code}",

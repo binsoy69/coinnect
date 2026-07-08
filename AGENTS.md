@@ -122,7 +122,7 @@ Planned environment settings:
 
 **Sensor Logic Levels:**
 - IR obstacle sensors: LOW = detected (bill/obstacle present)
-- SW-420 shock sensors: LOW = vibration detected
+- SW-420 shock sensors: HIGH = vibration detected (active-high logic mapping to RISING interrupts, idles LOW)
 
 ## System Design Principles
 
