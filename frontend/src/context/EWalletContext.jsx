@@ -290,6 +290,7 @@ export function EWalletProvider({ children }) {
     refreshBackendTransaction,
     simulateCashInsert,
     acceptPhysicalBill,
+    syncBackendState,
     confirmBackendTransaction,
     loadFeeTiers,
     resetTransaction,

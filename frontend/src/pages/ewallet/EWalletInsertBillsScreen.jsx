@@ -13,6 +13,8 @@ import {
 } from "../../constants/ewalletData";
 import { ENABLE_KEYBOARD_SIM } from "../../constants/api";
 
+import { useBillAcceptance } from "../../hooks/useBillAcceptance";
+
 export default function EWalletInsertBillsScreen() {
   const navigate = useNavigate();
   const {
@@ -21,10 +23,18 @@ export default function EWalletInsertBillsScreen() {
     getProviderStyles,
     isAmountMatched,
     simulateCashInsert,
-    acceptPhysicalBill,
+    syncBackendState,
   } = useEWallet();
   const config = getEWalletConfig();
   const styles = getProviderStyles();
+
+  // Physical bill acceptor loop
+  useBillAcceptance(
+    ewallet.transactionId,
+    "/ewallet/transactions",
+    !ENABLE_KEYBOARD_SIM && !isAmountMatched(),
+    syncBackendState
+  );
 
   // Handle timeout - proceed when complete, otherwise request coins.
   const handleTimeout = useCallback(() => {
@@ -60,25 +70,6 @@ export default function EWalletInsertBillsScreen() {
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
   }, [simulateCashInsert]);
-
-  useEffect(() => {
-    if (ENABLE_KEYBOARD_SIM || isAmountMatched()) return undefined;
-    let cancelled = false;
-    const acceptNext = async () => {
-      while (!cancelled) {
-        try {
-          const data = await acceptPhysicalBill();
-          if (data?.state === "CASH_ACCEPTED") break;
-        } catch {
-          await new Promise((resolve) => setTimeout(resolve, 750));
-        }
-      }
-    };
-    acceptNext();
-    return () => {
-      cancelled = true;
-    };
-  }, [acceptPhysicalBill, isAmountMatched]);
 
   // Auto-advance when amount is matched
   useEffect(() => {

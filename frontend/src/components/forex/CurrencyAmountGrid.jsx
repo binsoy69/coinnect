@@ -12,6 +12,7 @@ function CurrencyAmountGrid({
   selectedAmount = null,
   onSelect,
   disabled = false,
+  disabledAmounts = [],
   className = "",
 }) {
   const symbol = CURRENCY_SYMBOLS[currency] || "$";
@@ -20,14 +21,15 @@ function CurrencyAmountGrid({
     <div className={`grid grid-cols-3 gap-4 ${className}`}>
       {amounts.map((amount) => {
         const isSelected = selectedAmount === amount;
+        const isAmtDisabled = disabled || disabledAmounts.includes(amount);
 
         return (
           <motion.button
             key={amount}
             onClick={() => onSelect?.(amount)}
-            disabled={disabled}
-            whileHover={disabled ? {} : { scale: 1.02 }}
-            whileTap={disabled ? {} : { scale: 0.98 }}
+            disabled={isAmtDisabled}
+            whileHover={isAmtDisabled ? {} : { scale: 1.02 }}
+            whileTap={isAmtDisabled ? {} : { scale: 0.98 }}
             className={`
               p-6 rounded-card text-4xl font-bold
               transition-all duration-200
@@ -36,7 +38,7 @@ function CurrencyAmountGrid({
                   ? "bg-coinnect-forex text-white border-2 border-coinnect-forex"
                   : "bg-white border-2 border-coinnect-forex text-coinnect-forex hover:bg-coinnect-forex/5"
               }
-              ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
+              ${isAmtDisabled ? "opacity-30 cursor-not-allowed bg-gray-50 border-gray-300 text-gray-400" : "cursor-pointer"}
             `}
           >
             {symbol}
@@ -54,6 +56,7 @@ CurrencyAmountGrid.propTypes = {
   selectedAmount: PropTypes.number,
   onSelect: PropTypes.func,
   disabled: PropTypes.bool,
+  disabledAmounts: PropTypes.arrayOf(PropTypes.number),
   className: PropTypes.string,
 };
 

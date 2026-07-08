@@ -193,6 +193,28 @@ async def lifespan(app: FastAPI):
 
     # Startup
     await serial_manager.startup()
+    
+    # Update global constants map with environment settings
+    from app.core.constants import update_slot_positions
+    update_slot_positions(settings)
+    
+    # Push calibrated slot positions to Arduino Mega #1
+    try:
+        positions = [
+            settings.slot_1_position,
+            settings.slot_2_position,
+            settings.slot_3_position,
+            settings.slot_4_position,
+            settings.slot_5_position,
+            settings.slot_6_position,
+            settings.slot_7_position,
+            settings.slot_8_position,
+        ]
+        await bill_controller.set_slot_positions(positions)
+        logger.info("Calibrated slot positions pushed to Arduino Mega #1")
+    except Exception as exc:
+        logger.error(f"Failed to push slot positions to Arduino Mega #1: {exc}")
+
     try:
         await coin_controller.set_coin_acceptor_enabled(False)
     except Exception as exc:

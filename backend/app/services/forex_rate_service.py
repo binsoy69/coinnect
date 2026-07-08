@@ -10,7 +10,7 @@ Responsibilities:
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 
 import httpx
@@ -157,7 +157,7 @@ class ForexRateService:
                 fee_percentage=fee_pct,
                 fee_amount=fee_amount,
                 output_amount=amount,
-                locked_at=datetime.utcnow(),
+                locked_at=datetime.now(timezone.utc).replace(tzinfo=None),
             )
         else:
             # Foreign -> PHP: user selects foreign amount to insert
@@ -176,7 +176,7 @@ class ForexRateService:
                 fee_percentage=fee_pct,
                 fee_amount=fee_amount,
                 output_amount=output_php,
-                locked_at=datetime.utcnow(),
+                locked_at=datetime.now(timezone.utc).replace(tzinfo=None),
             )
 
     async def _check_connectivity(self) -> None:
@@ -230,7 +230,7 @@ class ForexRateService:
                 if php_to_foreign > 0:
                     rates[currency_code] = round(1 / php_to_foreign, 4)
 
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
             self._cache = ExchangeRateCache(
                 rates=rates,
                 fetched_at=now,

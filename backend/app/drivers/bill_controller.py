@@ -75,6 +75,14 @@ class BillController:
     async def reset(self) -> None:
         await self._serial.send_bill_command({"cmd": "RESET"})
 
+    async def set_slot_positions(self, positions: list[int]) -> dict:
+        """Configure calibrated slot positions on the Arduino Mega #1."""
+        raw = await self._serial.send_bill_command(
+            {"cmd": "SET_SLOT_POSITIONS", "positions": positions},
+            timeout=3.0,
+        )
+        return raw
+
     async def run_conveyor(self, target: str) -> ConveyorResponse:
         """Run the specified conveyor motor (PHP or FOREIGN) for 1 second."""
         raw = await self._serial.send_bill_command(

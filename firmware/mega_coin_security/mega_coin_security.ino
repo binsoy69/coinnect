@@ -93,7 +93,12 @@ static volatile bool shockBFlag = false;
 static volatile unsigned long lastShockAMs = 0;
 static volatile unsigned long lastShockBMs = 0;
 
+static long currentCommandId = -1;
+
 void sendDocument(JsonDocument &doc) {
+  if (currentCommandId >= 0) {
+    doc["id"] = currentCommandId;
+  }
   serializeJson(doc, Serial);
   Serial.println();
 }
@@ -606,9 +611,12 @@ void dispatchCommand(const String &line) {
   StaticJsonDocument<384> cmdDoc;
   DeserializationError err = deserializeJson(cmdDoc, line);
   if (err) {
+    currentCommandId = -1;
     sendError("PARSE_ERROR");
     return;
   }
+
+  currentCommandId = cmdDoc["id"] | -1;
 
   const char *cmd = cmdDoc["cmd"] | "";
   if (strcmp(cmd, "PING") == 0) {
@@ -638,6 +646,8 @@ void dispatchCommand(const String &line) {
   } else {
     sendError("UNKNOWN_CMD");
   }
+
+  currentCommandId = -1;
 }
 
 void handleSerialInput() {

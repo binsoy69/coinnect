@@ -6,7 +6,7 @@ import logging
 import secrets
 import string
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -151,7 +151,7 @@ class EWalletOrchestrator:
                     failed = await session.get(EWalletTransactionRecord, tx_id)
                     failed.state = "FAILED"
                     failed.error_code = "QR_CREATION_FAILED"
-                    failed.completed_at = datetime.utcnow()
+                    failed.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
                     await session.commit()
                 raise
             async with self._db_factory() as session:
@@ -353,7 +353,7 @@ class EWalletOrchestrator:
             stored_event = await session.get(GatewayEventRecord, event_id)
             stored_event.processed = True
             stored_event.processing_error = None
-            stored_event.processed_at = datetime.utcnow()
+            stored_event.processed_at = datetime.now(timezone.utc).replace(tzinfo=None)
             await session.commit()
         return result_payload
 
@@ -438,7 +438,7 @@ class EWalletOrchestrator:
                     "Transaction requires operator reconciliation"
                 )
             record.state = "CANCELLED"
-            record.completed_at = datetime.utcnow()
+            record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
             await session.commit()
             await self._broadcast(record, WSEventType.EWALLET_STATE_CHANGED)
             self._clear_active()
@@ -495,7 +495,7 @@ class EWalletOrchestrator:
             record = await session.get(EWalletTransactionRecord, transaction_id)
             record.dispensed_amount = result.total_dispensed
             record.dispense_result = result.model_dump()
-            record.completed_at = datetime.utcnow()
+            record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
             if result.success:
                 record.state = "COMPLETE"
                 event_type = WSEventType.EWALLET_COMPLETE
@@ -528,7 +528,7 @@ class EWalletOrchestrator:
             if record.state == "COMPLETE":
                 return self._serialize(record)
             record.state = "COMPLETE"
-            record.completed_at = datetime.utcnow()
+            record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
             await session.commit()
             if self._receipt_service:
                 await self._receipt_service.print_receipt(record)
@@ -619,7 +619,7 @@ class EWalletOrchestrator:
             )
             record.error_code = error_code
             record.error_message = error_message
-            record.completed_at = datetime.utcnow()
+            record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
             await session.commit()
             if self._receipt_service:
                 await self._receipt_service.print_claim_ticket(

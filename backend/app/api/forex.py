@@ -179,6 +179,23 @@ async def confirm_forex_transaction(transaction_id: str, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/transaction/{transaction_id}/accept-bill", response_model=ForexTransactionResponse)
+async def trigger_forex_bill_acceptance(transaction_id: str, request: Request):
+    """Trigger one bill acceptance cycle for forex transaction."""
+    orchestrator = request.app.state.forex_transaction_orchestrator
+    try:
+        if orchestrator.active_transaction_id != transaction_id:
+            raise HTTPException(
+                status_code=404, detail="Transaction not active"
+            )
+        state = await orchestrator.handle_bill_inserted()
+        return ForexTransactionResponse(**_map_state(state))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.post("/transaction/{transaction_id}/simulate-insert")
 async def simulate_forex_insert(
     transaction_id: str, request: Request

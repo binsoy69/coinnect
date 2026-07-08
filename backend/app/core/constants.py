@@ -66,17 +66,28 @@ DENOM_TO_SLOT: Dict[BillDenom, SortSlot] = {
     BillDenom.EUR_10: SortSlot.SLOT_8,
 }
 
-# Slot -> stepper position (1/16 microstepping, steps from home)
+# Slot -> stepper position (calibrated coordinates from Arduino)
 SLOT_POSITIONS: Dict[SortSlot, int] = {
-    SortSlot.SLOT_1: 2920,
-    SortSlot.SLOT_2: 8760,
-    SortSlot.SLOT_3: 14600,
-    SortSlot.SLOT_4: 20440,
-    SortSlot.SLOT_5: 26280,
-    SortSlot.SLOT_6: 32120,
-    SortSlot.SLOT_7: 37960,
-    SortSlot.SLOT_8: 43800,
+    SortSlot.SLOT_1: 0,
+    SortSlot.SLOT_2: 30000,
+    SortSlot.SLOT_3: 60000,
+    SortSlot.SLOT_4: 90000,
+    SortSlot.SLOT_5: 122500,
+    SortSlot.SLOT_6: 153500,
+    SortSlot.SLOT_7: 187500,
+    SortSlot.SLOT_8: 219500,
 }
+
+
+def update_slot_positions(settings) -> None:
+    SLOT_POSITIONS[SortSlot.SLOT_1] = settings.slot_1_position
+    SLOT_POSITIONS[SortSlot.SLOT_2] = settings.slot_2_position
+    SLOT_POSITIONS[SortSlot.SLOT_3] = settings.slot_3_position
+    SLOT_POSITIONS[SortSlot.SLOT_4] = settings.slot_4_position
+    SLOT_POSITIONS[SortSlot.SLOT_5] = settings.slot_5_position
+    SLOT_POSITIONS[SortSlot.SLOT_6] = settings.slot_6_position
+    SLOT_POSITIONS[SortSlot.SLOT_7] = settings.slot_7_position
+    SLOT_POSITIONS[SortSlot.SLOT_8] = settings.slot_8_position
 
 # Bill denomination -> integer PHP value
 BILL_DENOM_VALUES: Dict[BillDenom, int] = {

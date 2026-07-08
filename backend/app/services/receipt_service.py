@@ -2,7 +2,7 @@ import asyncio
 import importlib.util
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from PIL import Image, ImageDraw, ImageFont
@@ -25,6 +25,7 @@ class ReceiptService:
     def __init__(self, settings: Settings):
         self._settings = settings
         self._width = PAPERANG_WIDTH
+        self._paperang_module = None
 
     def _resolve_paperang_repo_path(self) -> Path:
         configured_path = Path(self._settings.paperang_repo_path)
@@ -33,6 +34,9 @@ class ReceiptService:
         return PROJECT_ROOT / configured_path
 
     def _load_vendor_hardware(self, hardware_module: Path, repo_path: Path) -> Any:
+        if self._paperang_module is not None:
+            return self._paperang_module
+
         if str(repo_path) not in sys.path:
             sys.path.insert(0, str(repo_path))
         spec = importlib.util.spec_from_file_location(
@@ -52,6 +56,8 @@ class ReceiptService:
             ) from exc
         if not hasattr(module, "Paperang"):
             raise PaperangPrintInterfaceError("Paperang module does not expose Paperang class")
+        
+        self._paperang_module = module
         return module
 
     def _pack_monochrome_image_bits(self, image: Image.Image) -> bytes:
@@ -144,14 +150,24 @@ class ReceiptService:
 
         module = self._load_vendor_hardware(hardware_module, repo_path)
         printer = None
+        import socket
+        old_timeout = socket.getdefaulttimeout()
         try:
+            socket.setdefaulttimeout(10.0)
             mac_address = self._settings.paperang_mac_address or None
             logger.info(f"Connecting to Paperang P1 via Bluetooth (MAC={mac_address})...")
             printer = module.Paperang(mac_address)
             
             if not getattr(printer, "connected", False):
                 raise PaperangPrintInterfaceError("Paperang P1 Bluetooth connection failed")
+        except Exception as exc:
+            if isinstance(exc, PaperangPrintInterfaceError):
+                raise
+            raise PaperangPrintInterfaceError(f"Bluetooth connection failed: {exc}") from exc
+        finally:
+            socket.setdefaulttimeout(old_timeout)
 
+        try:
             if self._settings.paperang_density is not None:
                 printer.sendDensityToBt(int(self._settings.paperang_density))
             

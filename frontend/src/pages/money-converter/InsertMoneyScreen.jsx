@@ -17,6 +17,8 @@ import { useBackendTransaction } from "../../hooks/useBackendTransaction";
 import { formatPeso } from "../../constants/denominations";
 import { ENABLE_KEYBOARD_SIM } from "../../constants/api";
 
+import { useBillAcceptance } from "../../hooks/useBillAcceptance";
+
 // Service type indicator component
 function ServiceIndicator({ icon, shortName }) {
   return (
@@ -34,9 +36,19 @@ export default function InsertMoneyScreen() {
   const { type } = useParams();
   const { transaction, addInsertedMoney, getServiceConfig, isAmountMatched } =
     useTransaction();
-  const { simulateInsert } = useBackendTransaction();
+  const { simulateInsert, transactionId } = useBackendTransaction();
 
   const config = getServiceConfig() || SERVICE_CONFIG[type];
+
+  // Physical bill acceptor loop
+  const { lastError } = useBillAcceptance(
+    transactionId,
+    "/transaction",
+    !ENABLE_KEYBOARD_SIM && !isAmountMatched() && (config?.insertType || "bill") === "bill",
+    (data) => {
+      // Backend transaction updates are handled via WebSocket (BILL_STORED event)
+    }
+  );
 
   // Keyboard simulation for development (toggleable via VITE_ENABLE_KEYBOARD_SIM)
   // Press keys 1-4 to insert different denominations

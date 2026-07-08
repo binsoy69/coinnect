@@ -102,6 +102,16 @@ class Settings(BaseSettings):
     # Storage slot capacity
     storage_slot_capacity: int = 100
 
+    # Stepper slot positions
+    slot_1_position: int = 0
+    slot_2_position: int = 30000
+    slot_3_position: int = 60000
+    slot_4_position: int = 90000
+    slot_5_position: int = 122500
+    slot_6_position: int = 153500
+    slot_7_position: int = 187500
+    slot_8_position: int = 219500
+
     # Database
     db_url: str = "sqlite+aiosqlite:///./coinnect.db"
 

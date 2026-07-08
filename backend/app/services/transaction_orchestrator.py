@@ -6,7 +6,7 @@ calculator, dispense orchestrator, and transaction state machine.
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import select
@@ -458,7 +458,7 @@ class TransactionOrchestrator:
                 record.state = TransactionState.ERROR.value
                 record.error_code = "CRASH_RECOVERY"
                 record.error_message = "Recovered from stuck active state during startup"
-                record.completed_at = datetime.utcnow()
+                record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
             if pending_entries or stuck_records:
                 await session.commit()
@@ -487,7 +487,7 @@ class TransactionOrchestrator:
             record.state = TransactionState.ERROR.value
             record.error_code = "CRASH_RECOVERY"
             record.error_message = f"Recovered from pending action: {entry.action}"
-            record.completed_at = datetime.utcnow()
+            record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
         # Mark WAL entry as rolled back
         entry.status = WALStatus.ROLLED_BACK.value

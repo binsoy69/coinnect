@@ -46,7 +46,8 @@ class SerialConnection:
         self._running = False
         self._send_lock = threading.Lock()
         self._async_lock = asyncio.Lock()
-        self._pending_response: Optional[asyncio.Future] = None
+        self._pending_responses: dict[int, asyncio.Future] = {}
+        self._next_command_id = 1
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     async def connect(self) -> None:
@@ -106,10 +107,13 @@ class SerialConnection:
 
         timeout = timeout or self._timeout
         async with self._async_lock:
-            future = self._loop.create_future()
+            # Assign and inject a unique sequential command ID
+            cmd_id = self._next_command_id
+            self._next_command_id = (self._next_command_id + 1) if self._next_command_id < 1000000 else 1
+            command["id"] = cmd_id
 
-            # Set pending response future (reader thread will resolve it)
-            self._pending_response = future
+            future = self._loop.create_future()
+            self._pending_responses[cmd_id] = future
 
             # Send command (thread-safe)
             cmd_line = json.dumps(command) + "\n"
@@ -120,7 +124,7 @@ class SerialConnection:
                         f"[{self._controller_type.value}] TX: {json.dumps(command)}"
                     )
                 except Exception as e:
-                    self._pending_response = None
+                    self._pending_responses.pop(cmd_id, None)
                     raise SerialError(
                         f"Write failed on {self._port_path}: {e}",
                         port=self._port_path,
@@ -131,7 +135,7 @@ class SerialConnection:
                 result = await asyncio.wait_for(future, timeout=timeout)
                 return result
             except asyncio.TimeoutError:
-                self._pending_response = None
+                self._pending_responses.pop(cmd_id, None)
                 raise HWTimeoutError(
                     command=command.get("cmd", "UNKNOWN"),
                     timeout=timeout,
@@ -192,10 +196,21 @@ class SerialConnection:
 
     def _resolve_response(self, data: dict) -> None:
         """Resolve the pending response future from the reader thread."""
-        future = self._pending_response
-        if future and not future.done():
-            self._pending_response = None
-            self._loop.call_soon_threadsafe(future.set_result, data)
+        self._loop.call_soon_threadsafe(self._resolve_in_loop, data)
+
+    def _resolve_in_loop(self, data: dict) -> None:
+        cmd_id = data.get("id")
+        if cmd_id is not None:
+            future = self._pending_responses.pop(cmd_id, None)
+            if future and not future.done():
+                future.set_result(data)
+        else:
+            # Fallback if no ID is present (e.g. legacy/error responses)
+            if self._pending_responses:
+                first_key = next(iter(self._pending_responses))
+                future = self._pending_responses.pop(first_key, None)
+                if future and not future.done():
+                    future.set_result(data)
 
     def _push_event(self, data: dict) -> None:
         """Push an unsolicited event to the shared asyncio queue."""

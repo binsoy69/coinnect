@@ -44,6 +44,8 @@ class BillAcceptor:
     2. Pull bill to camera position for a calibrated duration
     3. UV capture + authenticate
     4. White capture + identify denomination
+    3. UV capture + authenticate
+    4. White capture + identify denomination
     5. Check storage capacity
     6. Sort command to Arduino
     7. Store bill in slot
@@ -109,13 +111,17 @@ class BillAcceptor:
             BillAcceptResult with success status and denomination.
         """
         try:
+            # Step 0: Wait for a bill at the entry slot without turning on the motor
+            has_bill = await self.wait_for_bill()
+            if not has_bill:
+                return BillAcceptResult(error="TIMEOUT")
+
             # Step 1: Pull bill to camera position
             await self._broadcast(WSEventType.BILL_ACCEPTING, {"step": "positioning"})
             positioned = await self._position_bill()
             if not positioned:
                 await self._eject_bill()
                 return BillAcceptResult(error="POSITIONING_FAILED")
-
             # Step 2: UV authentication
             await self._broadcast(WSEventType.BILL_ACCEPTING, {"step": "authenticating"})
             await self._gpio.motor_stop()

@@ -80,7 +80,7 @@ static const SortSlotMap sortSlotMap[] = {
     {"EUR_5", 8},    {"EUR_10", 8},
 };
 
-static const long SLOT_POSITIONS[] = {
+static long SLOT_POSITIONS[] = {
     0, 30000, 60000, 90000, 122500, 153500, 187500, 219500,
 };
 
@@ -95,7 +95,12 @@ static unsigned long conveyorStopTimeForeign = 0;
 static bool conveyorPhpActive = false;
 static bool conveyorForeignActive = false;
 
+static long currentCommandId = -1;
+
 void sendDocument(JsonDocument &doc) {
+  if (currentCommandId >= 0) {
+    doc["id"] = currentCommandId;
+  }
   serializeJson(doc, Serial);
   Serial.println();
 }
@@ -230,74 +235,108 @@ int slotForDenom(const char *denom) {
   return -1;
 }
 
-bool homeSorter() {
-  sorterHomeFailed = false;
-  enableStepper();
-  sorter.setMaxSpeed(abs(HOME_SPEED_STEPS_PER_SEC));
-  sorter.setAcceleration(SORT_ACCELERATION);
-  sorter.setSpeed(HOME_SPEED_STEPS_PER_SEC);
+enum SorterState {
+  STATE_IDLE,
+  STATE_HOMING_TO_LIMIT,
+  STATE_HOMING_BACKOFF,
+  STATE_SORTING_MOVE
+};
 
-  const unsigned long startedAt = millis();
-  while (!limitTriggered()) {
+static SorterState sorterState = STATE_IDLE;
+static unsigned long sorterActionStartMs = 0;
+static long sorterTargetPos = 0;
+static long targetSlotAfterMove = 0;
+static long asyncCommandId = -1;
+
+void updateSorterStateMachine() {
+  if (sorterState == STATE_IDLE) {
+    return;
+  }
+
+  if (sorterState == STATE_HOMING_TO_LIMIT) {
     sorter.runSpeed();
-    if (millis() - startedAt > HOME_TIMEOUT_MS) {
+    if (limitTriggered()) {
       sorter.stop();
-      digitalWrite(ENABLE_PIN, HIGH);
+      sorter.setCurrentPosition(0);
+      sorter.moveTo(HOME_BACKOFF_STEPS);
+      sorterState = STATE_HOMING_BACKOFF;
+    } else if (millis() - sorterActionStartMs > HOME_TIMEOUT_MS) {
+      sorter.stop();
       sorterHomed = false;
       sorterHomeFailed = true;
       currentSlot = 0;
-      return false;
+      disableStepperIfAllowed();
+      sorterState = STATE_IDLE;
+      
+      currentCommandId = asyncCommandId;
+      sendError("TIMEOUT");
+      currentCommandId = -1;
     }
-  }
-
-  sorter.stop();
-  sorter.setCurrentPosition(0);
-  sorter.moveTo(HOME_BACKOFF_STEPS);
-  while (sorter.distanceToGo() != 0) {
+  } 
+  else if (sorterState == STATE_HOMING_BACKOFF) {
     sorter.run();
-  }
+    if (sorter.distanceToGo() == 0) {
+      sorter.setCurrentPosition(0);
+      sorterHomed = true;
+      sorterHomeFailed = false;
+      currentSlot = 0;
+      disableStepperIfAllowed();
+      sorterState = STATE_IDLE;
 
-  sorter.setCurrentPosition(0);
-  sorterHomed = true;
-  sorterHomeFailed = false;
-  currentSlot = 0;
-  disableStepperIfAllowed();
-  return true;
-}
+      currentCommandId = asyncCommandId;
+      StaticJsonDocument<96> doc;
+      doc["status"] = "OK";
+      doc["position"] = 0;
+      sendDocument(doc);
+      currentCommandId = -1;
+    } else if (millis() - sorterActionStartMs > HOME_TIMEOUT_MS) {
+      sorter.stop();
+      sorterHomed = false;
+      sorterHomeFailed = true;
+      currentSlot = 0;
+      disableStepperIfAllowed();
+      sorterState = STATE_IDLE;
 
-bool moveSorterToSlot(uint8_t slot) {
-  if (!sorterHomed || slot < 1 || slot > 8) {
-    return false;
-  }
-
-  const long targetPosition = SLOT_POSITIONS[slot - 1];
-  const long currentPos = sorter.currentPosition();
-  const long steps = targetPosition - currentPos;
-
-  if (steps == 0) {
-    currentSlot = slot;
-    return true;
-  }
-
-  enableStepper();
-  float speed = (steps > 0) ? SORT_MAX_SPEED : -SORT_MAX_SPEED;
-  sorter.setMaxSpeed(SORT_MAX_SPEED);
-  sorter.setSpeed(speed);
-
-  const unsigned long startedAt = millis();
-  while ((steps > 0 && sorter.currentPosition() < targetPosition) ||
-         (steps < 0 && sorter.currentPosition() > targetPosition)) {
+      currentCommandId = asyncCommandId;
+      sendError("TIMEOUT");
+      currentCommandId = -1;
+    }
+  } 
+  else if (sorterState == STATE_SORTING_MOVE) {
     sorter.runSpeed();
-    if (millis() - startedAt > SORT_TIMEOUT_MS) {
+    long currentPos = sorter.currentPosition();
+    
+    // Check if target is reached or passed
+    bool reached = false;
+    if (sorter.speed() > 0 && currentPos >= sorterTargetPos) {
+      reached = true;
+    } else if (sorter.speed() < 0 && currentPos <= sorterTargetPos) {
+      reached = true;
+    }
+
+    if (reached) {
+      sorter.stop();
+      currentSlot = targetSlotAfterMove;
+      disableStepperIfAllowed();
+      sorterState = STATE_IDLE;
+
+      currentCommandId = asyncCommandId;
+      StaticJsonDocument<96> doc;
+      doc["status"] = "READY";
+      doc["slot"] = currentSlot;
+      sendDocument(doc);
+      currentCommandId = -1;
+    } else if (millis() - sorterActionStartMs > SORT_TIMEOUT_MS) {
       sorter.stop();
       currentSlot = 0;
-      return false;
+      disableStepperIfAllowed();
+      sorterState = STATE_IDLE;
+
+      currentCommandId = asyncCommandId;
+      sendError("TIMEOUT");
+      currentCommandId = -1;
     }
   }
-
-  currentSlot = slot;
-  disableStepperIfAllowed();
-  return true;
 }
 
 int dispenseBills(uint8_t unitIndex, int count, const char **errorCode) {
@@ -379,14 +418,15 @@ void handleReset() {
 }
 
 void handleHome() {
-  if (!homeSorter()) {
-    sendError("TIMEOUT");
-    return;
-  }
-  StaticJsonDocument<96> doc;
-  doc["status"] = "OK";
-  doc["position"] = 0;
-  sendDocument(doc);
+  sorterHomeFailed = false;
+  enableStepper();
+  sorter.setMaxSpeed(abs(HOME_SPEED_STEPS_PER_SEC));
+  sorter.setAcceleration(SORT_ACCELERATION);
+  sorter.setSpeed(HOME_SPEED_STEPS_PER_SEC);
+
+  sorterState = STATE_HOMING_TO_LIMIT;
+  sorterActionStartMs = millis();
+  asyncCommandId = currentCommandId;
 }
 
 void handleSort(JsonDocument &cmdDoc) {
@@ -400,14 +440,45 @@ void handleSort(JsonDocument &cmdDoc) {
     sendError("NOT_HOMED");
     return;
   }
-  if (!moveSorterToSlot((uint8_t)slot)) {
-    sendError("TIMEOUT");
+
+  const long targetPosition = SLOT_POSITIONS[slot - 1];
+  const long currentPos = sorter.currentPosition();
+  const long steps = targetPosition - currentPos;
+
+  if (steps == 0) {
+    currentSlot = slot;
+    StaticJsonDocument<96> doc;
+    doc["status"] = "READY";
+    doc["slot"] = slot;
+    sendDocument(doc);
     return;
   }
 
-  StaticJsonDocument<96> doc;
-  doc["status"] = "READY";
-  doc["slot"] = slot;
+  enableStepper();
+  float speed = (steps > 0) ? SORT_MAX_SPEED : -SORT_MAX_SPEED;
+  sorter.setMaxSpeed(SORT_MAX_SPEED);
+  sorter.setSpeed(speed);
+
+  sorterState = STATE_SORTING_MOVE;
+  sorterActionStartMs = millis();
+  sorterTargetPos = targetPosition;
+  targetSlotAfterMove = slot;
+  asyncCommandId = currentCommandId;
+}
+
+void handleSetSlotPositions(JsonDocument &cmdDoc) {
+  JsonArray positions = cmdDoc["positions"];
+  if (positions.isNull() || positions.size() != 8) {
+    sendError("INVALID_PARAM");
+    return;
+  }
+
+  for (size_t i = 0; i < 8; i++) {
+    SLOT_POSITIONS[i] = positions[i];
+  }
+
+  StaticJsonDocument<64> doc;
+  doc["status"] = "OK";
   sendDocument(doc);
 }
 
@@ -512,17 +583,43 @@ void dispatchCommand(const String &line) {
   StaticJsonDocument<384> cmdDoc;
   DeserializationError err = deserializeJson(cmdDoc, line);
   if (err) {
+    currentCommandId = -1;
     sendError("PARSE_ERROR");
     return;
   }
 
+  currentCommandId = cmdDoc["id"] | -1;
+
   const char *cmd = cmdDoc["cmd"] | "";
+
+  // RESET command should always override and stop any active motion immediately
+  if (strcmp(cmd, "RESET") == 0) {
+    sorterState = STATE_IDLE;
+    asyncCommandId = -1;
+    handleReset();
+    currentCommandId = -1;
+    return;
+  }
+
+  // If stepper is currently moving, only allow instant non-modifying queries
+  if (sorterState != STATE_IDLE) {
+    if (strcmp(cmd, "PING") == 0) {
+      handlePing();
+    } else if (strcmp(cmd, "VERSION") == 0) {
+      handleVersion();
+    } else if (strcmp(cmd, "SORT_STATUS") == 0) {
+      handleSortStatus();
+    } else {
+      sendError("LOCKED_OUT");
+    }
+    currentCommandId = -1;
+    return;
+  }
+
   if (strcmp(cmd, "PING") == 0) {
     handlePing();
   } else if (strcmp(cmd, "VERSION") == 0) {
     handleVersion();
-  } else if (strcmp(cmd, "RESET") == 0) {
-    handleReset();
   } else if (strcmp(cmd, "HOME") == 0) {
     handleHome();
   } else if (strcmp(cmd, "SORT") == 0) {
@@ -535,8 +632,15 @@ void dispatchCommand(const String &line) {
     handleDispenseStatus(cmdDoc);
   } else if (strcmp(cmd, "CONVEYOR") == 0) {
     handleConveyor(cmdDoc);
+  } else if (strcmp(cmd, "SET_SLOT_POSITIONS") == 0) {
+    handleSetSlotPositions(cmdDoc);
   } else {
     sendError("UNKNOWN_CMD");
+  }
+
+  // If the command did not initiate an async state transition, reset command ID
+  if (sorterState == STATE_IDLE) {
+    currentCommandId = -1;
   }
 }
 
@@ -609,6 +713,7 @@ void setup() {
 
 void loop() {
   handleSerialInput();
+  updateSorterStateMachine();
 
   if (conveyorPhpActive && millis() >= conveyorStopTimePhp) {
     digitalWrite(CONVEYOR_PHP_IN1, LOW);

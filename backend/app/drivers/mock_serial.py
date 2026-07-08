@@ -83,7 +83,10 @@ class MockSerial:
                 return len(data)
 
             responses = self._dispatch_command(cmd_json)
+            cmd_id = cmd_json.get("id")
             for resp in responses:
+                if cmd_id is not None and "status" in resp:
+                    resp = {**resp, "id": cmd_id}
                 self._buffer_response(resp)
 
             return len(data)

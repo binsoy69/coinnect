@@ -1,12 +1,41 @@
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import PageLayout from "../components/layout/PageLayout";
 import ServiceCard from "../components/transaction/ServiceCard";
 import { ROUTES } from "../constants/routes";
 import { TRANSACTION_TYPES } from "../constants/mockData";
+import { API_BASE } from "../constants/api";
 
 export default function TransactionTypeScreen() {
   const navigate = useNavigate();
+  const [types, setTypes] = useState(TRANSACTION_TYPES);
+
+  useEffect(() => {
+    const checkForex = async () => {
+      try {
+        const resp = await fetch(`${API_BASE}/forex/connectivity`);
+        if (resp.ok) {
+          const data = await resp.json();
+          const forexAvailable = data.forex_available ?? false;
+          setTypes((prev) =>
+            prev.map((t) =>
+              t.id === "forex" ? { ...t, enabled: forexAvailable } : t
+            )
+          );
+        } else {
+          setTypes((prev) =>
+            prev.map((t) => (t.id === "forex" ? { ...t, enabled: false } : t))
+          );
+        }
+      } catch {
+        setTypes((prev) =>
+          prev.map((t) => (t.id === "forex" ? { ...t, enabled: false } : t))
+        );
+      }
+    };
+    checkForex();
+  }, []);
 
   const handleSelectType = (type) => {
     if (!type.enabled) return;
@@ -42,7 +71,7 @@ export default function TransactionTypeScreen() {
 
         {/* Service cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-5xl">
-          {TRANSACTION_TYPES.map((type, index) => (
+          {types.map((type, index) => (
             <motion.div
               key={type.id}
               initial={{ opacity: 0, y: 20 }}

@@ -1,6 +1,6 @@
 """Pydantic models for forex data."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional
 
 from pydantic import BaseModel
@@ -27,7 +27,7 @@ class ExchangeRateCache(BaseModel):
     def is_valid(self) -> bool:
         if not self.fetched_at or not self.expires_at:
             return False
-        return datetime.utcnow() < self.expires_at
+        return datetime.now(timezone.utc).replace(tzinfo=None) < self.expires_at
 
     @property
     def is_expired(self) -> bool:

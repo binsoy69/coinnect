@@ -13,12 +13,25 @@ import {
   FOREX_TIMER_DURATIONS,
 } from "../../constants/forexData";
 
+import { ENABLE_KEYBOARD_SIM } from "../../constants/api";
+import { useBillAcceptance } from "../../hooks/useBillAcceptance";
+
 export default function ForexInsertMoneyScreen() {
   const navigate = useNavigate();
   const { forex, addInsertedMoney, getForexConfig, isAmountMatched } =
     useForex();
   const { simulateForexInsert, transactionId } = useForexTransaction();
   const config = getForexConfig();
+
+  // Physical bill acceptor loop
+  const { lastError } = useBillAcceptance(
+    transactionId,
+    "/forex/transaction",
+    !ENABLE_KEYBOARD_SIM && !isAmountMatched(),
+    (data) => {
+      // Backend transaction updates are handled via WebSocket (BILL_STORED event)
+    }
+  );
 
   // Handle timeout - go to warning or conversion screen
   const handleTimeout = useCallback(() => {
