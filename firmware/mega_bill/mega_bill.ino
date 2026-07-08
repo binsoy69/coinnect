@@ -90,6 +90,10 @@ static String inputLine;
 static bool sorterHomed = false;
 static bool sorterHomeFailed = false;
 static int currentSlot = 0;
+static unsigned long conveyorStopTimePhp = 0;
+static unsigned long conveyorStopTimeForeign = 0;
+static bool conveyorPhpActive = false;
+static bool conveyorForeignActive = false;
 
 void sendDocument(JsonDocument &doc) {
   serializeJson(doc, Serial);
@@ -421,15 +425,13 @@ void runConveyorForDenom(const char *denom) {
   if (isPhp) {
     digitalWrite(CONVEYOR_PHP_IN1, HIGH);
     digitalWrite(CONVEYOR_PHP_IN2, LOW);
-    delay(CONVEYOR_DURATION_MS);
-    digitalWrite(CONVEYOR_PHP_IN1, LOW);
-    digitalWrite(CONVEYOR_PHP_IN2, LOW);
+    conveyorStopTimePhp = millis() + CONVEYOR_DURATION_MS;
+    conveyorPhpActive = true;
   } else {
     digitalWrite(CONVEYOR_FOREIGN_IN1, HIGH);
     digitalWrite(CONVEYOR_FOREIGN_IN2, LOW);
-    delay(CONVEYOR_DURATION_MS);
-    digitalWrite(CONVEYOR_FOREIGN_IN1, LOW);
-    digitalWrite(CONVEYOR_FOREIGN_IN2, LOW);
+    conveyorStopTimeForeign = millis() + CONVEYOR_DURATION_MS;
+    conveyorForeignActive = true;
   }
 }
 
@@ -607,4 +609,15 @@ void setup() {
 
 void loop() {
   handleSerialInput();
+
+  if (conveyorPhpActive && millis() >= conveyorStopTimePhp) {
+    digitalWrite(CONVEYOR_PHP_IN1, LOW);
+    digitalWrite(CONVEYOR_PHP_IN2, LOW);
+    conveyorPhpActive = false;
+  }
+  if (conveyorForeignActive && millis() >= conveyorStopTimeForeign) {
+    digitalWrite(CONVEYOR_FOREIGN_IN1, LOW);
+    digitalWrite(CONVEYOR_FOREIGN_IN2, LOW);
+    conveyorForeignActive = false;
+  }
 }

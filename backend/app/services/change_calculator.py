@@ -101,6 +101,26 @@ def calculate_change(
     Raises:
         InsufficientInventoryError: If exact change cannot be made.
     """
+    try:
+        return _calculate_change_with_order(
+            amount, available_bills, available_coins, preferred_denoms, currency
+        )
+    except InsufficientInventoryError:
+        if preferred_denoms:
+            logger.info("Preferred change calculation failed. Falling back to standard greedy change.")
+            return _calculate_change_with_order(
+                amount, available_bills, available_coins, None, currency
+            )
+        raise
+
+
+def _calculate_change_with_order(
+    amount: int,
+    available_bills: Dict[str, int],
+    available_coins: Dict[str, int],
+    preferred_denoms: Optional[List[int]] = None,
+    currency: str = "PHP",
+) -> DispensePlan:
     if amount <= 0:
         return DispensePlan(items=[], total_amount=0, is_exact=True)
 

@@ -244,6 +244,20 @@ class TestPreferredDenoms:
         assert plan.items[1].denom == "PHP_50"
         assert plan.items[1].count == 1
 
+    def test_preferred_with_limited_inventory_fallback(self):
+        """If preferred coins fail to make exact change due to limited inventory, fallback to standard greedy."""
+        # Need PHP 15. We have 1x PHP 10, 2x PHP 5. Preferred: [5].
+        # Preferred pass would try to dispense 3x PHP 5 (which fails, raising InsufficientInventoryError).
+        # Fallback pass should run standard greedy without preferences, successfully dispensing 1x PHP 10 + 1x PHP 5.
+        bills = {}
+        coins = {"PHP_10": 1, "PHP_5": 2}
+        plan = calculate_change(15, bills, coins, preferred_denoms=[5])
+        assert plan.is_exact
+        assert plan.total_amount == 15
+        denoms = {item.denom: item.count for item in plan.items}
+        assert denoms.get("PHP_10") == 1
+        assert denoms.get("PHP_5") == 1
+
 
 # ---------------------------------------------------------------------------
 # 5. Amount = 0 returns empty plan

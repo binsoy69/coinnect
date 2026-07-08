@@ -47,3 +47,20 @@ async def delete_admin_session(
     token = authorization.removeprefix("Bearer ").strip()
     request.app.state.admin_sessions.logout(token)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/home-sorter", status_code=status.HTTP_200_OK)
+async def trigger_home_sorter(
+    request: Request,
+    authorization: str | None = Header(default=None)
+):
+    require_admin_session(request, authorization)
+    bill_controller = request.app.state.bill_acceptor._bill
+    try:
+        await bill_controller.home()
+        return {"status": "success", "message": "Sorter homed successfully"}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to home sorter: {exc}"
+        )

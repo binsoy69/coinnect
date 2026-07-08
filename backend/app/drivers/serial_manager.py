@@ -45,6 +45,7 @@ class SerialConnection:
         self._reader_thread: Optional[threading.Thread] = None
         self._running = False
         self._send_lock = threading.Lock()
+        self._async_lock = asyncio.Lock()
         self._pending_response: Optional[asyncio.Future] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
@@ -104,36 +105,37 @@ class SerialConnection:
             raise SerialError("Serial port not open", port=self._port_path)
 
         timeout = timeout or self._timeout
-        future = self._loop.create_future()
+        async with self._async_lock:
+            future = self._loop.create_future()
 
-        # Set pending response future (reader thread will resolve it)
-        self._pending_response = future
+            # Set pending response future (reader thread will resolve it)
+            self._pending_response = future
 
-        # Send command (thread-safe)
-        cmd_line = json.dumps(command) + "\n"
-        with self._send_lock:
+            # Send command (thread-safe)
+            cmd_line = json.dumps(command) + "\n"
+            with self._send_lock:
+                try:
+                    self._serial.write(cmd_line.encode("utf-8"))
+                    logger.debug(
+                        f"[{self._controller_type.value}] TX: {json.dumps(command)}"
+                    )
+                except Exception as e:
+                    self._pending_response = None
+                    raise SerialError(
+                        f"Write failed on {self._port_path}: {e}",
+                        port=self._port_path,
+                    )
+
+            # Wait for response
             try:
-                self._serial.write(cmd_line.encode("utf-8"))
-                logger.debug(
-                    f"[{self._controller_type.value}] TX: {json.dumps(command)}"
-                )
-            except Exception as e:
+                result = await asyncio.wait_for(future, timeout=timeout)
+                return result
+            except asyncio.TimeoutError:
                 self._pending_response = None
-                raise SerialError(
-                    f"Write failed on {self._port_path}: {e}",
-                    port=self._port_path,
+                raise HWTimeoutError(
+                    command=command.get("cmd", "UNKNOWN"),
+                    timeout=timeout,
                 )
-
-        # Wait for response
-        try:
-            result = await asyncio.wait_for(future, timeout=timeout)
-            return result
-        except asyncio.TimeoutError:
-            self._pending_response = None
-            raise HWTimeoutError(
-                command=command.get("cmd", "UNKNOWN"),
-                timeout=timeout,
-            )
 
     def _reader_loop(self) -> None:
         """Background thread: reads lines from serial, routes to response or event queue."""

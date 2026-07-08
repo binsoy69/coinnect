@@ -429,14 +429,6 @@ class ForexTransactionOrchestrator:
             )
             pending_entries = result.scalars().all()
 
-            if not pending_entries:
-                logger.info("No pending forex WAL entries to recover")
-                return
-
-            logger.warning(
-                f"Found {len(pending_entries)} pending forex WAL entries to recover"
-            )
-
             for entry in pending_entries:
                 try:
                     logger.info(
@@ -467,4 +459,30 @@ class ForexTransactionOrchestrator:
                         exc_info=True,
                     )
 
-            await session.commit()
+            # Also recover any forex transaction stuck in active/physical states
+            stuck_result = await session.execute(
+                select(TransactionRecord).where(
+                    TransactionRecord.state.in_(
+                        {
+                            TransactionState.AUTHENTICATING.value,
+                            TransactionState.SORTING.value,
+                            TransactionState.DISPENSING.value,
+                        }
+                    ),
+                    TransactionRecord.type.like("forex-%")
+                )
+            )
+            stuck_records = stuck_result.scalars().all()
+            for record in stuck_records:
+                logger.warning(
+                    f"Recovering forex transaction {record.id} stuck in active state {record.state}"
+                )
+                record.state = TransactionState.ERROR.value
+                record.error_code = "CRASH_RECOVERY"
+                record.error_message = "Recovered from stuck active state during startup"
+                record.completed_at = datetime.utcnow()
+
+            if pending_entries or stuck_records:
+                await session.commit()
+            else:
+                logger.info("No pending forex WAL entries or stuck transactions to recover")

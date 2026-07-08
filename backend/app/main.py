@@ -99,6 +99,10 @@ async def lifespan(app: FastAPI):
             settings.yolo_auth_model_path,
             settings.yolo_denom_model_path,
             settings.yolo_confidence_threshold,
+            auth_model_path_usd=settings.yolo_auth_model_path_usd,
+            denom_model_path_usd=settings.yolo_denom_model_path_usd,
+            auth_model_path_eur=settings.yolo_auth_model_path_eur,
+            denom_model_path_eur=settings.yolo_denom_model_path_eur,
         )
         logger.info("Using real hardware controllers")
 
@@ -193,6 +197,12 @@ async def lifespan(app: FastAPI):
         await coin_controller.set_coin_acceptor_enabled(False)
     except Exception as exc:
         logger.warning("Could not disable coin acceptor on startup: %s", exc)
+    try:
+        logger.info("Initializing linear rail sorter homing sequence...")
+        await bill_controller.home()
+        logger.info("Linear rail sorter homed successfully")
+    except Exception as exc:
+        logger.error(f"Failed to home linear rail sorter on startup: {exc}")
     await event_dispatcher.start()
 
     # Recover any transactions interrupted by crash/power loss
