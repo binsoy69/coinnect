@@ -10,6 +10,7 @@ class EWalletFeeTier(BaseModel):
     fee: int = Field(ge=0)
 
 
+
 class Settings(BaseSettings):
     # Serial ports
     serial_port_bill: str = "/dev/coinnect_bill"
@@ -36,6 +37,10 @@ class Settings(BaseSettings):
     sorting_move_timeout: int = 8
     dispense_timeout: int = 5
     coin_dispense_timeout: int = 3
+    serial_homing_timeout: float = 45.0
+    serial_sorting_timeout: float = 20.0
+    coin_dispense_timeout_factor: float = 0.8
+    coin_dispense_timeout_base: float = 5.0
 
     # Consumables thresholds
     low_bill_threshold: int = 10

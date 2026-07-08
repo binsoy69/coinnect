@@ -72,6 +72,11 @@ class BillAcceptor:
         self._settings = settings
         self._inventory = inventory_service
         self._expected_currency: Optional[str] = None
+        self._expected_denomination: Optional[str] = None
+
+    def set_expected_denomination(self, denomination: Optional[str]) -> None:
+        """Configure the bill acceptor to expect a specific denomination (e.g. 'PHP_100')."""
+        self._expected_denomination = denomination
 
     def set_expected_currency(self, currency: str) -> None:
         """Configure the bill acceptor to expect a specific currency.
@@ -125,6 +130,7 @@ class BillAcceptor:
             # Step 2: UV authentication
             await self._broadcast(WSEventType.BILL_ACCEPTING, {"step": "authenticating"})
             await self._gpio.motor_stop()
+
             await self._gpio.uv_led_on()
             await asyncio.sleep(self._settings.led_stabilization_delay)
 
@@ -172,29 +178,51 @@ class BillAcceptor:
 
             denomination = denom_result.denomination
 
-            # Step 3b: Validate currency matches expected (for forex)
-            if self._expected_currency:
-                detected_currency = BILL_DENOM_CURRENCY.get(denomination)
-                if detected_currency and detected_currency != Currency(self._expected_currency):
-                    logger.warning(
-                        f"Wrong currency: expected {self._expected_currency}, "
-                        f"got {detected_currency.value}"
-                    )
-                    await self._eject_bill()
-                    await self._broadcast(
-                        WSEventType.BILL_REJECTED,
-                        {
-                            "reason": "WRONG_CURRENCY",
-                            "expected": self._expected_currency,
-                            "detected": detected_currency.value,
-                        },
-                    )
-                    return BillAcceptResult(
-                        error=f"Expected {self._expected_currency} bill, got {detected_currency.value}",
-                        denomination=denomination,
-                        auth_confidence=auth_result.confidence,
-                        denom_confidence=denom_result.confidence,
-                    )
+            # Step 3b: Validate currency matches expected
+            expected_currency = self._expected_currency or "PHP"
+            detected_currency = BILL_DENOM_CURRENCY.get(denomination)
+            if detected_currency and detected_currency != Currency(expected_currency):
+                logger.warning(
+                    f"Wrong currency: expected {expected_currency}, "
+                    f"got {detected_currency.value}"
+                )
+                await self._eject_bill()
+                await self._broadcast(
+                    WSEventType.BILL_REJECTED,
+                    {
+                        "reason": "WRONG_CURRENCY",
+                        "expected": expected_currency,
+                        "detected": detected_currency.value,
+                    },
+                )
+                return BillAcceptResult(
+                    error=f"Expected {expected_currency} bill, got {detected_currency.value}",
+                    denomination=denomination,
+                    auth_confidence=auth_result.confidence,
+                    denom_confidence=denom_result.confidence,
+                )
+
+            # Step 3c: Validate denomination matches expected (if configured)
+            if self._expected_denomination and denomination.value != self._expected_denomination:
+                logger.warning(
+                    f"Incorrect denomination: expected {self._expected_denomination}, "
+                    f"got {denomination.value}"
+                )
+                await self._eject_bill()
+                await self._broadcast(
+                    WSEventType.BILL_REJECTED,
+                    {
+                        "reason": "INCORRECT_DENOMINATION",
+                        "expected": self._expected_denomination,
+                        "detected": denomination.value,
+                    },
+                )
+                return BillAcceptResult(
+                    error=f"Expected {self._expected_denomination} bill, got {denomination.value}",
+                    denomination=denomination,
+                    auth_confidence=auth_result.confidence,
+                    denom_confidence=denom_result.confidence,
+                )
 
             # Step 4: Check storage capacity
             if self._status.is_storage_full(denomination.value):

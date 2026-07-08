@@ -38,11 +38,11 @@ class MachineStatus:
     def snapshot(self) -> MachineStateSnapshot:
         with self._lock:
             return MachineStateSnapshot(
-                bill_device=self._bill_device.model_copy(),
-                coin_device=self._coin_device.model_copy(),
-                sorter=self._sorter.model_copy(),
-                security=self._security.model_copy(),
-                consumables=self._consumables.model_copy(),
+                bill_device=self._bill_device.model_copy(deep=True),
+                coin_device=self._coin_device.model_copy(deep=True),
+                sorter=self._sorter.model_copy(deep=True),
+                security=self._security.model_copy(deep=True),
+                consumables=self._consumables.model_copy(deep=True),
                 timestamp=datetime.utcnow(),
             )
 

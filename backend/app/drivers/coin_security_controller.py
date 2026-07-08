@@ -30,9 +30,11 @@ class CoinSecurityController:
         """Dispense `count` coins of the given denomination (1, 5, 10, 20).
         Duration: ~250ms per coin.
         """
+        settings = self._serial._settings
+        timeout = count * settings.coin_dispense_timeout_factor + settings.coin_dispense_timeout_base
         raw = await self._serial.send_coin_command(
             {"cmd": "COIN_DISPENSE", "denom": denom, "count": count},
-            timeout=count * 0.5 + 3.0,
+            timeout=timeout,
         )
         return self._parse_or_raise(raw, CoinDispenseResponse)
 

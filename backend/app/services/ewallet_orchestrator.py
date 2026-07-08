@@ -283,6 +283,14 @@ class EWalletOrchestrator:
                 )
                 await session.flush()
             resource_id = event.get("resource_id")
+            if not resource_id:
+                logger.warning(f"Gateway event {event_id} missing resource_id")
+                stored_event = await session.get(GatewayEventRecord, event_id)
+                if stored_event:
+                    stored_event.processed = True
+                await session.commit()
+                return {"processed": False, "reason": "resource_id_missing"}
+
             result = await session.execute(
                 select(EWalletTransactionRecord).where(
                     or_(
@@ -437,6 +445,21 @@ class EWalletOrchestrator:
                 raise EWalletTransactionError(
                     "Transaction requires operator reconciliation"
                 )
+            if record.gateway_payment_intent_id:
+                try:
+                    intent = await self._gateway.get_payment_intent(record.gateway_payment_intent_id)
+                    status = (intent.get("attributes") or {}).get("status")
+                    if status in {"succeeded", "paid"}:
+                        record.gateway_status = status
+                        await session.commit()
+                        raise EWalletTransactionError(
+                            "Transaction cannot be cancelled because payment is already completed."
+                        )
+                except EWalletTransactionError:
+                    raise
+                except Exception as exc:
+                    logger.warning(f"Failed to fetch live payment status during cancellation: {exc}")
+
             record.state = "CANCELLED"
             record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
             await session.commit()
@@ -475,6 +498,23 @@ class EWalletOrchestrator:
         async with self._db_factory() as session:
             record = await session.get(EWalletTransactionRecord, transaction_id)
             if record.state in {"COMPLETE", "CLAIM_REQUIRED", "DISPENSING"}:
+                return self._serialize(record)
+            if record.state == "CANCELLED":
+                record.state = "CLAIM_REQUIRED"
+                record.claim_ticket_code = record.claim_ticket_code or _claim_ticket()
+                record.error_code = "LATE_PAYMENT_ON_CANCELLED"
+                record.error_message = "Payment received after transaction was cancelled"
+                record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                await session.commit()
+                if self._receipt_service:
+                    await self._receipt_service.print_claim_ticket(
+                        record,
+                        claim_code=record.claim_ticket_code,
+                        shortfall=record.amount,
+                        error_reason=record.error_message
+                    )
+                await self._broadcast(record, WSEventType.EWALLET_CLAIM_REQUIRED)
+                self._clear_active()
                 return self._serialize(record)
             snapshot = self._status.snapshot()
             plan = calculate_change(
@@ -545,6 +585,23 @@ class EWalletOrchestrator:
             record = await session.get(
                 EWalletTransactionRecord, transaction_id
             )
+            if record.state == "CANCELLED":
+                record.state = "CLAIM_REQUIRED"
+                record.claim_ticket_code = record.claim_ticket_code or _claim_ticket()
+                record.error_code = "LATE_PAYMENT_ON_CANCELLED"
+                record.error_message = "Payment received after transaction was cancelled"
+                record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                await session.commit()
+                if self._receipt_service:
+                    await self._receipt_service.print_claim_ticket(
+                        record,
+                        claim_code=record.claim_ticket_code,
+                        shortfall=record.amount,
+                        error_reason=record.error_message
+                    )
+                await self._broadcast(record, WSEventType.EWALLET_CLAIM_REQUIRED)
+                self._clear_active()
+                return self._serialize(record)
             intent_id = record.gateway_payment_intent_id
             expected_amount = record.amount * 100
         try:

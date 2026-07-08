@@ -123,6 +123,11 @@ class TransactionOrchestrator:
             self._operation_mode.begin_transaction(tx_id)
             self._operation_owner = tx_id
         try:
+            if transaction_type in {"bill-to-bill", "bill-to-coin"}:
+                self._bill_acceptor.set_expected_denomination(f"PHP_{target_amount}")
+            else:
+                self._bill_acceptor.set_expected_denomination(None)
+
             await self._set_coin_acceptor_enabled(
                 transaction_type == "coin-to-bill"
             )
@@ -291,10 +296,15 @@ class TransactionOrchestrator:
         if not db_record:
             raise TransactionError(tx.transaction_id, "Transaction record not found")
 
+        # Deduct fee from inserted amount and auto-adjust target amount to dispense
+        actual_dispense = db_record.inserted_amount - db_record.fee
+        db_record.target_amount = actual_dispense
+        await session.commit()
+
         # Calculate dispense plan
         snapshot = self._status.snapshot()
         plan = calculate_change(
-            db_record.target_amount,
+            actual_dispense,
             snapshot.consumables.bill_dispenser_counts,
             snapshot.consumables.coin_counts,
             preferred_denoms=db_record.selected_dispense_denoms,

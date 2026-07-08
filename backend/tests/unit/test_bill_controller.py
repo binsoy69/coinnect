@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from app.core.constants import BillDenom
 from app.core.errors import HardwareError
@@ -9,6 +9,9 @@ from app.drivers.bill_controller import BillController
 @pytest.fixture
 def mock_serial_manager():
     manager = AsyncMock()
+    manager._settings = MagicMock()
+    manager._settings.serial_sorting_timeout = 20.0
+    manager._settings.serial_homing_timeout = 45.0
     return manager
 
 
@@ -25,7 +28,7 @@ class TestBillControllerSort:
         resp = await controller.sort(BillDenom.PHP_100)
         assert resp.slot == 3
         mock_serial_manager.send_bill_command.assert_called_once_with(
-            {"cmd": "SORT", "denom": "PHP_100"}, timeout=8.0
+            {"cmd": "SORT", "denom": "PHP_100"}, timeout=20.0
         )
 
     async def test_sort_error_raises(self, controller, mock_serial_manager):
@@ -45,13 +48,13 @@ class TestBillControllerHome:
         resp = await controller.home()
         assert resp.position == 0
 
-    async def test_home_uses_12s_timeout(self, controller, mock_serial_manager):
+    async def test_home_uses_configurable_timeout(self, controller, mock_serial_manager):
         mock_serial_manager.send_bill_command.return_value = {
             "status": "OK", "position": 0
         }
         await controller.home()
         _, kwargs = mock_serial_manager.send_bill_command.call_args
-        assert kwargs["timeout"] == 12.0
+        assert kwargs["timeout"] == 45.0
 
 
 class TestBillControllerDispense:

@@ -28,17 +28,19 @@ class BillController:
         """Move sorting rail to the slot for the given denomination.
         Typical: 0.7-5.5s depending on travel distance.
         """
+        timeout = self._serial._settings.serial_sorting_timeout
         raw = await self._serial.send_bill_command(
             {"cmd": "SORT", "denom": denom.value},
-            timeout=8.0,
+            timeout=timeout,
         )
         return self._parse_or_raise(raw, SortResponse)
 
     async def home(self) -> HomeResponse:
         """Home the sorting rail to position 0. Duration: 5-10s."""
+        timeout = self._serial._settings.serial_homing_timeout
         raw = await self._serial.send_bill_command(
             {"cmd": "HOME"},
-            timeout=12.0,
+            timeout=timeout,
         )
         return self._parse_or_raise(raw, HomeResponse)
 

@@ -219,12 +219,19 @@ async def lifespan(app: FastAPI):
         await coin_controller.set_coin_acceptor_enabled(False)
     except Exception as exc:
         logger.warning("Could not disable coin acceptor on startup: %s", exc)
-    try:
-        logger.info("Initializing linear rail sorter homing sequence...")
-        await bill_controller.home()
-        logger.info("Linear rail sorter homed successfully")
-    except Exception as exc:
-        logger.error(f"Failed to home linear rail sorter on startup: {exc}")
+
+    async def _background_home():
+        try:
+            logger.info("Initializing linear rail sorter homing sequence (background)...")
+            await bill_controller.home()
+            logger.info("Linear rail sorter homed successfully")
+        except Exception as exc:
+            logger.error(f"Failed to home linear rail sorter on startup: {exc}")
+
+    import asyncio
+    homing_task = asyncio.create_task(_background_home())
+    app.state._homing_task = homing_task  # prevent GC
+
     await event_dispatcher.start()
 
     # Recover any transactions interrupted by crash/power loss

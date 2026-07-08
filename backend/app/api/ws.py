@@ -26,14 +26,25 @@ class ConnectionManager:
 
     async def broadcast(self, event: WSEvent) -> None:
         message = event.model_dump_json()
-        stale = []
-        for ws in self._connections:
+        if not self._connections:
+            return
+
+        import asyncio
+
+        async def _send(ws: WebSocket) -> WebSocket | None:
             try:
                 await ws.send_text(message)
+                return None
             except Exception:
-                stale.append(ws)
-        for ws in stale:
-            self.disconnect(ws)
+                return ws
+
+        results = await asyncio.gather(
+            *[_send(ws) for ws in self._connections],
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, WebSocket):
+                self.disconnect(result)
 
     @property
     def client_count(self) -> int:

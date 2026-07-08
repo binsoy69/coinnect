@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from app.core.errors import HardwareError
 from app.drivers.coin_security_controller import CoinSecurityController
@@ -7,7 +7,11 @@ from app.drivers.coin_security_controller import CoinSecurityController
 
 @pytest.fixture
 def mock_serial_manager():
-    return AsyncMock()
+    manager = AsyncMock()
+    manager._settings = MagicMock()
+    manager._settings.coin_dispense_timeout_factor = 0.8
+    manager._settings.coin_dispense_timeout_base = 5.0
+    return manager
 
 
 @pytest.fixture

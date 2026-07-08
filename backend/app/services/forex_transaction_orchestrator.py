@@ -31,6 +31,7 @@ from app.models.events import WSEvent, WSEventType
 from app.models.forex import ForexQuote
 from app.services.bill_acceptor import BillAcceptor
 from app.services.dispense_orchestrator import DispenseOrchestrator
+from app.services.change_calculator import calculate_change
 from app.services.forex_change_calculator import calculate_forex_dispense
 from app.services.forex_rate_service import ForexRateService
 from app.services.receipt_service import ReceiptService
@@ -149,8 +150,12 @@ class ForexTransactionOrchestrator:
             self._active_quote = None
             raise ForexError(f"Cannot dispense target amount: {e}")
 
-        # 6. Configure bill acceptor for expected currency
+        # 6. Configure bill acceptor for expected currency and denomination
         self._bill_acceptor.set_expected_currency(from_currency.value)
+        if service_type in {"usd-to-php", "eur-to-php"}:
+            self._bill_acceptor.set_expected_denomination(f"{from_currency.value}_{selected_amount}")
+        else:
+            self._bill_acceptor.set_expected_denomination(None)
 
         # 7. Create DB record
         tx_type = f"forex-{service_type}"
@@ -293,6 +298,22 @@ class ForexTransactionOrchestrator:
             snapshot.consumables.coin_counts,
             preferred_denoms=db_record.selected_dispense_denoms,
         )
+
+        # For PHP-to-Foreign, calculate and combine PHP change plan if overpaid
+        if db_record.from_currency == "PHP" and db_record.inserted_amount > db_record.total_due:
+            php_change = db_record.inserted_amount - db_record.total_due
+            php_bills = {
+                k: v for k, v in snapshot.consumables.bill_dispenser_counts.items()
+                if k.startswith("PHP_")
+            }
+            plan_php = calculate_change(
+                php_change,
+                php_bills,
+                snapshot.consumables.coin_counts,
+                currency="PHP",
+            )
+            plan.items.extend(plan_php.items)
+            plan.total_amount += plan_php.total_amount
 
         db_record.dispense_plan = {
             "items": [item.model_dump() for item in plan.items],
