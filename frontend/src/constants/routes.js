@@ -48,7 +48,6 @@ export const ROUTES = {
   EWALLET_SUCCESS: '/ewallet/:type/success',
 
   // Hidden maintenance routes
-  ADMIN_LOGIN: '/admin/login',
   ADMIN_INVENTORY: '/admin/inventory',
 };
 

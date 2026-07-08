@@ -48,7 +48,6 @@ import {
   EWalletSummaryScreen,
   EWalletSuccessScreen,
 } from '../pages/ewallet';
-import AdminLoginScreen from '../pages/admin/AdminLoginScreen';
 import AdminInventoryScreen from '../pages/admin/AdminInventoryScreen';
 
 export default function AppRoutes() {
@@ -111,7 +110,6 @@ export default function AppRoutes() {
       <Route path={ROUTES.EWALLET_SUCCESS} element={<EWalletSuccessScreen />} />
 
       {/* Hidden Maintenance Flow */}
-      <Route path={ROUTES.ADMIN_LOGIN} element={<AdminLoginScreen />} />
       <Route path={ROUTES.ADMIN_INVENTORY} element={<AdminInventoryScreen />} />
     </Routes>
   );

@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import Button from "../components/common/Button";
@@ -9,21 +8,9 @@ import { ROUTES } from "../constants/routes";
 
 export default function InitialScreen() {
   const navigate = useNavigate();
-  const adminTimer = useRef(null);
 
   const handleStartTransaction = () => {
     navigate(ROUTES.SELECT_TRANSACTION);
-  };
-
-  const startAdminGesture = () => {
-    adminTimer.current = window.setTimeout(() => {
-      navigate(ROUTES.ADMIN_LOGIN);
-    }, 5000);
-  };
-
-  const cancelAdminGesture = () => {
-    window.clearTimeout(adminTimer.current);
-    adminTimer.current = null;
   };
 
   return (
@@ -53,10 +40,6 @@ export default function InitialScreen() {
                   ease: "linear",
                 }}
                 className="mb-8"
-                onPointerDown={startAdminGesture}
-                onPointerUp={cancelAdminGesture}
-                onPointerLeave={cancelAdminGesture}
-                onPointerCancel={cancelAdminGesture}
               >
                 <img
                   src="/assets/Coinnect White.png"

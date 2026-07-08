@@ -575,6 +575,25 @@ The Coinnect system replaces traditional keypad pin authentication with an MFRC5
    {"event":"DOOR_STATE","locked":true}
    ```
 
+3. **Session Broadcast and UI Redirect**:
+   When the Raspberry Pi validates the RFID scan successfully (and no customer transaction is active), it starts a maintenance session and broadcasts a `STATE_CHANGE` event to the frontend UI via WebSockets:
+   ```json
+   {
+     "type": "STATE_CHANGE",
+     "payload": {
+       "mode": "maintenance",
+       "admin_session": {
+         "token": "admin_bearer_token...",
+         "session_id": "session_id_hex...",
+         "expires_at": "timestamp..."
+       }
+     }
+   }
+   ```
+   The React UI automatically receives this broadcast, writes the `token` to `sessionStorage` (under key `"coinnect_admin_token"`), and immediately redirects the user to the **Admin Inventory page (`/admin/inventory`)**.
+
+   No manual technician login or PIN entry screen exists; RFID is the sole access key for maintenance mode.
+
 ---
 
 ## 6.8 Arduino Security Code

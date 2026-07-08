@@ -45,9 +45,7 @@ and Maya cash-in/cash-out integration checks. These checks use the real
 PayMongo sandbox API but do not call GPIO, Arduino, inventory, bill acceptance,
 or cash dispensing code.
 
-For the complete account, API-key, public HTTPS, webhook creation, Money
-Movement, verification, and troubleshooting procedure, see
-[`PAYMONGO_INTEGRATION.md`](PAYMONGO_INTEGRATION.md).
+For the complete account, API-key, public HTTPS, webhook creation, Money Movement, verification, and troubleshooting procedure on Windows/Sandbox, see [`PAYMONGO_INTEGRATION.md`](PAYMONGO_INTEGRATION.md). For production Raspberry Pi configurations, see the root-level [`PAYMONGO_TUNNEL_SETUP.md`](../PAYMONGO_TUNNEL_SETUP.md).
 
 Configure these values in `healthcheck/backend/.env`:
 

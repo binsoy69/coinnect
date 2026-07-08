@@ -38,35 +38,7 @@ class AdminSessionService:
         self._failed_attempts = 0
         self._locked_until: datetime | None = None
 
-    def login(self, pin: str) -> AdminSession:
-        now = self._clock()
-        if self._locked_until and now < self._locked_until:
-            raise AdminAuthError("Admin login is temporarily locked")
-        configured_pin = self._settings.admin_pin
-        if not re.fullmatch(r"\d{4,8}", configured_pin):
-            raise AdminAuthError("Admin PIN is not configured")
-        if not secrets.compare_digest(pin, configured_pin):
-            self._failed_attempts += 1
-            if self._failed_attempts >= self._settings.admin_max_attempts:
-                self._locked_until = now + timedelta(
-                    minutes=self._settings.admin_lockout_minutes
-                )
-            raise AdminAuthError("Invalid admin PIN")
 
-        self._failed_attempts = 0
-        self._locked_until = None
-        session_id = secrets.token_hex(12)
-        self._mode.begin_maintenance(session_id)
-        session = AdminSession(
-            token=secrets.token_urlsafe(32),
-            session_id=session_id,
-            expires_at=now
-            + timedelta(minutes=self._settings.admin_session_minutes),
-        )
-        with self._lock:
-            self._sessions[session.token] = session
-            self._schedule_expiry(session)
-        return session
 
     def login_rfid(self, uid: str) -> AdminSession:
         now = self._clock()

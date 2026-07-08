@@ -12,7 +12,7 @@ from app.services.operation_mode import OperationModeManager
 
 @pytest.fixture
 async def admin_app(db_session_factory, test_settings):
-    test_settings.admin_pin = "2468"
+    test_settings.admin_rfid_uids = "A1B2C3D4"
     status = MachineStatus(test_settings)
     inventory = InventoryService(db_session_factory, status)
     await inventory.initialize()
@@ -26,12 +26,9 @@ async def admin_app(db_session_factory, test_settings):
     return app
 
 
-async def _login(client):
-    response = await client.post(
-        "/api/v1/admin/session", json={"pin": "2468"}
-    )
-    assert response.status_code == 200
-    return response.json()["token"]
+def _login(app):
+    session = app.state.admin_sessions.login_rfid("A1B2C3D4")
+    return session.token
 
 
 async def test_admin_inventory_update_requires_bearer_token(admin_app):
@@ -56,7 +53,7 @@ async def test_admin_inventory_update_requires_bearer_token(admin_app):
 async def test_admin_can_update_inventory_and_read_audit(admin_app):
     transport = ASGITransport(app=admin_app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        token = await _login(client)
+        token = _login(admin_app)
         headers = {"Authorization": f"Bearer {token}"}
         update = await client.put(
             "/api/v1/inventory/",
@@ -87,7 +84,7 @@ async def test_admin_can_update_inventory_and_read_audit(admin_app):
 async def test_logout_invalidates_session(admin_app):
     transport = ASGITransport(app=admin_app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        token = await _login(client)
+        token = _login(admin_app)
         headers = {"Authorization": f"Bearer {token}"}
         logout = await client.delete(
             "/api/v1/admin/session", headers=headers

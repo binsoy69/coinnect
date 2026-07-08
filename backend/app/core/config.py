@@ -45,7 +45,6 @@ class Settings(BaseSettings):
     session_timeout: int = 180
 
     # Maintenance admin access
-    admin_pin: str = ""
     admin_session_minutes: int = 15
     admin_lockout_minutes: int = 5
     admin_max_attempts: int = 5

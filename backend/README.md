@@ -31,9 +31,7 @@ Payment Intents. Live promotion also requires activated live capabilities, a
 funded Wallet, live keys, and HTTPS production callbacks. No custom customer
 mobile application is required or included.
 
-For manual Windows Cloudflare Tunnel setup, callback-only public exposure, and
-live-key smoke testing with mock hardware, see
-[`../healthcheck/PAYMONGO_INTEGRATION.md`](../healthcheck/PAYMONGO_INTEGRATION.md).
+For production Raspberry Pi Cloudflare Tunnel setup and callback-only public exposure, see the root-level [`PAYMONGO_TUNNEL_SETUP.md`](../PAYMONGO_TUNNEL_SETUP.md). For manual Windows sandbox setups and healthcheck integration testing, see [`../healthcheck/PAYMONGO_INTEGRATION.md`](../healthcheck/PAYMONGO_INTEGRATION.md).
 
 - **`app/ml/`**: **Machine Learning**. Code related to loading and running the YOLO models for bill authentication.
 - **`tests/`**: **Automated Tests**. Unit and Integration tests to ensure code quality.
