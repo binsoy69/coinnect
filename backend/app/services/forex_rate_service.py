@@ -11,7 +11,7 @@ Responsibilities:
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import httpx
 
@@ -36,13 +36,20 @@ class ForexRateService:
         await service.stop()
     """
 
-    def __init__(self, settings: Settings, ws_manager: ConnectionManager):
+    def __init__(
+        self,
+        settings: Settings,
+        ws_manager: ConnectionManager,
+        machine_status: Optional[Any] = None,
+    ):
         self._settings = settings
         self._ws = ws_manager
+        self._machine_status = machine_status
         self._cache = ExchangeRateCache()
         self._is_online: bool = False
         self._refresh_task: Optional[asyncio.Task] = None
         self._http_client: Optional[httpx.AsyncClient] = None
+
 
     @property
     def is_online(self) -> bool:
@@ -191,6 +198,9 @@ class ForexRateService:
         except Exception:
             self._is_online = False
 
+        if self._machine_status:
+            self._machine_status.update_connectivity(internet_connected=self._is_online)
+
         if was_online != self._is_online:
             logger.info(
                 f"Forex connectivity: {'online' if self._is_online else 'offline'}"
@@ -200,6 +210,7 @@ class ForexRateService:
                 payload={"online": self._is_online},
             )
             await self._ws.broadcast(event)
+
 
     async def _fetch_rates(self) -> None:
         """Fetch live rates from Frankfurter API.
@@ -256,7 +267,12 @@ class ForexRateService:
     async def _refresh_loop(self) -> None:
         """Periodically refresh rates and check connectivity."""
         while True:
-            await asyncio.sleep(self._settings.forex_rate_refresh_interval)
+            interval = (
+                self._settings.forex_rate_refresh_interval
+                if (self._is_online and self._cache.is_valid)
+                else 30  # Fast retry when offline/invalid
+            )
+            await asyncio.sleep(interval)
             try:
                 await self._check_connectivity()
                 if self._is_online:
@@ -265,3 +281,4 @@ class ForexRateService:
                 raise
             except Exception as e:
                 logger.error(f"Rate refresh error: {e}")
+

@@ -45,6 +45,7 @@ async def ewallet_client():
     gateway.get_payment_intent = AsyncMock()
     gateway.get_batch_transfer = AsyncMock()
     status = MachineStatus(settings)
+    status.update_connectivity(internet_connected=True)
     status.set_dispenser_counts({"PHP_100": 10, "PHP_50": 10, "PHP_20": 10})
     status.set_coin_counts({"PHP_10": 10, "PHP_5": 10, "PHP_1": 10})
     ws = MagicMock()

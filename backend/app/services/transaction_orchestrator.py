@@ -189,6 +189,23 @@ class TransactionOrchestrator:
         result = await self._bill_acceptor.accept_bill()
 
         if not result.success:
+            # Check if this is a critical hardware/jam fault
+            is_critical = result.error and (
+                "jam" in result.error.lower()
+                or "camera" in result.error.lower()
+                or "serial" in result.error.lower()
+                or "hardware" in result.error.lower()
+                or "sensor" in result.error.lower()
+            )
+            if is_critical:
+                logger.error(f"Critical hardware fault detected during bill acceptance: {result.error}")
+                await tx.transition_to(
+                    TransactionState.ERROR,
+                    {"error_code": "HARDWARE_FAULT", "error_message": result.error},
+                )
+                self._clear_active()
+                return await self.get_transaction_state(tx.transaction_id)
+
             # Bill rejected - go back to WAITING_FOR_BILL
             await tx.transition_to(
                 TransactionState.WAITING_FOR_BILL,
@@ -197,6 +214,7 @@ class TransactionOrchestrator:
             # Reset timeout since user is still active
             tx.reset_timeout()
             return await self.get_transaction_state(tx.transaction_id)
+
 
         # Bill accepted - transition through SORTING back to WAITING_FOR_BILL
         await tx.transition_to(
@@ -388,38 +406,33 @@ class TransactionOrchestrator:
         Returns:
             Dict with all transaction fields.
         """
-        session = self._active_session
-        if session is None:
-            session = self._db_factory()
+        async with self._db_factory() as session:
+            db_record = await self._get_db_record(session, transaction_id)
+            if not db_record:
+                raise TransactionError(transaction_id, "Transaction not found")
 
-        db_record = await self._get_db_record(session, transaction_id)
-        if not db_record:
-            raise TransactionError(transaction_id, "Transaction not found")
-
-        result = {
-            "transaction_id": db_record.id,
-            "type": db_record.type,
-            "state": db_record.state,
-            "target_amount": db_record.target_amount,
-            "fee": db_record.fee,
-            "total_due": db_record.total_due,
-            "inserted_amount": db_record.inserted_amount,
-            "dispensed_amount": db_record.dispensed_amount,
-            "inserted_denominations": db_record.inserted_denominations or {},
-            "dispense_plan": db_record.dispense_plan,
-            "dispense_result": db_record.dispense_result,
-            "selected_dispense_denoms": db_record.selected_dispense_denoms or [],
-            "error_code": db_record.error_code,
-            "error_message": db_record.error_message,
-            "created_at": db_record.created_at.isoformat() if db_record.created_at else None,
-            "updated_at": db_record.updated_at.isoformat() if db_record.updated_at else None,
-            "completed_at": db_record.completed_at.isoformat() if db_record.completed_at else None,
-        }
-
-        if session != self._active_session:
-            await session.close()
+            result = {
+                "transaction_id": db_record.id,
+                "type": db_record.type,
+                "state": db_record.state,
+                "target_amount": db_record.target_amount,
+                "fee": db_record.fee,
+                "total_due": db_record.total_due,
+                "inserted_amount": db_record.inserted_amount,
+                "dispensed_amount": db_record.dispensed_amount,
+                "inserted_denominations": db_record.inserted_denominations or {},
+                "dispense_plan": db_record.dispense_plan,
+                "dispense_result": db_record.dispense_result,
+                "selected_dispense_denoms": db_record.selected_dispense_denoms or [],
+                "error_code": db_record.error_code,
+                "error_message": db_record.error_message,
+                "created_at": db_record.created_at.isoformat() if db_record.created_at else None,
+                "updated_at": db_record.updated_at.isoformat() if db_record.updated_at else None,
+                "completed_at": db_record.completed_at.isoformat() if db_record.completed_at else None,
+            }
 
         return result
+
 
     async def recover_pending_transactions(self) -> None:
         """Recover from pending WAL entries on startup.

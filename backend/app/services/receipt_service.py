@@ -26,6 +26,63 @@ class ReceiptService:
         self._settings = settings
         self._width = PAPERANG_WIDTH
         self._paperang_module = None
+        self._printer_connected = False
+
+    async def check_connection(self) -> bool:
+        """Verify Bluetooth connection to Paperang P1 at startup.
+        
+        Attempts connection thread-safely in a threadpool.
+        """
+        if not self._settings.paperang_enabled:
+            logger.info("Paperang printing is disabled in configuration.")
+            self._printer_connected = False
+            return False
+
+        if self._settings.use_mock_hardware:
+            logger.info("[MOCK PRINTER] Connection verified (mock).")
+            self._printer_connected = True
+            return True
+
+        def _verify() -> bool:
+            repo_path = self._resolve_paperang_repo_path()
+            hardware_module = repo_path / "hardware.py"
+            if not hardware_module.exists():
+                logger.error(f"Paperang support module not found: {hardware_module}")
+                return False
+            try:
+                module = self._load_vendor_hardware(hardware_module, repo_path)
+                mac_address = self._settings.paperang_mac_address or None
+                import socket
+                old_timeout = socket.getdefaulttimeout()
+                socket.setdefaulttimeout(10.0)
+                try:
+                    printer = module.Paperang(mac_address)
+                    is_connected = getattr(printer, "connected", False)
+                    if printer is not None:
+                        printer.disconnect()
+                    return is_connected
+                finally:
+                    socket.setdefaulttimeout(old_timeout)
+            except Exception as e:
+                logger.error(f"Failed to verify Paperang connection: {e}")
+                return False
+
+        try:
+            self._printer_connected = await asyncio.wait_for(
+                asyncio.to_thread(_verify),
+                timeout=15.0
+            )
+        except Exception as exc:
+            logger.error(f"Timeout or error verifying Paperang connection: {exc}")
+            self._printer_connected = False
+
+        return self._printer_connected
+
+    @property
+    def is_connected(self) -> bool:
+        """Return cached connection status of the Paperang printer."""
+        return self._printer_connected
+
 
     def _resolve_paperang_repo_path(self) -> Path:
         configured_path = Path(self._settings.paperang_repo_path)

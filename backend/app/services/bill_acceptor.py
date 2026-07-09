@@ -73,6 +73,7 @@ class BillAcceptor:
         self._inventory = inventory_service
         self._expected_currency: Optional[str] = None
         self._expected_denomination: Optional[str] = None
+        self._last_bill_cleared: bool = True
 
     def set_expected_denomination(self, denomination: Optional[str]) -> None:
         """Configure the bill acceptor to expect a specific denomination (e.g. 'PHP_100')."""
@@ -101,6 +102,23 @@ class BillAcceptor:
         """
         if timeout is None:
             timeout = self._settings.bill_acceptance_timeout
+
+        # If a bill was previously ejected but not cleared, wait for the entry sensor to clear first.
+        if not self._last_bill_cleared:
+            if await self._gpio.is_bill_at_entry():
+                logger.warning("Bill entry sensor is blocked by previous ejected bill. Waiting for clearance...")
+                clear_deadline = asyncio.get_event_loop().time() + 10.0
+                while asyncio.get_event_loop().time() < clear_deadline:
+                    await asyncio.sleep(0.1)
+                    if not (await self._gpio.is_bill_at_entry()):
+                        logger.info("Previous bill cleared.")
+                        self._last_bill_cleared = True
+                        break
+                else:
+                    logger.error("JAM: Previous bill remained blocked for 10 seconds")
+                    raise RuntimeError("JAM: Previous bill not removed")
+            else:
+                self._last_bill_cleared = True
 
         deadline = asyncio.get_event_loop().time() + timeout
         while asyncio.get_event_loop().time() < deadline:
@@ -337,6 +355,7 @@ class BillAcceptor:
 
     async def _eject_bill(self) -> None:
         """Reverse motor to eject bill back to user."""
+        self._last_bill_cleared = False
         await self._gpio.motor_reverse(self._settings.bill_eject_speed)
         await asyncio.sleep(self._settings.bill_eject_duration)
         await self._gpio.motor_stop()

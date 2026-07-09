@@ -95,6 +95,37 @@ static volatile unsigned long lastShockBMs = 0;
 
 static long currentCommandId = -1;
 
+// Non-blocking sorter and acceptance state variables
+static bool sorterMoving = false;
+static unsigned long sorterMoveStartMs = 0;
+static bool coinHoldActive = false;
+static unsigned long coinHoldStartMs = 0;
+static bool coinAcceptorShouldBeEnabled = false;
+
+// Non-blocking coin dispensing state variables
+static bool dispenseActive = false;
+static int dispenseDenom = 0;
+static int dispenseTargetCount = 0;
+static int dispenseActualCount = 0;
+static uint8_t dispenseDispenserIndex = 0;
+
+enum DispenseStep {
+  DISPENSE_STEP_IDLE,
+  DISPENSE_STEP_SWEEP_OUT,
+  DISPENSE_STEP_SWEEP_IN,
+  DISPENSE_STEP_SETTLE
+};
+static DispenseStep dispenseStep = DISPENSE_STEP_IDLE;
+static unsigned long dispenseStepStartMs = 0;
+static const char *dispenseCommandContext = "DISPENSE";
+
+static int changeC20 = 0;
+static int changeC10 = 0;
+static int changeC5 = 0;
+static int changeC1 = 0;
+static int changeState = 0; // 0=20, 1=10, 2=5, 3=1, 4=done
+
+
 void sendDocument(JsonDocument &doc) {
   if (currentCommandId >= 0) {
     doc["id"] = currentCommandId;
@@ -190,7 +221,8 @@ const char *sorterPositionForDenom(int denom) {
 void setCoinSorterPosition(const char *position) {
   coinSorterPosition = position;
   coinSorterServo.write(sorterAngleForPosition(position));
-  delay(COIN_SORTER_SETTLE_MS);
+  sorterMoving = true;
+  sorterMoveStartMs = millis();
 }
 
 void clearCoinPulseTrain() {
@@ -240,6 +272,7 @@ void blinkTamperLed() {
 
 void handleTamper(const char *sensor) {
   tamperLatched = true;
+  coinAcceptorShouldBeEnabled = false;
   setCoinAcceptorEnabled(false);
   setCoinSorterPosition("CENTER");
   lockDoor(true);
@@ -308,6 +341,31 @@ void serviceTamperEvents() {
   }
 }
 
+void serviceSorter() {
+  if (sorterMoving) {
+    if (millis() - sorterMoveStartMs >= COIN_SORTER_SETTLE_MS) {
+      sorterMoving = false;
+      if (strcmp(coinSorterPosition, "CENTER") == 0) {
+        if (coinAcceptorShouldBeEnabled && !tamperLatched) {
+          setCoinAcceptorEnabled(true);
+        }
+      }
+    }
+  }
+}
+
+void serviceCoinHold() {
+  if (coinHoldActive && !sorterMoving) {
+    if (millis() - coinHoldStartMs >= COIN_SORTER_HOLD_MS) {
+      coinHoldActive = false;
+      coinSorterPosition = "CENTER";
+      coinSorterServo.write(sorterAngleForPosition("CENTER"));
+      sorterMoving = true;
+      sorterMoveStartMs = millis();
+    }
+  }
+}
+
 void serviceCoinPulseTrain() {
   uint8_t pulses = 0;
   const unsigned long now = millis();
@@ -336,65 +394,119 @@ void serviceCoinPulseTrain() {
   }
 
   coinSessionTotal += denom;
-  setCoinAcceptorEnabled(false);
-  setCoinSorterPosition(sorterPositionForDenom(denom));
+  
+  // Disable acceptor physically during sorting
+  coinAcceptorEnabled = false;
+  digitalWrite(COIN_ACCEPTOR_ENABLE_PIN, LOW);
+  clearCoinPulseTrain();
+
+  // Move sorter to denomination position non-blockingly
+  const char *targetPos = sorterPositionForDenom(denom);
+  coinSorterPosition = targetPos;
+  coinSorterServo.write(sorterAngleForPosition(targetPos));
+  sorterMoving = true;
+  sorterMoveStartMs = now;
+
   sendCoinInEvent(denom);
-  delay(COIN_SORTER_HOLD_MS);
-  setCoinSorterPosition("CENTER");
-  if (!tamperLatched) {
-    setCoinAcceptorEnabled(true);
-  }
+
+  coinHoldActive = true;
+  coinHoldStartMs = now;
 }
 
-bool dispenseSingleCoin(uint8_t dispenserIndex) {
-  serviceTamperEvents();
+void serviceDispense() {
+  if (!dispenseActive) {
+    return;
+  }
+
   if (tamperLatched) {
-    return false;
+    sendError("LOCKED_OUT", dispenseActualCount);
+    dispenseActive = false;
+    return;
   }
 
-  CoinDispenser &dispenser = coinDispensers[dispenserIndex];
-  Servo *servo = dispenser.servo;
-  if (dispenser.pushToResetFirst) {
-    for (int pos = SERVO_PUSH_DEG; pos >= SERVO_RESET_DEG; pos--) {
-      servo->write(pos);
-      delay(SERVO_STEP_TIME_MS);
+  const unsigned long now = millis();
+
+  switch (dispenseStep) {
+    case DISPENSE_STEP_IDLE: {
+      if (dispenseTargetCount == 0 || dispenseActualCount >= dispenseTargetCount) {
+        if (strcmp(dispenseCommandContext, "CHANGE") == 0) {
+          changeState++;
+          int nextDenom = -1;
+          int nextCount = 0;
+          if (changeState == 1) { nextDenom = 10; nextCount = changeC10; }
+          else if (changeState == 2) { nextDenom = 5; nextCount = changeC5; }
+          else if (changeState == 3) { nextDenom = 1; nextCount = changeC1; }
+          
+          if (nextDenom != -1 && nextCount > 0) {
+            dispenseDenom = nextDenom;
+            dispenseTargetCount = nextCount;
+            dispenseActualCount = 0;
+            dispenseDispenserIndex = findCoinDispenser(nextDenom);
+            if (dispenseDispenserIndex < 0) {
+              sendError("INVALID_DENOM", dispenseActualCount);
+              dispenseActive = false;
+              return;
+            }
+            dispenseStep = DISPENSE_STEP_SWEEP_OUT;
+            dispenseStepStartMs = now;
+            CoinDispenser &disp = coinDispensers[dispenseDispenserIndex];
+            disp.servo->write(disp.pushToResetFirst ? SERVO_RESET_DEG : SERVO_PUSH_DEG);
+          } else if (changeState >= 4 || nextDenom == -1) {
+            StaticJsonDocument<160> doc;
+            doc["status"] = "OK";
+            JsonObject breakdown = doc.createNestedObject("breakdown");
+            if (changeC20 > 0) breakdown["20"] = changeC20;
+            if (changeC10 > 0) breakdown["10"] = changeC10;
+            if (changeC5 > 0) breakdown["5"] = changeC5;
+            if (changeC1 > 0) breakdown["1"] = changeC1;
+            sendDocument(doc);
+            dispenseActive = false;
+          }
+        } else {
+          StaticJsonDocument<96> doc;
+          doc["status"] = "OK";
+          doc["dispensed"] = dispenseActualCount;
+          sendDocument(doc);
+          dispenseActive = false;
+        }
+        return;
+      }
+
+      dispenseStep = DISPENSE_STEP_SWEEP_OUT;
+      dispenseStepStartMs = now;
+      CoinDispenser &disp = coinDispensers[dispenseDispenserIndex];
+      disp.servo->write(disp.pushToResetFirst ? SERVO_RESET_DEG : SERVO_PUSH_DEG);
+      break;
     }
-    for (int pos = SERVO_RESET_DEG; pos <= SERVO_PUSH_DEG; pos++) {
-      servo->write(pos);
-      delay(SERVO_STEP_TIME_MS);
+
+    case DISPENSE_STEP_SWEEP_OUT: {
+      if (now - dispenseStepStartMs >= 250) {
+        dispenseStep = DISPENSE_STEP_SWEEP_IN;
+        dispenseStepStartMs = now;
+        CoinDispenser &disp = coinDispensers[dispenseDispenserIndex];
+        disp.servo->write(disp.pushToResetFirst ? SERVO_PUSH_DEG : SERVO_RESET_DEG);
+      }
+      break;
     }
-  } else {
-    for (int pos = SERVO_RESET_DEG; pos <= SERVO_PUSH_DEG; pos++) {
-      servo->write(pos);
-      delay(SERVO_STEP_TIME_MS);
+
+    case DISPENSE_STEP_SWEEP_IN: {
+      if (now - dispenseStepStartMs >= 250) {
+        dispenseStep = DISPENSE_STEP_SETTLE;
+        dispenseStepStartMs = now;
+      }
+      break;
     }
-    for (int pos = SERVO_PUSH_DEG; pos >= SERVO_RESET_DEG; pos--) {
-      servo->write(pos);
-      delay(SERVO_STEP_TIME_MS);
+
+    case DISPENSE_STEP_SETTLE: {
+      if (now - dispenseStepStartMs >= SERVO_CYCLE_SETTLE_MS) {
+        dispenseActualCount++;
+        dispenseStep = DISPENSE_STEP_IDLE;
+      }
+      break;
     }
   }
-  delay(SERVO_CYCLE_SETTLE_MS);
-  return !tamperLatched;
 }
 
-int dispenseCoinsByDenom(int denom, int count, const char **errorCode) {
-  *errorCode = nullptr;
-  const int dispenserIndex = findCoinDispenser(denom);
-  if (dispenserIndex < 0) {
-    *errorCode = "INVALID_DENOM";
-    return 0;
-  }
-
-  int dispensed = 0;
-  for (int i = 0; i < count; i++) {
-    if (!dispenseSingleCoin((uint8_t)dispenserIndex)) {
-      *errorCode = "LOCKED_OUT";
-      return dispensed;
-    }
-    dispensed++;
-  }
-  return dispensed;
-}
 
 void calculateCoinBreakdown(int amount, int &c20, int &c10, int &c5, int &c1) {
   c20 = amount / 20;
@@ -431,9 +543,12 @@ void handleReset() {
   coinSessionTotal = 0;
   tamperLatched = false;
   securityArmed = true; // Armed during initialization/reconciliation
+  coinAcceptorShouldBeEnabled = false;
   setCoinAcceptorEnabled(false);
   setCoinSorterPosition("CENTER");
   lockDoor(true);
+
+  dispenseActive = false; // Abort any active coin dispensing
 
   StaticJsonDocument<64> doc;
   doc["status"] = "OK";
@@ -441,6 +556,10 @@ void handleReset() {
 }
 
 void handleCoinDispense(JsonDocument &cmdDoc) {
+  if (dispenseActive) {
+    sendError("BUSY");
+    return;
+  }
   const int denom = cmdDoc["denom"] | 0;
   const int count = cmdDoc["count"] | 0;
 
@@ -457,20 +576,25 @@ void handleCoinDispense(JsonDocument &cmdDoc) {
     return;
   }
 
-  const char *errorCode = nullptr;
-  const int dispensed = dispenseCoinsByDenom(denom, count, &errorCode);
-  if (errorCode != nullptr) {
-    sendError(errorCode, dispensed);
+  dispenseDispenserIndex = findCoinDispenser(denom);
+  if (dispenseDispenserIndex < 0) {
+    sendError("INVALID_DENOM");
     return;
   }
 
-  StaticJsonDocument<96> doc;
-  doc["status"] = "OK";
-  doc["dispensed"] = dispensed;
-  sendDocument(doc);
+  dispenseActive = true;
+  dispenseDenom = denom;
+  dispenseTargetCount = count;
+  dispenseActualCount = 0;
+  dispenseCommandContext = "DISPENSE";
+  dispenseStep = DISPENSE_STEP_IDLE;
 }
 
 void handleCoinChange(JsonDocument &cmdDoc) {
+  if (dispenseActive) {
+    sendError("BUSY");
+    return;
+  }
   const int amount = cmdDoc["amount"] | 0;
   if (amount < 1) {
     sendError("INVALID_COUNT");
@@ -481,53 +605,62 @@ void handleCoinChange(JsonDocument &cmdDoc) {
     return;
   }
 
-  int c20 = 0;
-  int c10 = 0;
-  int c5 = 0;
-  int c1 = 0;
-  calculateCoinBreakdown(amount, c20, c10, c5, c1);
+  calculateCoinBreakdown(amount, changeC20, changeC10, changeC5, changeC1);
 
-  const char *errorCode = nullptr;
-  int dispensed = 0;
-  dispensed += dispenseCoinsByDenom(20, c20, &errorCode);
-  if (errorCode == nullptr) {
-    dispensed += dispenseCoinsByDenom(10, c10, &errorCode);
+  dispenseActive = true;
+  dispenseCommandContext = "CHANGE";
+  changeState = 0; // Starts with PHP 20
+  
+  // Set up first denomination to dispense
+  int firstDenom = 20;
+  int firstCount = changeC20;
+  
+  if (firstCount == 0) {
+    changeState = 1;
+    firstDenom = 10;
+    firstCount = changeC10;
   }
-  if (errorCode == nullptr) {
-    dispensed += dispenseCoinsByDenom(5, c5, &errorCode);
+  if (firstCount == 0) {
+    changeState = 2;
+    firstDenom = 5;
+    firstCount = changeC5;
   }
-  if (errorCode == nullptr) {
-    dispensed += dispenseCoinsByDenom(1, c1, &errorCode);
-  }
-  if (errorCode != nullptr) {
-    sendError(errorCode, dispensed);
-    return;
+  if (firstCount == 0) {
+    changeState = 3;
+    firstDenom = 1;
+    firstCount = changeC1;
   }
 
-  StaticJsonDocument<160> doc;
-  doc["status"] = "OK";
-  JsonObject breakdown = doc.createNestedObject("breakdown");
-  if (c20 > 0) {
-    breakdown["20"] = c20;
+  if (firstCount > 0) {
+    dispenseDenom = firstDenom;
+    dispenseTargetCount = firstCount;
+    dispenseActualCount = 0;
+    dispenseDispenserIndex = findCoinDispenser(firstDenom);
+    if (dispenseDispenserIndex < 0) {
+      sendError("INVALID_DENOM");
+      dispenseActive = false;
+      return;
+    }
+    dispenseStep = DISPENSE_STEP_IDLE;
+  } else {
+    // Nothing to dispense
+    StaticJsonDocument<160> doc;
+    doc["status"] = "OK";
+    JsonObject breakdown = doc.createNestedObject("breakdown");
+    sendDocument(doc);
+    dispenseActive = false;
   }
-  if (c10 > 0) {
-    breakdown["10"] = c10;
-  }
-  if (c5 > 0) {
-    breakdown["5"] = c5;
-  }
-  if (c1 > 0) {
-    breakdown["1"] = c1;
-  }
-  sendDocument(doc);
 }
 
 void handleCoinReset() {
   const int previousTotal = coinSessionTotal;
   coinSessionTotal = 0;
 
+  coinAcceptorShouldBeEnabled = false;
   setCoinAcceptorEnabled(false);
   setCoinSorterPosition("CENTER");
+
+  dispenseActive = false; // Abort any active coin dispensing
 
   StaticJsonDocument<96> doc;
   doc["status"] = "OK";
@@ -547,6 +680,7 @@ void handleCoinAcceptorEnable(JsonDocument &cmdDoc) {
     return;
   }
 
+  coinAcceptorShouldBeEnabled = enabled;
   setCoinAcceptorEnabled(enabled);
 
   StaticJsonDocument<96> doc;
@@ -554,6 +688,7 @@ void handleCoinAcceptorEnable(JsonDocument &cmdDoc) {
   doc["enabled"] = (bool)coinAcceptorEnabled;
   sendDocument(doc);
 }
+
 
 void handleCoinStatus() {
   StaticJsonDocument<160> doc;
@@ -741,7 +876,11 @@ void serviceRFID() {
 
 void loop() {
   serviceTamperEvents();
+  serviceSorter();
+  serviceCoinHold();
   serviceCoinPulseTrain();
+  serviceDispense();
   serviceRFID();
   handleSerialInput();
 }
+

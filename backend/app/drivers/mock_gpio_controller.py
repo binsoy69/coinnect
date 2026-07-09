@@ -67,6 +67,8 @@ class MockGPIOController(GPIOControllerBase):
 
     async def motor_stop(self) -> None:
         self.call_log.append("motor_stop")
+        if self.motor_state == "reverse":
+            self._bill_at_entry = False  # Simulate user removing the ejected bill
         self.motor_state = "stopped"
         self.motor_speed = 0
         self._motor_forward_start_time = None
@@ -95,6 +97,7 @@ class MockGPIOController(GPIOControllerBase):
             elapsed = asyncio.get_event_loop().time() - self._motor_forward_start_time
             if elapsed >= self.bill_at_position_delay:
                 self._bill_at_position = True
+                self._bill_at_entry = False  # Bill has moved inside
                 return True
         return self._bill_at_position
 

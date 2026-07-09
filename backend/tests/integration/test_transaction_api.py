@@ -154,11 +154,12 @@ async def client(test_app):
 # ---------------------------------------------------------------------------
 
 START_PAYLOAD = {
-    "type": "bill-to-bill",
+    "type": "coin-to-bill",
     "amount": 200,
     "fee": 0,
     "selected_dispense_denoms": [100, 50],
 }
+
 
 
 async def _start_transaction(client: AsyncClient, payload: dict = None):
@@ -188,7 +189,13 @@ class TestStartTransaction:
     """Tests for the transaction creation endpoint."""
 
     async def test_start_returns_200_with_transaction_id(self, client):
-        resp = await _start_transaction(client)
+        payload = {
+            "type": "bill-to-bill",
+            "amount": 200,
+            "fee": 0,
+            "selected_dispense_denoms": [100, 50],
+        }
+        resp = await _start_transaction(client, payload)
         assert resp.status_code == 200
         body = resp.json()
         assert "transaction_id" in body
@@ -239,7 +246,13 @@ class TestGetTransaction:
     """Tests for the transaction read endpoint."""
 
     async def test_get_returns_current_state(self, client):
-        start = (await _start_transaction(client)).json()
+        payload = {
+            "type": "bill-to-bill",
+            "amount": 200,
+            "fee": 0,
+            "selected_dispense_denoms": [100, 50],
+        }
+        start = (await _start_transaction(client, payload)).json()
         tx_id = start["transaction_id"]
 
         resp = await client.get(f"/api/v1/transaction/{tx_id}")
@@ -454,7 +467,7 @@ class TestFullLifecycle:
     async def test_lifecycle_with_overpayment(self, client):
         """Insert more than target_amount; confirm still dispenses target."""
         payload = {
-            "type": "bill-to-bill",
+            "type": "coin-to-bill",
             "amount": 100,
             "fee": 0,
             "selected_dispense_denoms": [50, 20],
@@ -500,7 +513,7 @@ class TestFullLifecycle:
     async def test_lifecycle_with_fee(self, client):
         """Transaction with a fee requires inserted_amount >= target_amount + fee."""
         payload = {
-            "type": "bill-to-bill",
+            "type": "coin-to-bill",
             "amount": 100,
             "fee": 50,
             "selected_dispense_denoms": [100, 50],

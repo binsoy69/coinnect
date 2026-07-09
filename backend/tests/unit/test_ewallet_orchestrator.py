@@ -28,6 +28,7 @@ async def ewallet_dependencies():
         ],
     )
     status = MachineStatus(settings)
+    status.update_connectivity(internet_connected=True)
     status.set_dispenser_counts({"PHP_100": 20, "PHP_50": 20, "PHP_20": 20})
     status.set_coin_counts({"PHP_10": 20, "PHP_5": 20, "PHP_1": 20})
     gateway = MagicMock()

@@ -241,12 +241,30 @@ class ForexTransactionOrchestrator:
         result = await self._bill_acceptor.accept_bill()
 
         if not result.success:
+            # Check if this is a critical hardware/jam fault
+            is_critical = result.error and (
+                "jam" in result.error.lower()
+                or "camera" in result.error.lower()
+                or "serial" in result.error.lower()
+                or "hardware" in result.error.lower()
+                or "sensor" in result.error.lower()
+            )
+            if is_critical:
+                logger.error(f"Critical hardware fault detected during forex bill acceptance: {result.error}")
+                await tx.transition_to(
+                    TransactionState.ERROR,
+                    {"error_code": "HARDWARE_FAULT", "error_message": result.error},
+                )
+                self._clear_active()
+                return await self.get_transaction_state(tx.transaction_id)
+
             await tx.transition_to(
                 TransactionState.WAITING_FOR_BILL,
                 {"last_rejection": result.error},
             )
             tx.reset_timeout()
             return await self.get_transaction_state(tx.transaction_id)
+
 
         # Bill accepted
         await tx.transition_to(
@@ -371,42 +389,40 @@ class ForexTransactionOrchestrator:
 
     async def get_transaction_state(self, transaction_id: str) -> dict:
         """Get full state including forex-specific fields."""
-        session = self._active_session or self._db_factory()
-        db_record = await self._get_db_record(session, transaction_id)
-        if not db_record:
-            raise TransactionError(transaction_id, "Transaction not found")
+        async with self._db_factory() as session:
+            db_record = await self._get_db_record(session, transaction_id)
+            if not db_record:
+                raise TransactionError(transaction_id, "Transaction not found")
 
-        result = {
-            "transaction_id": db_record.id,
-            "type": db_record.type,
-            "state": db_record.state,
-            "target_amount": db_record.target_amount,
-            "fee": db_record.fee,
-            "total_due": db_record.total_due,
-            "inserted_amount": db_record.inserted_amount,
-            "dispensed_amount": db_record.dispensed_amount,
-            "inserted_denominations": db_record.inserted_denominations or {},
-            "dispense_plan": db_record.dispense_plan,
-            "dispense_result": db_record.dispense_result,
-            "selected_dispense_denoms": db_record.selected_dispense_denoms or [],
-            "error_code": db_record.error_code,
-            "error_message": db_record.error_message,
-            "created_at": db_record.created_at.isoformat() if db_record.created_at else None,
-            "updated_at": db_record.updated_at.isoformat() if db_record.updated_at else None,
-            "completed_at": db_record.completed_at.isoformat() if db_record.completed_at else None,
-            # Forex-specific
-            "from_currency": db_record.from_currency,
-            "to_currency": db_record.to_currency,
-            "exchange_rate": db_record.exchange_rate,
-            "rate_locked_at": db_record.rate_locked_at.isoformat() if db_record.rate_locked_at else None,
-            "forex_fee_percentage": db_record.forex_fee_percentage,
-            "converted_amount": db_record.converted_amount,
-        }
-
-        if session != self._active_session:
-            await session.close()
+            result = {
+                "transaction_id": db_record.id,
+                "type": db_record.type,
+                "state": db_record.state,
+                "target_amount": db_record.target_amount,
+                "fee": db_record.fee,
+                "total_due": db_record.total_due,
+                "inserted_amount": db_record.inserted_amount,
+                "dispensed_amount": db_record.dispensed_amount,
+                "inserted_denominations": db_record.inserted_denominations or {},
+                "dispense_plan": db_record.dispense_plan,
+                "dispense_result": db_record.dispense_result,
+                "selected_dispense_denoms": db_record.selected_dispense_denoms or [],
+                "error_code": db_record.error_code,
+                "error_message": db_record.error_message,
+                "created_at": db_record.created_at.isoformat() if db_record.created_at else None,
+                "updated_at": db_record.updated_at.isoformat() if db_record.updated_at else None,
+                "completed_at": db_record.completed_at.isoformat() if db_record.completed_at else None,
+                # Forex-specific
+                "from_currency": db_record.from_currency,
+                "to_currency": db_record.to_currency,
+                "exchange_rate": db_record.exchange_rate,
+                "rate_locked_at": db_record.rate_locked_at.isoformat() if db_record.rate_locked_at else None,
+                "forex_fee_percentage": db_record.forex_fee_percentage,
+                "converted_amount": db_record.converted_amount,
+            }
 
         return result
+
 
     def _require_active(self) -> TransactionStateMachine:
         if self._active_tx is None:

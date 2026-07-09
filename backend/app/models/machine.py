@@ -63,4 +63,7 @@ class MachineStateSnapshot(BaseModel):
     sorter: SorterState = Field(default_factory=SorterState)
     security: SecurityState = Field(default_factory=SecurityState)
     consumables: ConsumablesState = Field(default_factory=ConsumablesState)
+    printer_connected: bool = False
+    internet_connected: bool = False
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+

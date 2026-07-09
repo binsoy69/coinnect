@@ -63,8 +63,13 @@ class BillAuthenticatorBase(ABC):
     ) -> BillAuthResult:
         """Identify bill denomination from visible light image."""
 
+    async def preload_models(self) -> None:
+        """Pre-load ML models into memory."""
+        pass
+
 
 class YOLOBillAuthenticator(BillAuthenticatorBase):
+
     """YOLO-based bill authentication using Ultralytics.
 
     Models are loaded lazily on first use to avoid slow startup.
@@ -106,9 +111,28 @@ class YOLOBillAuthenticator(BillAuthenticatorBase):
             raise ValueError(f"No models available for currency: {currency}")
         self._active_currency = currency
 
+    async def preload_models(self) -> None:
+        """Asynchronously pre-load all configured YOLO models."""
+        self._ensure_loop()
+        
+        def _preload():
+            logger.info("Pre-loading YOLO ML models (background task)...")
+            for currency in self._model_paths.keys():
+                for model_type in ["auth", "denom"]:
+                    try:
+                        self._load_model(currency, model_type)
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to preload {model_type} model for {currency}: {e}"
+                        )
+            logger.info("YOLO ML models pre-loading complete")
+
+        await self._loop.run_in_executor(None, _preload)
+
     def _ensure_loop(self) -> None:
         if self._loop is None:
             self._loop = asyncio.get_event_loop()
+
 
     def _load_model(self, currency: str, model_type: str):
         """Lazily load a model for the given currency and type."""

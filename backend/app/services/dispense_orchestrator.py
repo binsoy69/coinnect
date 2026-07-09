@@ -86,10 +86,17 @@ class DispenseOrchestrator:
 
             # Phase 2: Dispense bills
             for item in plan.bill_items:
-                actual = await self._dispense_bill_denom(item)
-                dispensed_bills[item.denom] = actual
-                total_dispensed += actual * item.value
-                completed_items += 1
+                try:
+                    actual = await self._dispense_bill_denom(item)
+                    dispensed_bills[item.denom] = actual
+                    total_dispensed += actual * item.value
+                    completed_items += 1
+                except Exception as e:
+                    actual = getattr(e, "dispensed", 0) or 0
+                    dispensed_bills[item.denom] = actual
+                    total_dispensed += actual * item.value
+                    completed_items += 1
+                    raise
 
                 await self._broadcast_progress(
                     completed_items, total_items, dispensed_bills, dispensed_coins, total_dispensed
@@ -104,10 +111,17 @@ class DispenseOrchestrator:
             # Phase 3: Dispense coins (only if bills succeeded)
             if error_msg is None:
                 for item in plan.coin_items:
-                    actual = await self._dispense_coin_denom(item)
-                    dispensed_coins[item.denom] = actual
-                    total_dispensed += actual * item.value
-                    completed_items += 1
+                    try:
+                        actual = await self._dispense_coin_denom(item)
+                        dispensed_coins[item.denom] = actual
+                        total_dispensed += actual * item.value
+                        completed_items += 1
+                    except Exception as e:
+                        actual = getattr(e, "dispensed", 0) or 0
+                        dispensed_coins[item.denom] = actual
+                        total_dispensed += actual * item.value
+                        completed_items += 1
+                        raise
 
                     await self._broadcast_progress(
                         completed_items, total_items, dispensed_bills, dispensed_coins, total_dispensed
@@ -121,6 +135,7 @@ class DispenseOrchestrator:
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Dispense error: {e}", exc_info=True)
+
 
         # Phase 4: Reconcile
         shortfall = plan.total_amount - total_dispensed

@@ -32,6 +32,8 @@ class MachineStatus:
         self._sorter = SorterState()
         self._security = SecurityState()
         self._consumables = ConsumablesState()
+        self._printer_connected = False
+        self._internet_connected = False
 
         self._on_change: Optional[Callable] = None
 
@@ -43,8 +45,29 @@ class MachineStatus:
                 sorter=self._sorter.model_copy(deep=True),
                 security=self._security.model_copy(deep=True),
                 consumables=self._consumables.model_copy(deep=True),
+                printer_connected=self._printer_connected,
+                internet_connected=self._internet_connected,
                 timestamp=datetime.utcnow(),
             )
+
+    @property
+    def is_online(self) -> bool:
+        with self._lock:
+            return self._internet_connected
+
+    def update_connectivity(
+
+        self,
+        internet_connected: Optional[bool] = None,
+        printer_connected: Optional[bool] = None,
+    ) -> None:
+        with self._lock:
+            if internet_connected is not None:
+                self._internet_connected = internet_connected
+            if printer_connected is not None:
+                self._printer_connected = printer_connected
+        self._notify_change()
+
 
     def set_on_change(self, callback: Callable) -> None:
         self._on_change = callback

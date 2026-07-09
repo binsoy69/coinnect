@@ -72,8 +72,11 @@ class EWalletOrchestrator:
         mobile_number: str | None = None,
         account_name: str | None = None,
     ) -> dict:
+        if not self._status.is_online:
+            raise EWalletTransactionError("Kiosk is offline. E-wallet transactions are disabled.")
         provider = provider.lower()
         direction = direction.lower()
+
         if provider not in {"gcash", "maya"}:
             raise EWalletTransactionError("Provider must be gcash or maya")
         if direction not in {"cash-in", "cash-out"}:
@@ -270,27 +273,35 @@ class EWalletOrchestrator:
         event_id = str(event["id"])
         async with self._db_factory() as session:
             existing_event = await session.get(GatewayEventRecord, event_id)
-            if existing_event and existing_event.processed:
+            if existing_event:
+                logger.warning(f"Duplicate gateway event received: {event_id}")
                 return {"duplicate": True}
-            if existing_event is None:
-                session.add(
-                    GatewayEventRecord(
-                        id=event_id,
-                        event_type=str(event.get("type", "unknown")),
-                        resource_id=event.get("resource_id"),
-                        payload=event,
-                    )
+            session.add(
+                GatewayEventRecord(
+                    id=event_id,
+                    event_type=str(event.get("type", "unknown")),
+                    resource_id=event.get("resource_id"),
+                    payload=event,
+                    processed=False,
                 )
-                await session.flush()
-            resource_id = event.get("resource_id")
-            if not resource_id:
-                logger.warning(f"Gateway event {event_id} missing resource_id")
+            )
+            try:
+                await session.commit()
+            except Exception as e:
+                logger.warning(f"Concurrent insert collision for event {event_id}: {e}")
+                return {"duplicate": True}
+
+        resource_id = event.get("resource_id")
+        if not resource_id:
+            logger.warning(f"Gateway event {event_id} missing resource_id")
+            async with self._db_factory() as session:
                 stored_event = await session.get(GatewayEventRecord, event_id)
                 if stored_event:
                     stored_event.processed = True
-                await session.commit()
-                return {"processed": False, "reason": "resource_id_missing"}
+                    await session.commit()
+            return {"processed": False, "reason": "resource_id_missing"}
 
+        async with self._db_factory() as session:
             result = await session.execute(
                 select(EWalletTransactionRecord).where(
                     or_(
@@ -304,12 +315,14 @@ class EWalletOrchestrator:
             record = result.scalar_one_or_none()
             if record is None:
                 stored_event = await session.get(GatewayEventRecord, event_id)
-                stored_event.processed = True
-                await session.commit()
+                if stored_event:
+                    stored_event.processed = True
+                    await session.commit()
                 return {"processed": False, "reason": "transaction_not_found"}
             status = str(event.get("status") or "").lower()
             record.gateway_status = status
             await session.commit()
+
 
         try:
             if (
@@ -351,11 +364,14 @@ class EWalletOrchestrator:
             else:
                 result_payload = {"processed": True, "status": status}
         except Exception as exc:
+            logger.error(f"Error processing gateway event {event_id}: {exc}", exc_info=True)
             async with self._db_factory() as session:
                 stored_event = await session.get(GatewayEventRecord, event_id)
-                stored_event.processing_error = str(exc)
-                await session.commit()
+                if stored_event:
+                    await session.delete(stored_event)
+                    await session.commit()
             raise
+
 
         async with self._db_factory() as session:
             stored_event = await session.get(GatewayEventRecord, event_id)
@@ -468,6 +484,7 @@ class EWalletOrchestrator:
             return self._serialize(record)
 
     async def recover_pending_transactions(self) -> None:
+        pending_disbursements = []
         async with self._db_factory() as session:
             result = await session.execute(
                 select(EWalletTransactionRecord).where(
@@ -481,8 +498,11 @@ class EWalletOrchestrator:
                     )
                 )
             )
-            for record in result.scalars():
-                if record.inserted_amount > 0 or record.gateway_status in {
+            records = list(result.scalars())
+            for record in records:
+                if record.state == "DISBURSEMENT_PENDING":
+                    pending_disbursements.append(record.transaction_id)
+                elif record.inserted_amount > 0 or record.gateway_status in {
                     "succeeded",
                     "paid",
                 }:
@@ -492,7 +512,22 @@ class EWalletOrchestrator:
                     )
                     record.error_code = "CRASH_RECOVERY"
             await session.commit()
+
+        for tx_id in pending_disbursements:
+            try:
+                logger.info(f"Reconciling pending disbursement {tx_id} with PayMongo API...")
+                await self.verify_cash_in_disbursement(tx_id)
+            except Exception as e:
+                logger.error(f"Failed to reconcile pending disbursement {tx_id} during recovery: {e}")
+                # Fallback: mark as claim required if verification fails completely
+                await self._mark_claim_required(
+                    tx_id,
+                    "TRANSFER_VERIFICATION_FAILED",
+                    f"Recovery error: {e}",
+                )
+
         self._clear_active()
+
 
     async def _dispense_paid_cash_out(self, transaction_id: str) -> dict:
         async with self._db_factory() as session:

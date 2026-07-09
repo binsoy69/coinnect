@@ -97,6 +97,26 @@ static bool conveyorForeignActive = false;
 
 static long currentCommandId = -1;
 
+// Non-blocking bill dispensing state variables
+static bool dispenseActive = false;
+static uint8_t dispenseUnitIndex = 0;
+static int dispenseTargetCount = 0;
+static int dispenseActualCount = 0;
+static uint8_t dispenseAttempt = 0;
+
+enum BillDispenseStep {
+  BILL_STEP_IDLE,
+  BILL_STEP_SPINUP,
+  BILL_STEP_PUSHER_ON,
+  BILL_STEP_PUSHER_OFF,
+  BILL_STEP_ROLLER_EXTRA,
+  BILL_STEP_WAIT_CLEAR,
+  BILL_STEP_INTER_BILL
+};
+static BillDispenseStep billDispenseStep = BILL_STEP_IDLE;
+static unsigned long billStepStartMs = 0;
+
+
 void sendDocument(JsonDocument &doc) {
   if (currentCommandId >= 0) {
     doc["id"] = currentCommandId;
@@ -339,54 +359,131 @@ void updateSorterStateMachine() {
   }
 }
 
-int dispenseBills(uint8_t unitIndex, int count, const char **errorCode) {
-  int dispensed = 0;
-  *errorCode = nullptr;
-
-  // L298N ENA/ENB are held HIGH with hardware jumpers; firmware drives IN1-IN4 only.
-  motorBForward(unitIndex);
-  delay(ROLLER_SPINUP_MS);
-
-  for (int i = 0; i < count; i++) {
-    bool detected = false;
-
-    for (uint8_t attempt = 0; attempt < DISPENSE_RETRY_ATTEMPTS; attempt++) {
-      motorAForward(unitIndex);
-      delay(PUSHER_DURATION_MS);
-      stopMotorA(unitIndex);
-
-      if (waitForBillDetected(unitIndex, IR_DETECT_TIMEOUT_MS)) {
-        detected = true;
-        break;
-      }
-    }
-
-    if (!detected) {
-      stopMotorA(unitIndex);
-      stopMotorB(unitIndex);
-      *errorCode = "JAM";
-      return dispensed;
-    }
-
-    delay(ROLLER_EXTRA_MS);
-    dispensed++;
-
-    if (!waitForBillCleared(unitIndex, BILL_CLEAR_TIMEOUT_MS)) {
-      stopMotorA(unitIndex);
-      stopMotorB(unitIndex);
-      *errorCode = "JAM";
-      return dispensed;
-    }
-
-    if (i < count - 1) {
-      delay(INTER_BILL_DELAY_MS);
-    }
+void serviceDispense() {
+  if (!dispenseActive) {
+    return;
   }
 
-  stopMotorA(unitIndex);
-  stopMotorB(unitIndex);
-  return dispensed;
+  const unsigned long now = millis();
+
+  switch (billDispenseStep) {
+    case BILL_STEP_IDLE: {
+      if (dispenseActualCount >= dispenseTargetCount) {
+        stopMotorA(dispenseUnitIndex);
+        stopMotorB(dispenseUnitIndex);
+        dispenseActive = false;
+        
+        if (dispenseActualCount > 0) {
+          runConveyorForDenom(dispensers[dispenseUnitIndex].denom);
+        }
+
+        StaticJsonDocument<96> doc;
+        doc["status"] = "OK";
+        doc["dispensed"] = dispenseActualCount;
+        sendDocument(doc);
+        return;
+      }
+
+      if (dispenseActualCount == 0) {
+        motorBForward(dispenseUnitIndex);
+        billDispenseStep = BILL_STEP_SPINUP;
+        billStepStartMs = now;
+      } else {
+        dispenseAttempt = 0;
+        motorAForward(dispenseUnitIndex);
+        billDispenseStep = BILL_STEP_PUSHER_ON;
+        billStepStartMs = now;
+      }
+      break;
+    }
+
+    case BILL_STEP_SPINUP: {
+      if (now - billStepStartMs >= ROLLER_SPINUP_MS) {
+        dispenseAttempt = 0;
+        motorAForward(dispenseUnitIndex);
+        billDispenseStep = BILL_STEP_PUSHER_ON;
+        billStepStartMs = now;
+      }
+      break;
+    }
+
+    case BILL_STEP_PUSHER_ON: {
+      if (now - billStepStartMs >= PUSHER_DURATION_MS) {
+        stopMotorA(dispenseUnitIndex);
+        billDispenseStep = BILL_STEP_PUSHER_OFF;
+        billStepStartMs = now;
+      }
+      break;
+    }
+
+    case BILL_STEP_PUSHER_OFF: {
+      if (isBillDetected(dispenseUnitIndex)) {
+        billDispenseStep = BILL_STEP_ROLLER_EXTRA;
+        billStepStartMs = now;
+      } else if (now - billStepStartMs >= IR_DETECT_TIMEOUT_MS) {
+        dispenseAttempt++;
+        if (dispenseAttempt < DISPENSE_RETRY_ATTEMPTS) {
+          motorAForward(dispenseUnitIndex);
+          billDispenseStep = BILL_STEP_PUSHER_ON;
+          billStepStartMs = now;
+        } else {
+          // Retry failed - JAM
+          stopMotorA(dispenseUnitIndex);
+          stopMotorB(dispenseUnitIndex);
+          dispenseActive = false;
+          
+          if (dispenseActualCount > 0) {
+            runConveyorForDenom(dispensers[dispenseUnitIndex].denom);
+          }
+          sendError("JAM", dispenseActualCount);
+        }
+      }
+      break;
+    }
+
+    case BILL_STEP_ROLLER_EXTRA: {
+      if (now - billStepStartMs >= ROLLER_EXTRA_MS) {
+        dispenseActualCount++;
+        billDispenseStep = BILL_STEP_WAIT_CLEAR;
+        billStepStartMs = now;
+      }
+      break;
+    }
+
+    case BILL_STEP_WAIT_CLEAR: {
+      if (!isBillDetected(dispenseUnitIndex)) {
+        if (dispenseActualCount < dispenseTargetCount) {
+          billDispenseStep = BILL_STEP_INTER_BILL;
+          billStepStartMs = now;
+        } else {
+          billDispenseStep = BILL_STEP_IDLE; // Finish on next tick
+        }
+      } else if (now - billStepStartMs >= BILL_CLEAR_TIMEOUT_MS) {
+        // Clear timed out - JAM
+        stopMotorA(dispenseUnitIndex);
+        stopMotorB(dispenseUnitIndex);
+        dispenseActive = false;
+        
+        if (dispenseActualCount > 0) {
+          runConveyorForDenom(dispensers[dispenseUnitIndex].denom);
+        }
+        sendError("JAM", dispenseActualCount);
+      }
+      break;
+    }
+
+    case BILL_STEP_INTER_BILL: {
+      if (now - billStepStartMs >= INTER_BILL_DELAY_MS) {
+        dispenseAttempt = 0;
+        motorAForward(dispenseUnitIndex);
+        billDispenseStep = BILL_STEP_PUSHER_ON;
+        billStepStartMs = now;
+      }
+      break;
+    }
+  }
 }
+
 
 void handlePing() {
   StaticJsonDocument<128> doc;
@@ -405,6 +502,7 @@ void handleVersion() {
 
 void handleReset() {
   stopAllDispensers();
+  dispenseActive = false; // Abort any active bill dispense
   sorter.stop();
   sorter.setCurrentPosition(0);
   sorterHomed = false;
@@ -507,6 +605,10 @@ void runConveyorForDenom(const char *denom) {
 }
 
 void handleDispense(JsonDocument &cmdDoc) {
+  if (dispenseActive) {
+    sendError("BUSY");
+    return;
+  }
   const char *denom = cmdDoc["denom"] | "";
   const int count = cmdDoc["count"] | 0;
   const int unitIndex = findDispenserIndex(denom);
@@ -519,22 +621,11 @@ void handleDispense(JsonDocument &cmdDoc) {
     return;
   }
 
-  const char *errorCode = nullptr;
-  const int dispensed = dispenseBills((uint8_t)unitIndex, count, &errorCode);
-  
-  if (dispensed > 0) {
-    runConveyorForDenom(denom);
-  }
-
-  if (errorCode != nullptr) {
-    sendError(errorCode, dispensed);
-    return;
-  }
-
-  StaticJsonDocument<96> doc;
-  doc["status"] = "OK";
-  doc["dispensed"] = dispensed;
-  sendDocument(doc);
+  dispenseActive = true;
+  dispenseUnitIndex = (uint8_t)unitIndex;
+  dispenseTargetCount = count;
+  dispenseActualCount = 0;
+  billDispenseStep = BILL_STEP_IDLE;
 }
 
 void handleDispenseStatus(JsonDocument &cmdDoc) {
@@ -714,6 +805,7 @@ void setup() {
 void loop() {
   handleSerialInput();
   updateSorterStateMachine();
+  serviceDispense();
 
   if (conveyorPhpActive && millis() >= conveyorStopTimePhp) {
     digitalWrite(CONVEYOR_PHP_IN1, LOW);

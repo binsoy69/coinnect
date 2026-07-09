@@ -69,7 +69,9 @@ async def lifespan(app: FastAPI):
     receipt_service = ReceiptService(settings)
     bill_controller = BillController(serial_manager)
     coin_controller = CoinSecurityController(serial_manager)
+    admin_sessions.set_coin_controller(coin_controller)
     event_dispatcher = EventDispatcher(
+
         serial_manager.event_queue,
         machine_status,
         ws_manager,
@@ -143,7 +145,8 @@ async def lifespan(app: FastAPI):
     event_dispatcher.set_transaction_orchestrator(transaction_orchestrator)
 
     # --- Phase 5: Forex services ---
-    forex_rate_service = ForexRateService(settings, ws_manager)
+    forex_rate_service = ForexRateService(settings, ws_manager, machine_status)
+
     forex_transaction_orchestrator = ForexTransactionOrchestrator(
         bill_acceptor=bill_acceptor,
         dispense_orchestrator=dispense_orchestrator,
@@ -232,7 +235,23 @@ async def lifespan(app: FastAPI):
     homing_task = asyncio.create_task(_background_home())
     app.state._homing_task = homing_task  # prevent GC
 
+    logger.info("Scheduling asynchronous ML model pre-loading...")
+    preload_task = asyncio.create_task(authenticator.preload_models())
+    app.state._preload_task = preload_task  # prevent GC
+
+    async def _background_printer_check():
+        logger.info("Verifying printer connection in the background...")
+        await receipt_service.check_connection()
+        logger.info(f"Printer connection verified. Status: {receipt_service.is_connected}")
+        machine_status.update_connectivity(printer_connected=receipt_service.is_connected)
+
+
+    printer_check_task = asyncio.create_task(_background_printer_check())
+    app.state._printer_check_task = printer_check_task  # prevent GC
+
     await event_dispatcher.start()
+
+
 
     # Recover any transactions interrupted by crash/power loss
     await transaction_orchestrator.recover_pending_transactions()

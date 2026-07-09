@@ -1,14 +1,18 @@
 """In-memory PIN authentication for local maintenance sessions."""
 
+import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import re
 import secrets
 import threading
-from typing import Callable
+from typing import Callable, Any
 
 from app.core.config import Settings
 from app.services.operation_mode import OperationModeManager
+
+logger = logging.getLogger(__name__)
 
 
 class AdminAuthError(RuntimeError):
@@ -37,6 +41,21 @@ class AdminSessionService:
         self._timers: dict[str, threading.Timer] = {}
         self._failed_attempts = 0
         self._locked_until: datetime | None = None
+        self._coin_controller: Any = None
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
+
+    def set_coin_controller(self, coin_controller: Any) -> None:
+        self._coin_controller = coin_controller
+        # Try to capture loop if not captured yet
+        if not self._loop:
+            try:
+                self._loop = asyncio.get_running_loop()
+            except RuntimeError:
+                pass
+
 
 
 
@@ -114,3 +133,15 @@ class AdminSessionService:
             session = self._sessions.pop(token, None)
             if session:
                 self._mode.end_maintenance(session.session_id)
+                self._trigger_door_lock()
+
+    def _trigger_door_lock(self) -> None:
+        if self._coin_controller and self._loop:
+            logger.info("Admin session ended. Requesting security lock...")
+            asyncio.run_coroutine_threadsafe(
+                self._coin_controller.security_lock(),
+                self._loop
+            )
+        else:
+            logger.warning("Cannot lock cabinet: coin controller or event loop not set")
+
