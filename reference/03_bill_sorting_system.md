@@ -452,39 +452,90 @@ void setup() {
 }
 ```
 
-### 3.6.2 Homing Function
+### 3.6.2 Non-Blocking Homing and State Machine
+
+To prevent blocking serial communication for up to 12s, the homing routine is non-blocking. It is driven by a state machine inside the main loop:
 
 ```cpp
-bool homeSorter() {
-    enableStepper();
-    sorter.setMaxSpeed(abs(HOME_SPEED_STEPS_PER_SEC));
-    sorter.setAcceleration(SORT_ACCELERATION);
-    sorter.setSpeed(HOME_SPEED_STEPS_PER_SEC);
+enum SorterState {
+  STATE_IDLE,
+  STATE_HOMING_TO_LIMIT,
+  STATE_HOMING_BACKOFF,
+  STATE_SORTING_MOVE
+};
 
-    const unsigned long startedAt = millis();
-    while (!limitTriggered()) {
-        sorter.runSpeed();
-        if (millis() - startedAt > HOME_TIMEOUT_MS) {
-            sorter.stop();
-            digitalWrite(ENABLE_PIN, HIGH);
-            sorterHomed = false;
-            currentSlot = 0;
-            return false;
-        }
+static SorterState sorterState = STATE_IDLE;
+static unsigned long sorterActionStartMs = 0;
+static long sorterTargetPos = 0;
+static long targetSlotAfterMove = 0;
+static long asyncCommandId = -1;
+
+void handleHome() {
+  sorterHomeFailed = false;
+  enableStepper();
+  sorter.setMaxSpeed(abs(HOME_SPEED_STEPS_PER_SEC));
+  sorter.setAcceleration(SORT_ACCELERATION);
+  sorter.setSpeed(HOME_SPEED_STEPS_PER_SEC);
+
+  sorterState = STATE_HOMING_TO_LIMIT;
+  sorterActionStartMs = millis();
+  asyncCommandId = currentCommandId;
+}
+
+void updateSorterStateMachine() {
+  if (sorterState == STATE_IDLE) {
+    return;
+  }
+
+  if (sorterState == STATE_HOMING_TO_LIMIT) {
+    sorter.runSpeed();
+    if (limitTriggered()) {
+      sorter.stop();
+      sorter.setCurrentPosition(0);
+      sorter.moveTo(HOME_BACKOFF_STEPS);
+      sorterState = STATE_HOMING_BACKOFF;
+    } else if (millis() - sorterActionStartMs > HOME_TIMEOUT_MS) {
+      sorter.stop();
+      sorterHomed = false;
+      sorterHomeFailed = true;
+      currentSlot = 0;
+      disableStepperIfAllowed();
+      sorterState = STATE_IDLE;
+      
+      currentCommandId = asyncCommandId;
+      sendError("TIMEOUT");
+      currentCommandId = -1;
     }
+  } 
+  else if (sorterState == STATE_HOMING_BACKOFF) {
+    sorter.run();
+    if (sorter.distanceToGo() == 0) {
+      sorter.setCurrentPosition(0);
+      sorterHomed = true;
+      sorterHomeFailed = false;
+      currentSlot = 0;
+      disableStepperIfAllowed();
+      sorterState = STATE_IDLE;
 
-    sorter.stop();
-    sorter.setCurrentPosition(0);
-    sorter.moveTo(HOME_BACKOFF_STEPS);
-    while (sorter.distanceToGo() != 0) {
-        sorter.run();
+      currentCommandId = asyncCommandId;
+      StaticJsonDocument<96> doc;
+      doc["status"] = "OK";
+      doc["position"] = 0;
+      sendDocument(doc);
+      currentCommandId = -1;
+    } else if (millis() - sorterActionStartMs > HOME_TIMEOUT_MS) {
+      sorter.stop();
+      sorterHomed = false;
+      sorterHomeFailed = true;
+      currentSlot = 0;
+      disableStepperIfAllowed();
+      sorterState = STATE_IDLE;
+
+      currentCommandId = asyncCommandId;
+      sendError("TIMEOUT");
+      currentCommandId = -1;
     }
-
-    sorter.setCurrentPosition(0);
-    sorterHomed = true;
-    currentSlot = 0;
-    disableStepperIfAllowed();
-    return true;
+  }
 }
 ```
 
@@ -631,14 +682,7 @@ void dispatchCommand(const String &line) {
 
     const char *cmd = cmdDoc["cmd"] | "";
     if (strcmp(cmd, "HOME") == 0) {
-        if (!homeSorter()) {
-            sendError("TIMEOUT");
-        } else {
-            StaticJsonDocument<96> doc;
-            doc["status"] = "OK";
-            doc["position"] = 0;
-            sendDocument(doc);
-        }
+        handleHome();
     } else if (strcmp(cmd, "SORT") == 0) {
         handleSort(cmdDoc);
     } else if (strcmp(cmd, "SORT_STATUS") == 0) {

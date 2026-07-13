@@ -58,14 +58,14 @@ The Raspberry Pi communicates with **two Arduino Mega controllers** via separate
 ### Responses (Arduino → RPi)
 
 ```json
-{"status": "OK", "data": {...}}
+{"status": "OK", ...}
 {"status": "ERROR", "code": "ERROR_CODE"}
 ```
 
 ### Events (Arduino → RPi, Unsolicited)
 
 ```json
-{"event": "EVENT_NAME", "data": {...}}
+{"event": "EVENT_NAME", ...}
 ```
 
 ---
@@ -114,6 +114,8 @@ is active HIGH and defaults disabled.
 | SECURITY_LOCK   | `{"cmd":"SECURITY_LOCK"}`   | `{"status":"OK","locked":true}`                  |
 | SECURITY_UNLOCK | `{"cmd":"SECURITY_UNLOCK"}` | `{"status":"OK","locked":false}`                 |
 | SECURITY_STATUS | `{"cmd":"SECURITY_STATUS"}` | `{"status":"OK","locked":true,"tamper_a":false}` |
+
+*Note: The `tamper_a` status field is set if either Shock Sensor A or Shock Sensor B is triggered, representing the global latched tamper state.*
 
 **Events:**
 

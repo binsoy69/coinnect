@@ -34,13 +34,13 @@ This dual-Arduino design provides:
 │                                    Version 2.0                                   │
 └─────────────────────────────────────────────────────────────────────────────────┘
 
-                                    ┌─────────────────┐
-                                    │   CLOUD/APIs    │
-                                    │  • Exchange API │
-                                    │  • Xendit       │
-                                    │  • Maya API     │
-                                    │  • Firebase     │
-                                    └────────┬────────┘
+                                     ┌─────────────────┐
+                                     │   CLOUD/APIs    │
+                                     │ • Frankfurter   │
+                                     │   Exchange API  │
+                                     │ • PayMongo API  │
+                                     │   (GCash/Maya)  │
+                                     └────────┬────────┘
                                              │ WiFi/Ethernet
                                              ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -76,10 +76,10 @@ This dual-Arduino design provides:
 │                                           │ │                                           │
 │  ┌─────────────────────────────────────┐  │ │  ┌─────────────────────────────────────┐  │
 │  │ BILL DISPENSING SYSTEM              │  │ │  │ COIN SYSTEM                         │  │
-│  │ • 12 Dispenser Units                │  │ │  │ • 1 Multi-Coin Acceptor (CH-926)    │  │
-│  │ • 24 DC Motors (2 per unit)         │  │ │  │ • 4 Servo Motors                    │  │
-│  │ • 12 L298N Drivers                  │  │ │  │   (₱1, ₱5, ₱10, ₱20)                │  │
-│  │ • 12 IR Sensors                     │  │ │  └─────────────────────────────────────┘  │
+│  │ • 10 Dispenser Units                │  │ │  │ • 1 Multi-Coin Acceptor (CH-926)    │  │
+│  │ • 20 DC Motors (2 per unit)         │  │ │  │ • 4 Servo Motors                    │  │
+│  │ • 10 L298N Drivers                  │  │ │  │   (₱1, ₱5, ₱10, ₱20)                │  │
+│  │ • 10 IR Sensors                     │  │ │  └─────────────────────────────────────┘  │
 │  └─────────────────────────────────────┘  │ │                                           │
 │                                           │ │  ┌─────────────────────────────────────┐  │
 │  ┌─────────────────────────────────────┐  │ │  │ SECURITY SYSTEM                     │  │
@@ -126,8 +126,9 @@ This dual-Arduino design provides:
        │                     └──────────┬──────────┘                    │
        │                                │                               │
        │                     ┌──────────┴──────────┐                    │
-       │                     │ Timed motor pull    │                    │
-       │                     │ positions bill      │                    │
+       │                     │ Pull bill until     │                    │
+       │                     │ Position Sensor     │                    │
+       │                     │ (GPIO6) triggers    │                    │
        │                     └──────────┬──────────┘                    │
        │                                │                               │
        │                     ┌──────────┴──────────┐                    │
@@ -199,7 +200,7 @@ This dual-Arduino design provides:
 | --------------- | --------------- | ----------------------------------------------------- |
 | Bill Acceptor   | Raspberry Pi    | 1 DC Motor, 1 IR Sensor, 1 Camera, UV LED, White LED |
 | Bill Sorting    | Arduino Mega #1 | 1 Stepper Motor, 1 A4988, 1 Limit Switch              |
-| Bill Dispensing | Arduino Mega #1 | 24 DC Motors, 12 L298N, 12 IR Sensors                 |
+| Bill Dispensing | Arduino Mega #1 | 20 DC Motors, 10 L298N, 10 IR Sensors (12 supported)  |
 | Coin Acceptor   | Arduino Mega #2 | 1 CH-926 Module                                       |
 | Coin Dispensing | Arduino Mega #2 | 4 Servo Motors                                        |
 | Security        | Arduino Mega #2 | 2 Shock Sensors, 1 Solenoid, 1 Keypad, LEDs           |

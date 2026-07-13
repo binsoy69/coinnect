@@ -38,6 +38,7 @@ import {
   EWalletServiceScreen,
   EWalletReminderScreen,
   EWalletFeeScreen,
+  EWalletNameScreen,
   EWalletMobileScreen,
   EWalletAmountScreen,
   EWalletConfirmScreen,
@@ -97,6 +98,7 @@ export default function AppRoutes() {
 
       {/* E-Wallet Transaction Flow (with :type parameter) */}
       <Route path={ROUTES.EWALLET_FEE} element={<EWalletFeeScreen />} />
+      <Route path={ROUTES.EWALLET_NAME} element={<EWalletNameScreen />} />
       <Route path={ROUTES.EWALLET_MOBILE} element={<EWalletMobileScreen />} />
       <Route path={ROUTES.EWALLET_AMOUNT} element={<EWalletAmountScreen />} />
       <Route path={ROUTES.EWALLET_CONFIRM} element={<EWalletConfirmScreen />} />

@@ -56,6 +56,9 @@ This document lists all electronic and electrical components required for the Co
 | Linear Rail        | 400mm MGN12H      | 1   | 600            | 600       | Sorter carriage                 |
 | **Subtotal**       |                   |     |                | **8,350** |                                 |
 
+> [!NOTE]
+> The physical design and BOM budget accommodate up to 12 dispenser channels (24 DC motors and 12 L298N drivers), but the active firmware maps exactly 10 dispenser channels (20 DC motors and 10 L298N drivers).
+
 ### 10.2.3 Sensors
 
 | Item               | Specification    | Qty | Unit Price (₱) | Total (₱) | Notes                      |

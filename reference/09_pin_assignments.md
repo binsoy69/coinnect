@@ -114,8 +114,8 @@ drive it through a transistor, optocoupler, or level shifter instead of wiring
 
 | Pin | Function | Type | Notes |
 | --- | -------- | ---- | ----- |
-| D19 | Shock Sensor A | Input interrupt | `INT4`, SW-420 NC module DO, HIGH idle / LOW vibration |
-| D20 | Shock Sensor B | Input interrupt | `INT3`, SW-420 NC module DO, HIGH idle / LOW vibration |
+| D19 | Shock Sensor A | Input interrupt | `INT4`, SW-420 active-high DO, LOW idle / HIGH vibration |
+| D20 | Shock Sensor B | Input interrupt | `INT3`, SW-420 active-high DO, LOW idle / HIGH vibration |
 | D21 | Solenoid Relay | Output | Lock control |
 | D22 | Red Status LED | Output | Fault/lockdown indicator |
 | D23 | Green Status LED | Output | Ready/normal indicator |
@@ -129,10 +129,9 @@ drive it through a transistor, optocoupler, or level shifter instead of wiring
 > [!CAUTION]
 > The MFRC522 RFID reader module operates strictly on **3.3V**. Connecting the module's VCC to the 5V power rail will destroy the RFID chip.
 
-Shock sensors use the SW-420 module digital output. The sensing element is
-normally closed at rest, but firmware reads module `DO`: HIGH means idle/no
-vibration, LOW means vibration/tamper. Inputs use `INPUT_PULLUP` and detect
-tamper on the falling edge. This is not a fail-safe broken-wire NC loop.
+Shock sensors use the SW-420 module digital output. The firmware is configured 
+for active-high logic: LOW means idle/no vibration, HIGH means vibration/tamper. 
+Inputs use `INPUT` (no pull-up) and detect tamper on the rising edge.
 
 ---
 

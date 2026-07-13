@@ -3,6 +3,7 @@ export { default as EWalletProviderScreen } from './EWalletProviderScreen';
 export { default as EWalletServiceScreen } from './EWalletServiceScreen';
 export { default as EWalletReminderScreen } from './EWalletReminderScreen';
 export { default as EWalletFeeScreen } from './EWalletFeeScreen';
+export { default as EWalletNameScreen } from './EWalletNameScreen';
 export { default as EWalletMobileScreen } from './EWalletMobileScreen';
 export { default as EWalletAmountScreen } from './EWalletAmountScreen';
 export { default as EWalletConfirmScreen } from './EWalletConfirmScreen';

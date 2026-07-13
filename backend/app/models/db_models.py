@@ -2,6 +2,10 @@
 
 import enum
 from datetime import datetime
+"""SQLAlchemy ORM models for transaction persistence and write-ahead logging."""
+
+import enum
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import JSON, Boolean, DateTime, Integer, String, UniqueConstraint
@@ -108,6 +112,18 @@ class TransactionRecord(Base):
     error_message: Mapped[Optional[str]] = mapped_column(
         String, nullable=True
     )
+    claim_ticket_code: Mapped[Optional[str]] = mapped_column(
+        String, unique=True, nullable=True
+    )
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True
+    )
+    resolution_notes: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )
+    resolved_by: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow
     )
@@ -181,6 +197,15 @@ class EWalletTransactionRecord(Base):
     )
     error_code: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True
+    )
+    resolution_notes: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )
+    resolved_by: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow
     )

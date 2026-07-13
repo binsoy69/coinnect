@@ -37,6 +37,7 @@ export const ROUTES = {
 
   // E-Wallet dynamic routes - :type = 'gcash-cash-in' | 'gcash-cash-out' | 'maya-cash-in' | 'maya-cash-out'
   EWALLET_FEE: '/ewallet/:type/fee',
+  EWALLET_NAME: '/ewallet/:type/name',
   EWALLET_MOBILE: '/ewallet/:type/mobile',
   EWALLET_AMOUNT: '/ewallet/:type/amount',
   EWALLET_CONFIRM: '/ewallet/:type/confirm',

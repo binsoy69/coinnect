@@ -171,6 +171,8 @@ class TransactionStateMachine:
                     record.error_code = data["error_code"]
                 if "error_message" in data:
                     record.error_message = data["error_message"]
+                if "claim_ticket_code" in data:
+                    record.claim_ticket_code = data["claim_ticket_code"]
             if new_state in (
                 TransactionState.COMPLETE,
                 TransactionState.CANCELLED,

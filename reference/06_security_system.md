@@ -122,9 +122,9 @@ The security system protects the kiosk from unauthorized access and tampering.
     └──────┼─────┼─────┼────────────────┘
            │     │     │
            │     │     │
-           │     │     └───────────────► Digital Output
-           │     │                       Module DO: HIGH = no vibration
-           │     │                       Module DO: LOW  = vibration detected
+            │     │     └───────────────► Digital Output
+            │     │                       Module DO: LOW  = no vibration
+            │     │                       Module DO: HIGH = vibration detected
            │     │
            │     └─────────────────────► GND
            │
@@ -134,9 +134,9 @@ The security system protects the kiosk from unauthorized access and tampering.
     OPERATING PRINCIPLE:
     ════════════════════
 
-    The SW-420 contains a spring-loaded conductive element that is normally
-    closed at rest and opens/makes contact changes when vibration occurs. The
-    module comparator exposes this as an active-low digital output.
+    The SW-420 contains a spring-loaded conductive element. The firmware utilizes
+    active-high logic mapping to RISING interrupts (idles LOW, rises HIGH when
+    vibration/tamper is detected).
 
     Normal State:      Triggered:
     ┌─────────┐       ┌─────────┐
@@ -148,10 +148,9 @@ The security system protects the kiosk from unauthorized access and tampering.
      Closed            Open
 ```
 
-Firmware reads the SW-420 module `DO` pin, not a separate fail-safe NC loop.
-`DO` is HIGH when idle/no vibration and falls LOW when vibration is detected.
-A disconnected `DO` wire can read HIGH because of pull-up behavior, so this
-design does not treat a broken wire as tamper.
+Firmware reads the SW-420 module `DO` pin, which idles LOW and rises HIGH when
+vibration is detected. This active-high configuration means a disconnected or
+broken wire will idle LOW and not cause a false alarm.
 
 ### 6.3.2 Shock Sensor Wiring
 
@@ -618,9 +617,9 @@ void setup() {
     Serial.begin(115200);
 
     // Pin modes
-    // SW-420 module DO idles HIGH and falls LOW when vibration is detected.
-    pinMode(SHOCK_A_PIN, INPUT_PULLUP);
-    pinMode(SHOCK_B_PIN, INPUT_PULLUP);
+    // SW-420 module DO idles LOW and rises HIGH when vibration is detected.
+    pinMode(SHOCK_A_PIN, INPUT);
+    pinMode(SHOCK_B_PIN, INPUT);
     pinMode(SOLENOID_PIN, OUTPUT);
     pinMode(LED_RED_PIN, OUTPUT);
     pinMode(LED_GREEN_PIN, OUTPUT);
@@ -630,9 +629,9 @@ void setup() {
     digitalWrite(LED_RED_PIN, HIGH);   // Red ON
     digitalWrite(LED_GREEN_PIN, LOW);  // Green OFF
 
-    // Attach interrupts for active-low module DO signals
-    attachInterrupt(digitalPinToInterrupt(SHOCK_A_PIN), shockISR_A, FALLING);
-    attachInterrupt(digitalPinToInterrupt(SHOCK_B_PIN), shockISR_B, FALLING);
+    // Attach interrupts for active-high module DO signals
+    attachInterrupt(digitalPinToInterrupt(SHOCK_A_PIN), shockAISR, RISING);
+    attachInterrupt(digitalPinToInterrupt(SHOCK_B_PIN), shockBISR, RISING);
 
     Serial.println("Security System Ready");
 }

@@ -152,6 +152,14 @@ class PayMongoClient:
         )
         return response["data"]
 
+    async def cancel_payment_intent(self, payment_intent_id: str) -> dict:
+        response = await self._request(
+            "POST",
+            f"/v1/payment_intents/{payment_intent_id}/cancel",
+            secret=True,
+        )
+        return response["data"]
+
     async def create_disbursement(
         self,
         *,

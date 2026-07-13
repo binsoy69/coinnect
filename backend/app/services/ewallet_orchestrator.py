@@ -479,9 +479,23 @@ class EWalletOrchestrator:
             record.state = "CANCELLED"
             record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
             await session.commit()
+            
+            # Spawn background cancel task for PayMongo QR Code
+            if record.gateway_payment_intent_id:
+                import asyncio
+                asyncio.create_task(self._cancel_payment_intent_background(record.gateway_payment_intent_id))
+
             await self._broadcast(record, WSEventType.EWALLET_STATE_CHANGED)
             self._clear_active()
             return self._serialize(record)
+
+    async def _cancel_payment_intent_background(self, intent_id: str) -> None:
+        try:
+            logger.info(f"Cancelling Payment Intent {intent_id} in background...")
+            await self._gateway.cancel_payment_intent(intent_id)
+            logger.info(f"Payment Intent {intent_id} successfully cancelled.")
+        except Exception as exc:
+            logger.error(f"Failed to cancel Payment Intent {intent_id} in background: {exc}")
 
     async def recover_pending_transactions(self) -> None:
         pending_disbursements = []

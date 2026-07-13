@@ -2,34 +2,37 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import PageLayout from "../../components/layout/PageLayout";
-import VirtualKeypad from "../../components/common/VirtualKeypad";
+import VirtualKeyboard from "../../components/common/VirtualKeyboard";
 import { ROUTES, getEWalletRoute } from "../../constants/routes";
 import { useEWallet } from "../../context/EWalletContext";
 
-export default function EWalletMobileScreen() {
+export default function EWalletNameScreen() {
   const navigate = useNavigate();
   const {
     ewallet,
-    setMobileNumber,
+    setAccountName,
     getEWalletConfig,
     getProviderStyles,
   } = useEWallet();
   const config = getEWalletConfig();
   const styles = getProviderStyles();
-  const [value, setValue] = useState("");
+  const [accountName, setAccountNameValue] = useState(
+    ewallet.accountName || "",
+  );
 
   if (!config) {
     navigate(ROUTES.EWALLET);
     return null;
   }
 
-  const handleSubmit = (mobile) => {
-    setMobileNumber(mobile);
-    navigate(getEWalletRoute(ROUTES.EWALLET_AMOUNT, ewallet.serviceType));
+  const handleSubmit = (name) => {
+    if (name.trim().length < 2) return;
+    setAccountName(name.trim());
+    navigate(getEWalletRoute(ROUTES.EWALLET_MOBILE, ewallet.serviceType));
   };
 
   const handleBack = () => {
-    navigate(getEWalletRoute(ROUTES.EWALLET_NAME, ewallet.serviceType));
+    navigate(getEWalletRoute(ROUTES.EWALLET_FEE, ewallet.serviceType));
   };
 
   return (
@@ -37,7 +40,7 @@ export default function EWalletMobileScreen() {
       headerProps={{
         showBack: true,
         onBack: handleBack,
-        subtitle: "Enter Mobile Number",
+        subtitle: "Enter Account Name",
         rightContent: (
           <div
             className={`flex items-center gap-2 ${styles.bg} text-white px-3 py-1 rounded-full text-sm`}
@@ -52,23 +55,10 @@ export default function EWalletMobileScreen() {
         <motion.h1
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className={`text-2xl lg:text-3xl font-bold ${styles.text} mb-2`}
+          className={`text-2xl lg:text-3xl font-bold ${styles.text} mb-4 lg:mb-8`}
         >
-          Enter Mobile Number
+          Enter Account Name
         </motion.h1>
-
-        {ewallet.accountName && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-6 text-center"
-          >
-            <span className="text-gray-500 text-sm block mb-1">Account Name</span>
-            <span className={`text-xl font-bold ${styles.text}`}>
-              {ewallet.accountName}
-            </span>
-          </motion.div>
-        )}
 
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -76,12 +66,24 @@ export default function EWalletMobileScreen() {
           transition={{ delay: 0.2 }}
           className="w-full max-w-xl"
         >
-          <VirtualKeypad
-            value={value}
-            onChange={setValue}
+          <label className="block mb-5">
+            <span className="block text-sm font-semibold text-gray-600 mb-2">
+              Account Name
+            </span>
+            <input
+              type="text"
+              value={accountName}
+              readOnly={true}
+              placeholder="Name registered to the wallet"
+              className={`w-full border-2 rounded-xl px-4 py-3 text-lg outline-none ${styles.text} bg-gray-50 focus:ring-2 focus:ring-blue-200 cursor-default`}
+            />
+          </label>
+          <VirtualKeyboard
+            value={accountName}
+            onChange={setAccountNameValue}
             onSubmit={handleSubmit}
-            maxLength={11}
-            placeholder="09XXXXXXXXX"
+            maxLength={120}
+            placeholder="ENTER FULL NAME"
             submitLabel="Proceed"
             colorClass={`coinnect-${ewallet.provider}`}
           />

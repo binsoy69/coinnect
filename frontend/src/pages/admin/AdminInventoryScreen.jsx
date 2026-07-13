@@ -68,6 +68,15 @@ export default function AdminInventoryScreen() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // New claims state
+  const [activeTab, setActiveTab] = useState("reconciliation"); // "reconciliation" | "claims"
+  const [claims, setClaims] = useState([]);
+  const [loadingClaims, setLoadingClaims] = useState(false);
+  const [resolvingClaim, setResolvingClaim] = useState(null);
+  const [resolutionNotes, setResolutionNotes] = useState("");
+  const [resolvingError, setResolvingError] = useState("");
+  const [resolvingSaving, setResolvingSaving] = useState(false);
+
   const leaveForExpiredSession = useCallback(() => {
     sessionStorage.removeItem(TOKEN_KEY);
     navigate(ROUTES.HOME, { replace: true });
@@ -96,21 +105,62 @@ export default function AdminInventoryScreen() {
     [leaveForExpiredSession]
   );
 
+  const loadClaims = useCallback(async () => {
+    setLoadingClaims(true);
+    try {
+      const data = await request("/admin/claims");
+      setClaims(data.claims);
+    } catch (err) {
+      console.error("Failed to load claims", err);
+    } finally {
+      setLoadingClaims(false);
+    }
+  }, [request]);
+
+  const resolveClaim = async (claimCode) => {
+    setResolvingSaving(true);
+    setResolvingError("");
+    try {
+      await request(`/admin/claims/${claimCode}/resolve`, {
+        method: "POST",
+        body: JSON.stringify({
+          resolution_notes: resolutionNotes,
+        }),
+      });
+      setResolvingClaim(null);
+      setResolutionNotes("");
+      setMessage("Claim resolved successfully");
+      loadClaims();
+    } catch (err) {
+      setResolvingError(err.message);
+    } finally {
+      setResolvingSaving(false);
+    }
+  };
+
   const load = useCallback(async () => {
     try {
-      const [current, audit] = await Promise.all([
+      const [current, audit, claimsData] = await Promise.all([
         request("/inventory/"),
         request("/inventory/adjustments?source=ADMIN&limit=50"),
+        request("/admin/claims"),
       ]);
       setInventory(current);
       setDraft(current);
       setHistory(audit.adjustments);
+      setClaims(claimsData.claims);
     } catch (err) {
       if (err.message !== "Admin session expired") setError(err.message);
     } finally {
       setLoading(false);
     }
   }, [request]);
+
+  useEffect(() => {
+    if (activeTab === "claims") {
+      loadClaims();
+    }
+  }, [activeTab, loadClaims]);
 
   useEffect(() => {
     if (!sessionStorage.getItem(TOKEN_KEY)) {
@@ -230,101 +280,254 @@ export default function AdminInventoryScreen() {
 
       <div className="mx-auto grid max-w-7xl gap-8 px-5 py-8 lg:grid-cols-[1fr_340px] lg:px-10">
         <div className="space-y-9">
-          <div>
-            <p className="text-sm font-bold uppercase tracking-[0.2em] text-coinnect-primary">
-              Physical reconciliation
-            </p>
-            <h2 className="mt-2 text-3xl font-extrabold lg:text-4xl">
-              Count what is actually loaded
-            </h2>
-            <p className="mt-2 text-gray-600">
-              Values replace the recorded count. Changed rows are highlighted.
-            </p>
+          {/* Tabs Navigation */}
+          <div className="flex border-b border-gray-200 gap-4 mb-6">
+            <button
+              type="button"
+              onClick={() => setActiveTab("reconciliation")}
+              className={`pb-4 px-2 font-bold text-lg border-b-2 transition-colors ${
+                activeTab === "reconciliation"
+                  ? "border-coinnect-primary text-coinnect-primary-dark"
+                  : "border-transparent text-gray-500 hover:text-gray-900"
+              }`}
+            >
+              Inventory Reconciliation
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("claims")}
+              className={`pb-4 px-2 font-bold text-lg border-b-2 transition-colors flex items-center gap-2 ${
+                activeTab === "claims"
+                  ? "border-coinnect-primary text-coinnect-primary-dark"
+                  : "border-transparent text-gray-500 hover:text-gray-900"
+              }`}
+            >
+              Claims Resolution
+              {claims.length > 0 && (
+                <span className="bg-red-500 text-white rounded-full text-xs px-2.5 py-0.5 font-extrabold">
+                  {claims.length}
+                </span>
+              )}
+            </button>
           </div>
 
-          {SECTIONS.map((section) => (
-            <section key={section.key}>
-              <div className="mb-4 flex items-end justify-between gap-4">
-                <div>
-                  <h3 className="text-2xl font-bold">{section.title}</h3>
-                  <p className="text-sm text-gray-500">{section.description}</p>
-                </div>
-                <span className="text-sm font-semibold text-gray-500">
-                  {Object.keys(draft[section.key]).length} locations
-                </span>
+          {activeTab === "reconciliation" ? (
+            <>
+              <div>
+                <p className="text-sm font-bold uppercase tracking-[0.2em] text-coinnect-primary">
+                  Physical reconciliation
+                </p>
+                <h2 className="mt-2 text-3xl font-extrabold lg:text-4xl">
+                  Count what is actually loaded
+                </h2>
+                <p className="mt-2 text-gray-600">
+                  Values replace the recorded count. Changed rows are highlighted.
+                </p>
               </div>
-              <div className="overflow-hidden rounded-card border border-gray-200 bg-white">
-                {Object.entries(draft[section.key]).map(
-                  ([denomination, count], index) => {
-                    const changed =
-                      count !== inventory[section.key][denomination];
-                    const controlName =
-                      section.location === "BILL_STORAGE"
-                        ? `Storage ${accessibleDenomination(denomination)}`
-                        : accessibleDenomination(denomination);
-                    return (
-                      <div
-                        key={denomination}
-                        className={`grid grid-cols-[1fr_auto] items-center gap-4 px-5 py-4 transition-colors lg:px-6 ${
-                          index ? "border-t border-gray-100" : ""
-                        } ${changed ? "bg-orange-50" : ""}`}
-                      >
+
+              {SECTIONS.map((section) => (
+                <section key={section.key}>
+                  <div className="mb-4 flex items-end justify-between gap-4">
+                    <div>
+                      <h3 className="text-2xl font-bold">{section.title}</h3>
+                      <p className="text-sm text-gray-500">{section.description}</p>
+                    </div>
+                    <span className="text-sm font-semibold text-gray-500">
+                      {Object.keys(draft[section.key]).length} locations
+                    </span>
+                  </div>
+                  <div className="overflow-hidden rounded-card border border-gray-200 bg-white">
+                    {Object.entries(draft[section.key]).map(
+                      ([denomination, count], index) => {
+                        const changed =
+                          count !== inventory[section.key][denomination];
+                        const controlName =
+                          section.location === "BILL_STORAGE"
+                            ? `Storage ${accessibleDenomination(denomination)}`
+                            : accessibleDenomination(denomination);
+                        return (
+                          <div
+                            key={denomination}
+                            className={`grid grid-cols-[1fr_auto] items-center gap-4 px-5 py-4 transition-colors lg:px-6 ${
+                              index ? "border-t border-gray-100" : ""
+                            } ${changed ? "bg-orange-50" : ""}`}
+                          >
+                            <div>
+                              <p className="text-xl font-extrabold">
+                                {displayDenomination(denomination)}
+                              </p>
+                              <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+                                {denomination.replaceAll("_", " ")}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                aria-label={`Decrease ${controlName}`}
+                                onClick={() =>
+                                  updateCount(section.key, denomination, count - 1)
+                                }
+                                className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200"
+                              >
+                                <Minus className="h-5 w-5" />
+                              </button>
+                              <input
+                                aria-label={`${controlName} count`}
+                                type="number"
+                                min="0"
+                                inputMode="numeric"
+                                value={count}
+                                onChange={(event) =>
+                                  updateCount(
+                                    section.key,
+                                    denomination,
+                                    event.target.value
+                                  )
+                                }
+                                className={`h-12 w-24 rounded-xl border-2 text-center text-xl font-bold outline-none ${
+                                  changed
+                                    ? "border-coinnect-primary text-coinnect-primary-dark"
+                                    : "border-gray-200"
+                                }`}
+                              />
+                              <button
+                                type="button"
+                                aria-label={`Increase ${controlName}`}
+                                onClick={() =>
+                                  updateCount(section.key, denomination, count + 1)
+                                }
+                                className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200"
+                              >
+                                <Plus className="h-5 w-5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      }
+                    )}
+                  </div>
+                </section>
+              ))}
+            </>
+          ) : (
+            <div className="space-y-6">
+              <div>
+                <p className="text-sm font-bold uppercase tracking-[0.2em] text-coinnect-primary">
+                  Unresolved Customer Issues
+                </p>
+                <h2 className="mt-2 text-3xl font-extrabold lg:text-4xl">
+                  Active Claim Tickets
+                </h2>
+                <p className="mt-2 text-gray-600">
+                  Review and resolve shortfalls or failed transaction obligations.
+                </p>
+              </div>
+
+              {loadingClaims ? (
+                <p className="text-gray-500 font-semibold">Loading active claims…</p>
+              ) : claims.length === 0 ? (
+                <div className="rounded-card border border-gray-200 bg-white p-8 text-center text-gray-500 font-semibold shadow-sm">
+                  No active claim tickets found. Kiosk balances are verified!
+                </div>
+              ) : (
+                <div className="grid gap-6">
+                  {claims.map((claim) => (
+                    <article
+                      key={claim.claim_ticket_code}
+                      className="rounded-card border border-gray-200 bg-white p-6 shadow-sm space-y-4"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-4">
                         <div>
-                          <p className="text-xl font-extrabold">
-                            {displayDenomination(denomination)}
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <span className="font-extrabold text-2xl font-mono text-coinnect-primary-dark">
+                              {claim.claim_ticket_code}
+                            </span>
+                            <span
+                              className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${
+                                claim.type.includes("ewallet")
+                                  ? "bg-blue-100 text-blue-800"
+                                  : claim.type.includes("forex")
+                                  ? "bg-purple-100 text-purple-805"
+                                  : "bg-green-100 text-green-800"
+                              }`}
+                            >
+                              {claim.type}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm text-gray-500">
+                            ID: <span className="font-mono">{claim.transaction_id}</span>
                           </p>
-                          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">
-                            {denomination.replaceAll("_", " ")}
+                          <p className="mt-1 text-xs text-gray-400">
+                            Created at: {new Date(claim.created_at).toLocaleString()}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            aria-label={`Decrease ${controlName}`}
-                            onClick={() =>
-                              updateCount(section.key, denomination, count - 1)
-                            }
-                            className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200"
-                          >
-                            <Minus className="h-5 w-5" />
-                          </button>
-                          <input
-                            aria-label={`${controlName} count`}
-                            type="number"
-                            min="0"
-                            inputMode="numeric"
-                            value={count}
-                            onChange={(event) =>
-                              updateCount(
-                                section.key,
-                                denomination,
-                                event.target.value
-                              )
-                            }
-                            className={`h-12 w-24 rounded-xl border-2 text-center text-xl font-bold outline-none ${
-                              changed
-                                ? "border-coinnect-primary text-coinnect-primary-dark"
-                                : "border-gray-200"
-                            }`}
-                          />
-                          <button
-                            type="button"
-                            aria-label={`Increase ${controlName}`}
-                            onClick={() =>
-                              updateCount(section.key, denomination, count + 1)
-                            }
-                            className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200"
-                          >
-                            <Plus className="h-5 w-5" />
-                          </button>
+                        <div className="text-right">
+                          <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">
+                            Shortfall Owed
+                          </p>
+                          <p className="text-3xl font-black text-red-600">
+                            ₱{claim.shortfall}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            Inserted: ₱{claim.inserted_amount} | Dispensed: ₱{claim.dispensed_amount}
+                          </p>
                         </div>
                       </div>
-                    );
-                  }
-                )}
-              </div>
-            </section>
-          ))}
+
+                      <div className="grid gap-4 border-t border-gray-150 pt-4 md:grid-cols-2">
+                        <div className="space-y-1">
+                          <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">
+                            Transaction Details
+                          </p>
+                          {claim.provider && (
+                            <p className="text-sm font-semibold">
+                              Provider: <span className="capitalize">{claim.provider}</span> ({claim.direction})
+                            </p>
+                          )}
+                          {claim.mobile_number && (
+                            <p className="text-sm">
+                              Mobile: <span className="font-mono">{claim.mobile_number}</span>
+                            </p>
+                          )}
+                          {claim.account_name && (
+                            <p className="text-sm">
+                              Account Name: <span className="font-semibold">{claim.account_name}</span>
+                            </p>
+                          )}
+                          {!claim.provider && <p className="text-sm text-gray-650 font-semibold">Cash Conversion swap</p>}
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">
+                            Error Information
+                          </p>
+                          <p className="text-sm font-bold text-red-700">
+                            {claim.error_code || "UNKNOWN_ERROR"}
+                          </p>
+                          <p className="text-xs text-gray-600">
+                            {claim.error_message || "No error details available"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end pt-2 border-t border-gray-100">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setResolvingClaim(claim.claim_ticket_code);
+                            setResolutionNotes("");
+                            setResolvingError("");
+                          }}
+                          className="flex min-h-11 items-center gap-2 rounded-button bg-coinnect-primary px-5 font-bold text-white hover:bg-coinnect-primary-dark"
+                        >
+                          Resolve Claim
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <aside className="space-y-6 lg:sticky lg:top-28 lg:self-start">
@@ -469,6 +672,60 @@ export default function AdminInventoryScreen() {
             </div>
           </div>
         </section>
+      )}
+
+      {resolvingClaim && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg rounded-card bg-white p-6 shadow-2xl space-y-6">
+            <div>
+              <h3 className="text-2xl font-bold text-gray-900">Resolve Claim Ticket</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                Marking ticket <span className="font-mono font-bold text-coinnect-primary">{resolvingClaim}</span> as resolved.
+              </p>
+            </div>
+            
+            <div className="space-y-3">
+              <label className="block">
+                <span className="mb-1 block text-sm font-bold text-gray-700">
+                  Resolution Notes
+                </span>
+                <textarea
+                  required
+                  rows={4}
+                  value={resolutionNotes}
+                  onChange={(event) => setResolutionNotes(event.target.value)}
+                  placeholder="Describe the action taken (e.g. 'Cleared bill jam in slot 3 and paid user ₱500 via GCash manually')"
+                  className="w-full rounded-xl border-2 border-gray-200 p-3 outline-none focus:border-coinnect-primary"
+                />
+              </label>
+              
+              {resolvingError && (
+                <p className="flex items-center gap-2 text-sm font-semibold text-red-600">
+                  <AlertTriangle className="h-4 w-4" />
+                  {resolvingError}
+                </p>
+              )}
+            </div>
+            
+            <div className="flex gap-3 justify-end border-t border-gray-150 pt-4">
+              <button
+                type="button"
+                onClick={() => setResolvingClaim(null)}
+                className="min-h-12 px-5 rounded-button border-2 border-gray-300 font-bold hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!resolutionNotes.trim() || resolvingSaving}
+                onClick={() => resolveClaim(resolvingClaim)}
+                className="min-h-12 px-5 rounded-button bg-coinnect-primary font-bold text-white hover:bg-coinnect-primary-dark disabled:opacity-40"
+              >
+                {resolvingSaving ? "Saving…" : "Mark as Resolved"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </main>
   );
