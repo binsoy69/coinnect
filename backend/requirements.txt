@@ -1,3 +1,5 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 # Coinnect Backend Python Dependencies
 # Python 3.11+ required
 
@@ -21,8 +23,7 @@ rpi-lgpio>=0.6.0; platform_system == "Linux" and (platform_machine == "armv6l" o
 ultralytics>=8.0.0
 opencv-python>=4.8.0
 numpy>=1.24.0
-torch>=2.0.0
-torchvision>=0.15.0
+# Note: torch and torchvision are transitively installed by ultralytics from the CPU-only index.
 
 # ============================================================================
 # CONFIGURATION & ENVIRONMENT
