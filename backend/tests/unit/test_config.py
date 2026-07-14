@@ -71,3 +71,13 @@ class TestSettings:
         )
 
         assert s.serial_port_bill == "MOCK"
+
+    def test_paperang_density_empty_string(self):
+        s = Settings(
+            use_mock_serial=True,
+            serial_port_bill="MOCK",
+            serial_port_coin="MOCK",
+            paperang_density="",
+        )
+        assert s.paperang_density is None
+

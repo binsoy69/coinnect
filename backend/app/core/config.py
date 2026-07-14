@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -62,6 +62,13 @@ class Settings(BaseSettings):
     paperang_mac_address: str = ""
     paperang_repo_path: str = "vendor/python-paperang"
     paperang_density: int | None = None
+
+    @field_validator("paperang_density", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v):
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
     paperang_feed_lines: int = 120
     paperang_print_timeout_seconds: int = 60
 

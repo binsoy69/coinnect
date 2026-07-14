@@ -241,6 +241,14 @@ pip install -r requirements.txt
 python -c "import RPi.GPIO as GPIO; print('GPIO import ok')"
 ```
 
+### `Failed building wheel for lgpio` / SWIG error
+On modern Raspberry Pi OS versions (like Bookworm), `rpi-lgpio` replaces `RPi.GPIO`. Installing it within a virtual environment requires `swig` and system-level `lgpio` library headers to compile. Install them with:
+```bash
+sudo apt update
+sudo apt install -y swig liblgpio-dev
+```
+Then rerun the pip installation.
+
 For development without physical GPIO hardware, set `USE_MOCK_HARDWARE=true`
 in `backend/.env`.
 
