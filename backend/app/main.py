@@ -109,7 +109,10 @@ async def lifespan(app: FastAPI):
         logger.info("Using real hardware controllers")
 
     await gpio.setup()
-    await camera.initialize()
+    try:
+        await camera.initialize()
+    except Exception as exc:
+        logger.error(f"Failed to initialize camera on startup (will be verified by diagnostics): {exc}")
 
     # --- Phase 3: Service layer ---
 
@@ -194,8 +197,26 @@ async def lifespan(app: FastAPI):
     app.state.admin_sessions = admin_sessions
     app.state.receipt_service = receipt_service
 
+    # Instantiate StartupCheckService
+    from app.services.startup_check import StartupCheckService
+    startup_check_service = StartupCheckService(
+        settings=settings,
+        serial_manager=serial_manager,
+        bill_controller=bill_controller,
+        coin_controller=coin_controller,
+        camera=camera,
+        receipt_service=receipt_service,
+        authenticator=authenticator,
+        machine_status=machine_status,
+        ws_manager=ws_manager,
+    )
+    app.state.startup_check_service = startup_check_service
+
     # Startup
-    await serial_manager.startup()
+    try:
+        await serial_manager.startup()
+    except Exception as exc:
+        logger.error(f"Failed to start serial manager: {exc}")
     
     # Update global constants map with environment settings
     from app.core.constants import update_slot_positions
@@ -251,12 +272,21 @@ async def lifespan(app: FastAPI):
 
     await event_dispatcher.start()
 
-
-
     # Recover any transactions interrupted by crash/power loss
     await transaction_orchestrator.recover_pending_transactions()
     await ewallet_orchestrator.recover_pending_transactions()
     await forex_transaction_orchestrator.recover_pending_transactions()
+
+    # Asynchronously run system startup diagnostic checks
+    async def _run_startup_diagnostics():
+        await asyncio.sleep(0.5)
+        try:
+            await startup_check_service.run_checks()
+        except Exception as e:
+            logger.error(f"Error running startup diagnostic checks: {e}")
+
+    app.state._startup_diagnostics_task = asyncio.create_task(_run_startup_diagnostics())
+
 
     # Start forex rate service (fetches initial rates + starts periodic refresh)
     await forex_rate_service.start()

@@ -57,6 +57,12 @@ class ConsumablesState(BaseModel):
     inventory_consistent: bool = True
 
 
+class StartupChecksState(BaseModel):
+    performed: bool = False
+    has_errors: bool = False
+    errors: Dict[str, str] = Field(default_factory=dict)
+
+
 class MachineStateSnapshot(BaseModel):
     bill_device: DeviceStatus = Field(default_factory=DeviceStatus)
     coin_device: DeviceStatus = Field(default_factory=DeviceStatus)
@@ -65,5 +71,7 @@ class MachineStateSnapshot(BaseModel):
     consumables: ConsumablesState = Field(default_factory=ConsumablesState)
     printer_connected: bool = False
     internet_connected: bool = False
+    startup_checks: StartupChecksState = Field(default_factory=StartupChecksState)
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+
 

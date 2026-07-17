@@ -17,6 +17,7 @@ from app.models.machine import (
     MachineStateSnapshot,
     SecurityState,
     SorterState,
+    StartupChecksState,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ class MachineStatus:
         self._consumables = ConsumablesState()
         self._printer_connected = False
         self._internet_connected = False
+        self._startup_checks = StartupChecksState()
 
         self._on_change: Optional[Callable] = None
 
@@ -47,6 +49,7 @@ class MachineStatus:
                 consumables=self._consumables.model_copy(deep=True),
                 printer_connected=self._printer_connected,
                 internet_connected=self._internet_connected,
+                startup_checks=self._startup_checks.model_copy(deep=True),
                 timestamp=datetime.utcnow(),
             )
 
@@ -67,6 +70,14 @@ class MachineStatus:
             if printer_connected is not None:
                 self._printer_connected = printer_connected
         self._notify_change()
+
+    def update_startup_checks(self, performed: bool, errors: dict[str, str]) -> None:
+        with self._lock:
+            self._startup_checks.performed = performed
+            self._startup_checks.errors = errors
+            self._startup_checks.has_errors = len(errors) > 0
+        self._notify_change()
+
 
 
     def set_on_change(self, callback: Callable) -> None:

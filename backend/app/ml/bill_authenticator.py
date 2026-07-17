@@ -67,6 +67,10 @@ class BillAuthenticatorBase(ABC):
         """Pre-load ML models into memory."""
         pass
 
+    @property
+    def load_errors(self) -> Dict[str, str]:
+        return {}
+
 
 class YOLOBillAuthenticator(BillAuthenticatorBase):
 
@@ -102,8 +106,13 @@ class YOLOBillAuthenticator(BillAuthenticatorBase):
                 "denom": denom_model_path_eur,
             }
         self._loaded_models: Dict[str, Dict[str, object]] = {}
+        self._load_errors: Dict[str, str] = {}
         self._active_currency = "PHP"
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+    @property
+    def load_errors(self) -> Dict[str, str]:
+        return self._load_errors
 
     def set_currency(self, currency: str) -> None:
         """Switch to models for the given currency."""
@@ -144,9 +153,16 @@ class YOLOBillAuthenticator(BillAuthenticatorBase):
             path = self._model_paths[currency][model_type]
             logger.info(f"Loading {model_type} model for {currency}: {path}")
             task = "classify" if "cls" in path.lower() else None
-            self._loaded_models[currency][model_type] = YOLO(path, task=task)
+            try:
+                self._loaded_models[currency][model_type] = YOLO(path, task=task)
+                self._load_errors.pop(f"{currency}_{model_type}", None)
+            except Exception as e:
+                self._load_errors[f"{currency}_{model_type}"] = str(e)
+                logger.error(f"Failed to load {model_type} model for {currency}: {e}")
+                raise
             logger.info(f"{model_type} model for {currency} loaded (task={task})")
         return self._loaded_models[currency][model_type]
+
 
     def _get_active_auth_model(self):
         return self._load_model(self._active_currency, "auth")

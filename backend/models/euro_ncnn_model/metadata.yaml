@@ -1,0 +1,31 @@
+description: Ultralytics YOLO26s model trained on /content/dataset/data.yaml
+author: Ultralytics
+date: '2026-03-05T00:34:39.770468'
+version: 8.4.19
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: detect
+batch: 1
+imgsz:
+- 640
+- 640
+names:
+  0: '100_1'
+  1: '100_2'
+  2: '10_1'
+  3: '10_2'
+  4: '200_1'
+  5: '200_2'
+  6: '20_1'
+  7: '20_2'
+  8: '50_1'
+  9: '50_2'
+  10: '5_1'
+  11: '5_2'
+  12: hand
+args:
+  batch: 1
+  half: false
+channels: 3
+end2end: false
