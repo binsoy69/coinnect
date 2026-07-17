@@ -1,0 +1,24 @@
+description: Ultralytics YOLO26s-cls model trained on /content/usd_dataset
+author: Ultralytics
+date: '2026-07-17T13:50:55.364100'
+version: 8.4.24
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 1
+task: classify
+batch: 1
+imgsz:
+- 640
+- 640
+names:
+  0: 100_dollar
+  1: 10_dollar
+  2: 1_dollar
+  3: 2_dollar
+  4: 50_dollar
+  5: 5_dollar
+args:
+  batch: 1
+  half: false
+channels: 3
+end2end: false
