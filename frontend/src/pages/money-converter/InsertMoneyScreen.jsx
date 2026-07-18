@@ -178,6 +178,7 @@ export default function InsertMoneyScreen() {
                 seconds={TIMER_DURATIONS.INSERT_MONEY}
                 onComplete={handleTimerComplete}
                 showProgressBar={true}
+                resetTrigger={transaction.moneyInserted}
               />
 
               <p className="text-center text-gray-400 text-xs mt-2">

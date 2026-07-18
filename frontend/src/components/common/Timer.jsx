@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useCountdown } from "../../hooks/useCountdown";
 
 // Color variants with full class names for Tailwind to detect
@@ -29,14 +30,27 @@ export default function Timer({
   onComplete,
   showProgressBar = true,
   autoStart = true,
+  resetTrigger,
   color = "primary", // 'primary' or 'forex'
   className = "",
 }) {
-  const { seconds, remainingProgress } = useCountdown(
+  const { seconds, remainingProgress, reset } = useCountdown(
     initialSeconds,
     onComplete,
     autoStart,
   );
+
+  // Reset timer when resetTrigger changes (skip the initial mount)
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    if (resetTrigger !== undefined) {
+      reset();
+    }
+  }, [resetTrigger, reset]);
 
   const colors = colorVariants[color] || colorVariants.primary;
 

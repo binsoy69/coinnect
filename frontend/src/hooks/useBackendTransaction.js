@@ -42,8 +42,8 @@ export function useBackendTransaction() {
     };
 
     const handleCoinInserted = (event) => {
-      if (event.payload?.transaction_id === txIdRef.current) {
-        const denom = event.payload?.denomination;
+      if (event.payload) {
+        const denom = event.payload.denomination;
         if (denom) {
           addInsertedMoney(denom);
         }
