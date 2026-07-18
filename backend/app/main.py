@@ -168,6 +168,7 @@ async def lifespan(app: FastAPI):
         gateway=paymongo_client,
         bill_acceptor=bill_acceptor,
         dispenser=dispense_orchestrator,
+        coin_controller=coin_controller,
         machine_status=machine_status,
         ws_manager=ws_manager,
         db_session_factory=get_session_factory(),

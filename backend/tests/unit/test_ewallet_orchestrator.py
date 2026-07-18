@@ -264,3 +264,48 @@ async def test_transfer_webhook_is_reconciled_before_completion(
     gateway.get_batch_transfer.assert_awaited_once_with(
         pending["gateway_batch_transfer_id"]
     )
+
+
+@pytest.mark.asyncio
+async def test_cash_in_coin_acceptor_control(ewallet_dependencies):
+    orchestrator, gateway, _, factory = ewallet_dependencies
+    mock_coin_controller = AsyncMock()
+    orchestrator._coin_controller = mock_coin_controller
+
+    # 1. Starting cash-in should enable coin acceptor
+    tx = await orchestrator.start_transaction(
+        provider="maya",
+        direction="cash-in",
+        mobile_number="09181234567",
+        account_name="Test User",
+        amount=105,
+    )
+    mock_coin_controller.set_coin_acceptor_enabled.assert_awaited_once_with(True)
+    mock_coin_controller.reset_mock()
+
+    # 2. Reaching CASH_ACCEPTED should disable coin acceptor
+    await orchestrator.record_cash_insert(tx["transaction_id"], 100)
+    mock_coin_controller.set_coin_acceptor_enabled.assert_not_called()
+    
+    await orchestrator.record_cash_insert(tx["transaction_id"], 5)
+    mock_coin_controller.set_coin_acceptor_enabled.assert_awaited_once_with(False)
+    mock_coin_controller.reset_mock()
+
+    # Clear active transaction manually to allow starting tx2
+    await orchestrator._clear_active()
+    mock_coin_controller.reset_mock()
+
+    # 3. Cancelling/Clearing active transaction should disable coin acceptor
+    tx2 = await orchestrator.start_transaction(
+        provider="gcash",
+        direction="cash-in",
+        mobile_number="09181234567",
+        account_name="Test User",
+        amount=50,
+    )
+    mock_coin_controller.set_coin_acceptor_enabled.assert_awaited_once_with(True)
+    mock_coin_controller.reset_mock()
+
+    await orchestrator.cancel_transaction(tx2["transaction_id"])
+    mock_coin_controller.set_coin_acceptor_enabled.assert_awaited_once_with(False)
+

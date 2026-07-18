@@ -25,6 +25,7 @@ from app.services.machine_status import MachineStatus
 from app.services.paymongo_client import PayMongoClient
 from app.services.operation_mode import OperationModeManager
 from app.services.receipt_service import ReceiptService
+from app.drivers.coin_security_controller import CoinSecurityController
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +47,13 @@ class EWalletOrchestrator:
         db_session_factory: async_sessionmaker,
         operation_mode: OperationModeManager | None = None,
         receipt_service: ReceiptService | None = None,
+        coin_controller: CoinSecurityController | None = None,
     ):
         self._settings = settings
         self._gateway = gateway
         self._bill_acceptor = bill_acceptor
         self._dispenser = dispenser
+        self._coin_controller = coin_controller
         self._status = machine_status
         self._ws = ws_manager
         self._db_factory = db_session_factory
@@ -137,9 +140,22 @@ class EWalletOrchestrator:
                 session.add(record)
                 await session.commit()
         except Exception:
-            self._clear_active()
+            await self._clear_active()
             raise
         self._active_transaction_id = tx_id
+
+        if direction == "cash-in":
+            try:
+                await self._set_coin_acceptor_enabled(True, raise_on_error=True)
+            except Exception:
+                await self._clear_active()
+                async with self._db_factory() as session:
+                    failed = await session.get(EWalletTransactionRecord, tx_id)
+                    failed.state = "FAILED"
+                    failed.error_code = "COIN_ACCEPTOR_ERROR"
+                    failed.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                    await session.commit()
+                raise
 
         if direction == "cash-out":
             try:
@@ -149,7 +165,7 @@ class EWalletOrchestrator:
                     idempotency_key=f"ewallet:{tx_id}:qr",
                 )
             except Exception:
-                self._clear_active()
+                await self._clear_active()
                 async with self._db_factory() as session:
                     failed = await session.get(EWalletTransactionRecord, tx_id)
                     failed.state = "FAILED"
@@ -189,6 +205,7 @@ class EWalletOrchestrator:
             record.inserted_denominations = denoms
             if record.inserted_amount >= record.total_due:
                 record.state = "CASH_ACCEPTED"
+                await self._set_coin_acceptor_enabled(False)
             await session.commit()
             event = (
                 WSEventType.EWALLET_CASH_ACCEPTED
@@ -256,7 +273,7 @@ class EWalletOrchestrator:
                 await self._broadcast(
                     record, WSEventType.EWALLET_CLAIM_REQUIRED
                 )
-                self._clear_active()
+                await self._clear_active()
             return await self.get_transaction(transaction_id)
 
         async with self._db_factory() as session:
@@ -359,7 +376,7 @@ class EWalletOrchestrator:
                         if record.claim_ticket_code
                         else WSEventType.EWALLET_GATEWAY_FAILED,
                     )
-                    self._clear_active()
+                    await self._clear_active()
                 result_payload = await self.get_transaction(record.id)
             else:
                 result_payload = {"processed": True, "status": status}
@@ -486,7 +503,7 @@ class EWalletOrchestrator:
                 asyncio.create_task(self._cancel_payment_intent_background(record.gateway_payment_intent_id))
 
             await self._broadcast(record, WSEventType.EWALLET_STATE_CHANGED)
-            self._clear_active()
+            await self._clear_active()
             return self._serialize(record)
 
     async def _cancel_payment_intent_background(self, intent_id: str) -> None:
@@ -540,7 +557,7 @@ class EWalletOrchestrator:
                     f"Recovery error: {e}",
                 )
 
-        self._clear_active()
+        await self._clear_active()
 
 
     async def _dispense_paid_cash_out(self, transaction_id: str) -> dict:
@@ -563,7 +580,7 @@ class EWalletOrchestrator:
                         error_reason=record.error_message
                     )
                 await self._broadcast(record, WSEventType.EWALLET_CLAIM_REQUIRED)
-                self._clear_active()
+                await self._clear_active()
                 return self._serialize(record)
             snapshot = self._status.snapshot()
             plan = calculate_change(
@@ -608,7 +625,7 @@ class EWalletOrchestrator:
                         error_reason=result.error
                     )
             await self._broadcast(record, event_type)
-            self._clear_active()
+            await self._clear_active()
             return self._serialize(record)
 
     async def _complete_cash_in(self, transaction_id: str) -> dict:
@@ -622,7 +639,7 @@ class EWalletOrchestrator:
             if self._receipt_service:
                 await self._receipt_service.print_receipt(record)
             await self._broadcast(record, WSEventType.EWALLET_COMPLETE)
-            self._clear_active()
+            await self._clear_active()
             return self._serialize(record)
 
     async def _verify_and_dispense_cash_out(
@@ -649,7 +666,7 @@ class EWalletOrchestrator:
                         error_reason=record.error_message
                     )
                 await self._broadcast(record, WSEventType.EWALLET_CLAIM_REQUIRED)
-                self._clear_active()
+                await self._clear_active()
                 return self._serialize(record)
             intent_id = record.gateway_payment_intent_id
             expected_amount = record.amount * 100
@@ -738,14 +755,25 @@ class EWalletOrchestrator:
                 record,
                 WSEventType.EWALLET_CLAIM_REQUIRED,
             )
-            self._clear_active()
+            await self._clear_active()
             return self._serialize(record)
 
-    def _clear_active(self) -> None:
+    async def _clear_active(self) -> None:
         self._active_transaction_id = None
         if self._operation_mode and self._operation_owner:
             self._operation_mode.end_transaction(self._operation_owner)
             self._operation_owner = None
+        await self._set_coin_acceptor_enabled(False)
+
+    async def _set_coin_acceptor_enabled(self, enabled: bool, raise_on_error: bool = False) -> None:
+        if self._coin_controller is None:
+            return
+        try:
+            await self._coin_controller.set_coin_acceptor_enabled(enabled)
+        except Exception as e:
+            logger.warning(f"Failed to set coin acceptor enabled={enabled}: {e}")
+            if raise_on_error:
+                raise
 
     def _calculate_fee(self, amount: int) -> int:
         for tier in sorted(
