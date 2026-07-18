@@ -10,6 +10,7 @@ export function useCountdown(initialSeconds, onComplete, autoStart = true) {
   const [seconds, setSeconds] = useState(initialSeconds);
   const [isRunning, setIsRunning] = useState(autoStart);
   const [isComplete, setIsComplete] = useState(false);
+  const [resetCount, setResetCount] = useState(0);
   const intervalRef = useRef(null);
   const onCompleteRef = useRef(onComplete);
 
@@ -53,7 +54,7 @@ export function useCountdown(initialSeconds, onComplete, autoStart = true) {
         clearInterval(intervalRef.current);
       }
     };
-  }, [isRunning, isComplete]);
+  }, [isRunning, isComplete, resetCount]);
 
   // Reset timer to initial value
   const reset = useCallback(() => {
@@ -63,6 +64,7 @@ export function useCountdown(initialSeconds, onComplete, autoStart = true) {
     setSeconds(initialSeconds);
     setIsComplete(false);
     setIsRunning(true);
+    setResetCount(c => c + 1);
   }, [initialSeconds]);
 
   // Pause timer

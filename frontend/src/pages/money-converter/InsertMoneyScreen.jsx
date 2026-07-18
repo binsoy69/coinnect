@@ -50,6 +50,13 @@ export default function InsertMoneyScreen() {
     }
   );
 
+  // Auto-navigate when inserted amount meets or exceeds the required amount
+  useEffect(() => {
+    if (isAmountMatched()) {
+      navigate(getServiceRoute(ROUTES.TRANSACTION_SUMMARY, type));
+    }
+  }, [transaction.moneyInserted, isAmountMatched, navigate, type]);
+
   // Keyboard simulation for development (toggleable via VITE_ENABLE_KEYBOARD_SIM)
   // Press keys 1-4 to insert different denominations
   useEffect(() => {

@@ -6,6 +6,7 @@ const TransactionContext = createContext(null);
 
 export function TransactionProvider({ children }) {
   const [transaction, setTransaction] = useState(DEFAULT_TRANSACTION_STATE);
+  const [backendTransactionId, setBackendTransactionId] = useState(null);
 
   // Initialize transaction with service type
   const startTransaction = useCallback((serviceType) => {
@@ -104,6 +105,7 @@ export function TransactionProvider({ children }) {
   // Reset transaction to initial state
   const resetTransaction = useCallback(() => {
     setTransaction(DEFAULT_TRANSACTION_STATE);
+    setBackendTransactionId(null);
   }, []);
 
   // Get current service config
@@ -123,6 +125,8 @@ export function TransactionProvider({ children }) {
 
   const value = {
     transaction,
+    backendTransactionId,
+    setBackendTransactionId,
     startTransaction,
     setSelectedAmount,
     setIncludeFee,

@@ -8,21 +8,23 @@ import { useTransaction } from "../context/TransactionContext";
  *
  * Subscribes to WebSocket events to receive real-time updates about
  * bill insertions, dispense progress, and state changes.
+ *
+ * The backend transaction ID is stored in TransactionContext so it
+ * persists across screen navigations.
  */
 export function useBackendTransaction() {
   const { subscribe, unsubscribe } = useWebSocket();
-  const { addInsertedMoney } = useTransaction();
-  const [transactionId, setTransactionId] = useState(null);
+  const { addInsertedMoney, backendTransactionId, setBackendTransactionId } = useTransaction();
   const [backendState, setBackendState] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [dispenseProgress, setDispenseProgress] = useState(null);
   const txIdRef = useRef(null);
 
-  // Keep ref in sync
+  // Keep ref in sync with shared context value
   useEffect(() => {
-    txIdRef.current = transactionId;
-  }, [transactionId]);
+    txIdRef.current = backendTransactionId;
+  }, [backendTransactionId]);
 
   // Subscribe to transaction events
   useEffect(() => {
@@ -99,7 +101,7 @@ export function useBackendTransaction() {
           throw new Error(errData.detail || `HTTP ${resp.status}`);
         }
         const data = await resp.json();
-        setTransactionId(data.transaction_id);
+        setBackendTransactionId(data.transaction_id);
         setBackendState(data);
         return data;
       } catch (err) {
@@ -109,7 +111,7 @@ export function useBackendTransaction() {
         setIsLoading(false);
       }
     },
-    []
+    [setBackendTransactionId]
   );
 
   const confirmBackendTransaction = useCallback(async () => {
@@ -156,9 +158,9 @@ export function useBackendTransaction() {
       throw err;
     } finally {
       setIsLoading(false);
-      setTransactionId(null);
+      setBackendTransactionId(null);
     }
-  }, []);
+  }, [setBackendTransactionId]);
 
   const simulateInsert = useCallback(async (denom, insertType = "bill") => {
     if (!txIdRef.current) return null;
@@ -183,14 +185,14 @@ export function useBackendTransaction() {
   }, []);
 
   const resetBackendTransaction = useCallback(() => {
-    setTransactionId(null);
+    setBackendTransactionId(null);
     setBackendState(null);
     setError(null);
     setDispenseProgress(null);
-  }, []);
+  }, [setBackendTransactionId]);
 
   return {
-    transactionId,
+    transactionId: backendTransactionId,
     backendState,
     isLoading,
     error,
