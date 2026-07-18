@@ -149,12 +149,12 @@ export function useForexTransaction() {
   );
 
   const confirmForexTransaction = useCallback(async () => {
-    if (!txIdRef.current) return null;
+    if (!transactionId) return null;
     setIsLoading(true);
     setError(null);
     try {
       const resp = await fetch(
-        `${API_BASE}/forex/transaction/${txIdRef.current}/confirm`,
+        `${API_BASE}/forex/transaction/${transactionId}/confirm`,
         { method: "POST" }
       );
       if (!resp.ok) {
@@ -170,14 +170,14 @@ export function useForexTransaction() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [transactionId]);
 
   const cancelForexTransaction = useCallback(async () => {
-    if (!txIdRef.current) return null;
+    if (!transactionId) return null;
     setIsLoading(true);
     try {
       const resp = await fetch(
-        `${API_BASE}/forex/transaction/${txIdRef.current}`,
+        `${API_BASE}/forex/transaction/${transactionId}`,
         { method: "DELETE" }
       );
       if (!resp.ok) {
@@ -194,14 +194,14 @@ export function useForexTransaction() {
       setIsLoading(false);
       setTransactionId(null);
     }
-  }, []);
+  }, [transactionId]);
 
   const simulateForexInsert = useCallback(
     async (denom, currency = "USD") => {
-      if (!txIdRef.current) return null;
+      if (!transactionId) return null;
       try {
         const resp = await fetch(
-          `${API_BASE}/forex/transaction/${txIdRef.current}/simulate-insert`,
+          `${API_BASE}/forex/transaction/${transactionId}/simulate-insert`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -218,7 +218,7 @@ export function useForexTransaction() {
         return null;
       }
     },
-    []
+    [transactionId]
   );
 
   const resetForexTransaction = useCallback(() => {

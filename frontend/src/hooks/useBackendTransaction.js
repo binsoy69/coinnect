@@ -115,12 +115,12 @@ export function useBackendTransaction() {
   );
 
   const confirmBackendTransaction = useCallback(async () => {
-    if (!txIdRef.current) return null;
+    if (!backendTransactionId) return null;
     setIsLoading(true);
     setError(null);
     try {
       const resp = await fetch(
-        `${API_BASE}/transaction/${txIdRef.current}/confirm`,
+        `${API_BASE}/transaction/${backendTransactionId}/confirm`,
         { method: "POST" }
       );
       if (!resp.ok) {
@@ -136,14 +136,14 @@ export function useBackendTransaction() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [backendTransactionId]);
 
   const cancelBackendTransaction = useCallback(async () => {
-    if (!txIdRef.current) return null;
+    if (!backendTransactionId) return null;
     setIsLoading(true);
     try {
       const resp = await fetch(
-        `${API_BASE}/transaction/${txIdRef.current}`,
+        `${API_BASE}/transaction/${backendTransactionId}`,
         { method: "DELETE" }
       );
       if (!resp.ok) {
@@ -160,13 +160,13 @@ export function useBackendTransaction() {
       setIsLoading(false);
       setBackendTransactionId(null);
     }
-  }, [setBackendTransactionId]);
+  }, [backendTransactionId, setBackendTransactionId]);
 
   const simulateInsert = useCallback(async (denom, insertType = "bill") => {
-    if (!txIdRef.current) return null;
+    if (!backendTransactionId) return null;
     try {
       const resp = await fetch(
-        `${API_BASE}/transaction/${txIdRef.current}/simulate-insert`,
+        `${API_BASE}/transaction/${backendTransactionId}/simulate-insert`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -182,7 +182,7 @@ export function useBackendTransaction() {
       console.error("Simulate insert error:", err);
       return null;
     }
-  }, []);
+  }, [backendTransactionId]);
 
   const resetBackendTransaction = useCallback(() => {
     setBackendTransactionId(null);
