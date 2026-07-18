@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     serial_sorting_timeout: float = 20.0
     coin_dispense_timeout_factor: float = 0.8
     coin_dispense_timeout_base: float = 5.0
+    dispense_ui_delay: float = 1.0
 
     # Consumables thresholds
     low_bill_threshold: int = 10

@@ -19,15 +19,7 @@ export default function ForexSummaryScreen() {
     return null;
   }
 
-  const handleProceed = async () => {
-    setConfirming(true);
-    try {
-      if (transactionId) {
-        await confirmForexTransaction();
-      }
-    } catch (err) {
-      console.error("Forex confirm error:", err);
-    }
+  const handleProceed = () => {
     navigate(getForexRoute(ROUTES.FOREX_PROCESSING, forex.serviceType));
   };
 

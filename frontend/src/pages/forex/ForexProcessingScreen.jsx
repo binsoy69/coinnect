@@ -10,11 +10,20 @@ import { FOREX_TIMER_DURATIONS } from '../../constants/forexData';
 export default function ForexProcessingScreen() {
   const navigate = useNavigate();
   const { forex } = useForex();
-  const { backendState, dispenseProgress, transactionId } = useForexTransaction();
+  const { backendState, dispenseProgress, transactionId, confirmForexTransaction } = useForexTransaction();
   const statusText =
     dispenseProgress?.dispensed != null && dispenseProgress?.total != null
       ? `Dispensing ${dispenseProgress.dispensed}/${dispenseProgress.total}`
       : "Dispensing Money";
+
+  // Trigger forex transaction confirmation on mount
+  useEffect(() => {
+    if (transactionId) {
+      confirmForexTransaction().catch((err) => {
+        console.error("Error confirming forex transaction on processing mount:", err);
+      });
+    }
+  }, [confirmForexTransaction, transactionId]);
 
   // Navigate to success when backend signals completion
   useEffect(() => {

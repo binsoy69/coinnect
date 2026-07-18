@@ -25,6 +25,7 @@ def settings():
         use_mock_serial=True,
         serial_port_bill="MOCK",
         serial_port_coin="MOCK",
+        dispense_ui_delay=0.0,
     )
 
 

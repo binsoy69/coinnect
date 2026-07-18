@@ -7,12 +7,22 @@ os.environ["USE_MOCK_SERIAL"] = "true"
 os.environ["USE_MOCK_HARDWARE"] = "true"
 os.environ["MOCK_DELAY"] = "0"
 os.environ["SERIAL_PORT_BILL"] = "MOCK_BILL"
+import os
+
+import pytest
+
+# Force mock serial and hardware for all tests
+os.environ["USE_MOCK_SERIAL"] = "true"
+os.environ["USE_MOCK_HARDWARE"] = "true"
+os.environ["MOCK_DELAY"] = "0"
+os.environ["SERIAL_PORT_BILL"] = "MOCK_BILL"
 os.environ["SERIAL_PORT_COIN"] = "MOCK_COIN"
 os.environ["ENVIRONMENT"] = "test"
 os.environ["LOG_LEVEL"] = "DEBUG"
 os.environ["DB_URL"] = "sqlite+aiosqlite:///:memory:"
 os.environ["HOST"] = "0.0.0.0"
 os.environ["PAYMONGO_SANDBOX"] = "true"
+os.environ["DISPENSE_UI_DELAY"] = "0.0"
 
 from app.api.ws import ConnectionManager
 from app.core.config import Settings
@@ -34,6 +44,7 @@ def test_settings():
         environment="test",
         log_level="DEBUG",
         db_url="sqlite+aiosqlite:///:memory:",
+        dispense_ui_delay=0.0,
         # Zero delays for fast tests
         led_stabilization_delay=0.0,
         bill_pull_duration=0.0,

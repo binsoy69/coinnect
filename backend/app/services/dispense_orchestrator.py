@@ -4,10 +4,13 @@ Handles inventory reservation, sequential dispensing through hardware
 controllers, progress broadcasting, and partial dispense recovery.
 """
 
+import asyncio
 import logging
 import secrets
 import string
 from typing import Dict, List, Optional
+
+from app.core.config import get_settings
 
 from pydantic import BaseModel
 
@@ -83,6 +86,12 @@ class DispenseOrchestrator:
             # Phase 1: Reserve inventory
             await self._reserve_inventory(plan, reference_id)
             reserved = True
+
+            # Give UI time to transition to "Dispensing" screen and display initial status
+            settings = get_settings()
+            ui_delay = getattr(settings, "dispense_ui_delay", 1.0)
+            if ui_delay > 0:
+                await asyncio.sleep(ui_delay)
 
             # Phase 2: Dispense bills
             for item in plan.bill_items:

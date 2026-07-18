@@ -5,6 +5,7 @@ import LoadingDots from "../../components/common/LoadingDots";
 import PageTransition from "../../components/layout/PageTransition";
 import { ROUTES, getServiceRoute } from "../../constants/routes";
 import { useWebSocket } from "../../context/WebSocketContext";
+import { useBackendTransaction } from "../../hooks/useBackendTransaction";
 
 const SAFETY_TIMEOUT = 30000; // 30s fallback
 
@@ -12,8 +13,16 @@ export default function ProcessingScreen() {
   const navigate = useNavigate();
   const { type } = useParams();
   const { subscribe, unsubscribe, isConnected } = useWebSocket();
+  const { confirmBackendTransaction } = useBackendTransaction();
   const [progressText, setProgressText] = useState("Please wait...");
   const [isDone, setIsDone] = useState(false);
+
+  // Trigger transaction confirmation on mount
+  useEffect(() => {
+    confirmBackendTransaction().catch((err) => {
+      console.error("Error confirming transaction on processing mount:", err);
+    });
+  }, [confirmBackendTransaction]);
 
   const handleComplete = useCallback(
     (success) => {

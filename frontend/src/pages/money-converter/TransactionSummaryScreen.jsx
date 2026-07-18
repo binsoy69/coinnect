@@ -35,15 +35,8 @@ export default function TransactionSummaryScreen() {
     navigate(getServiceRoute(ROUTES.INSERT_MONEY, type));
   };
 
-  const handleProceed = async () => {
-    try {
-      // Trigger backend confirmation and dispensing
-      await confirmBackendTransaction();
-    } catch {
-      // Continue to processing screen even if backend call fails
-    } finally {
-      navigate(getServiceRoute(ROUTES.PROCESSING, type));
-    }
+  const handleProceed = () => {
+    navigate(getServiceRoute(ROUTES.PROCESSING, type));
   };
 
   const serviceIndicator = useMemo(
