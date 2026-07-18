@@ -225,7 +225,7 @@ class DiagnosticsRunner:
     async def _rpi_white_led(self) -> dict:
         gpio = self._require_gpio()
         try:
-            await gpio.white_led_on()
+            await gpio.white_led_on(self._hardware.settings.white_led_brightness)
             await asyncio.sleep(1.0)
             return {"white_led": "on", "duration_seconds": 1}
         finally:
@@ -291,7 +291,7 @@ class DiagnosticsRunner:
             authenticator = self._require_authenticator()
             self._set_authenticator_currency(currency)
             try:
-                await gpio.white_led_on()
+                await gpio.white_led_on(self._hardware.settings.white_led_brightness)
                 await asyncio.sleep(self._hardware.settings.led_stabilization_delay)
                 frame = await camera.capture_frame()
                 result = await authenticator.identify_denomination(frame)

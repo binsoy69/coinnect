@@ -100,6 +100,9 @@ class Settings(BaseSettings):
     bill_eject_speed: int = 80
     bill_store_speed: int = 70
 
+    # White LED brightness (PWM duty cycle %)
+    white_led_brightness: int = 100
+
     # Bill acceptor timing (seconds)
     led_stabilization_delay: float = 0.2
     bill_pull_duration: float = 1.5

@@ -67,7 +67,7 @@ class FakeGPIO:
     async def uv_led_off(self):
         self.call_log.append("uv_led_off")
 
-    async def white_led_on(self):
+    async def white_led_on(self, brightness: int = 100):
         self.call_log.append("white_led_on")
 
     async def white_led_off(self):

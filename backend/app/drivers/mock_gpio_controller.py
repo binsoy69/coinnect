@@ -109,7 +109,7 @@ class MockGPIOController(GPIOControllerBase):
         self.call_log.append("uv_led_off")
         self.uv_led_state = False
 
-    async def white_led_on(self) -> None:
+    async def white_led_on(self, brightness: int = 100) -> None:
         self.call_log.append("white_led_on")
         self.white_led_state = True
 

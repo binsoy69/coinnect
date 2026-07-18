@@ -55,8 +55,8 @@ class GPIOControllerBase(ABC):
         """Turn off UV LED strip."""
 
     @abstractmethod
-    async def white_led_on(self) -> None:
-        """Turn on white LED via MOSFET (GPIO24)."""
+    async def white_led_on(self, brightness: int = 100) -> None:
+        """Turn on white LED via MOSFET (GPIO24) with configurable brightness (0-100)."""
 
     @abstractmethod
     async def white_led_off(self) -> None:
@@ -88,6 +88,7 @@ class RPiGPIOController(GPIOControllerBase):
     def __init__(self):
         self._gpio = None
         self._pwm = None
+        self._white_led_pwm = None
         self._loop = None
 
     async def setup(self) -> None:
@@ -127,12 +128,16 @@ class RPiGPIOController(GPIOControllerBase):
         # LED outputs
         GPIO.setup(self.UV_LED, GPIO.OUT, initial=GPIO.LOW)
         GPIO.setup(self.WHITE_LED, GPIO.OUT, initial=GPIO.LOW)
+        self._white_led_pwm = GPIO.PWM(self.WHITE_LED, self.PWM_FREQUENCY)
+        self._white_led_pwm.start(0)
 
         logger.info("RPi GPIO initialized")
 
     async def cleanup(self) -> None:
         if self._pwm:
             await self._loop.run_in_executor(None, self._pwm.stop)
+        if self._white_led_pwm:
+            await self._loop.run_in_executor(None, self._white_led_pwm.stop)
         if self._gpio:
             await self._loop.run_in_executor(None, self._gpio.cleanup)
         logger.info("RPi GPIO cleaned up")
@@ -187,12 +192,12 @@ class RPiGPIOController(GPIOControllerBase):
             None, self._gpio.output, self.UV_LED, self._gpio.LOW
         )
 
-    async def white_led_on(self) -> None:
-        await self._loop.run_in_executor(
-            None, self._gpio.output, self.WHITE_LED, self._gpio.HIGH
-        )
+    async def white_led_on(self, brightness: int = 100) -> None:
+        def _on():
+            self._white_led_pwm.ChangeDutyCycle(brightness)
+        await self._loop.run_in_executor(None, _on)
 
     async def white_led_off(self) -> None:
-        await self._loop.run_in_executor(
-            None, self._gpio.output, self.WHITE_LED, self._gpio.LOW
-        )
+        def _off():
+            self._white_led_pwm.ChangeDutyCycle(0)
+        await self._loop.run_in_executor(None, _off)

@@ -173,7 +173,7 @@ class BillAcceptor:
                 )
 
             # Step 3: Denomination identification
-            await self._gpio.white_led_on()
+            await self._gpio.white_led_on(self._settings.white_led_brightness)
             await asyncio.sleep(self._settings.led_stabilization_delay)
 
             visible_image = await self._camera.capture_frame()
