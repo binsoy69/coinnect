@@ -203,7 +203,16 @@ def register_routes(app: FastAPI) -> None:
                     break
                 try:
                     frame = await camera.capture_frame()
-                    ret, jpeg = cv2.imencode(".jpg", frame)
+                    # Resize frame for stream preview to reduce CPU and network bandwidth usage
+                    h, w = frame.shape[:2]
+                    preview_width = 800
+                    if w > preview_width:
+                        preview_height = int(h * (preview_width / w))
+                        frame_resized = cv2.resize(frame, (preview_width, preview_height), interpolation=cv2.INTER_AREA)
+                    else:
+                        frame_resized = frame
+
+                    ret, jpeg = cv2.imencode(".jpg", frame_resized)
                     if not ret:
                         await asyncio.sleep(0.1)
                         continue

@@ -96,9 +96,21 @@ class USBCameraController(CameraControllerBase):
                     cap.release()
                 return None
             
+            # Set MJPEG codec to ensure high FPS at 1080p on Raspberry Pi
+            try:
+                cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+            except Exception as e:
+                logger.debug(f"Failed to set MJPG format: {e}")
+
             # Set resolution
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._resolution[0])
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._resolution[1])
+            
+            # Set buffer size to 1 to prevent lag/stale frames
+            try:
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            except Exception as e:
+                logger.debug(f"Failed to set buffer size: {e}")
             
             # Verify we can actually read a frame from it.
             # Virtual/metadata V4L2 devices often open but fail to read a frame.
@@ -131,6 +143,10 @@ class USBCameraController(CameraControllerBase):
             return frame
 
     def _read_frame(self) -> np.ndarray:
+        # Flush the buffer by grabbing a couple of frames to ensure the freshest frame.
+        for _ in range(2):
+            if not self._cap.grab():
+                break
         ret, frame = self._cap.read()
         if not ret or frame is None:
             raise RuntimeError("Failed to capture frame from camera")
