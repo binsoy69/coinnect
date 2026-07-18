@@ -45,6 +45,9 @@ class USBCameraController(CameraControllerBase):
         self._lock = asyncio.Lock()
 
     async def initialize(self) -> None:
+        if self._cap is not None:
+            logger.info("Camera already initialized.")
+            return
         self._loop = asyncio.get_event_loop()
         await self._loop.run_in_executor(None, self._open_camera)
 
