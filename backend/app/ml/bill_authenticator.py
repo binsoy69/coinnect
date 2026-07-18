@@ -238,6 +238,8 @@ class YOLOBillAuthenticator(BillAuthenticatorBase):
             return BillAuthResult(is_genuine=True, confidence=0.0)
 
         denomination = LABEL_TO_DENOM.get(label)
+        if confidence < self._confidence_threshold:
+            denomination = None
         annotated_image_b64 = self._get_annotated_image_b64(result)
 
         return BillAuthResult(

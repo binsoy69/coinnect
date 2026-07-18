@@ -6,7 +6,7 @@
 // The MFRC522 RFID module operates strictly at 3.3V VCC. 
 // Do NOT connect to 5V VCC as it will destroy the RFID chip.
 
-static const uint8_t MFRC522_RST_PIN = A1;  // D15 on Uno (matching updated configuration)
+static const uint8_t MFRC522_RST_PIN = 7;  // D15 on Uno (matching updated configuration)
 static const uint8_t MFRC522_SS_PIN = 10;   // Hardware SS pin on Uno
 
 MFRC522 mfrc522(MFRC522_SS_PIN, MFRC522_RST_PIN);
@@ -36,6 +36,9 @@ void setup() {
   // Initialize MFRC522 card reader
   mfrc522.PCD_Init();
   delay(10); // Short delay to let the chip stabilize
+
+  // Set antenna gain to maximum (approx 48dB) to boost card detection range
+  mfrc522.PCD_SetAntennaGain(MFRC522::RxGain_max);
 
   // Perform startup diagnostics/self-test
   Serial.println(F("Running diagnostics..."));
