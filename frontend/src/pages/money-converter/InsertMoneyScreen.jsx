@@ -44,7 +44,7 @@ export default function InsertMoneyScreen() {
   const { lastError, clearError } = useBillAcceptance(
     transactionId,
     "/transaction",
-    !isAmountMatched() && (config?.insertType || "bill") === "bill" && !lastError,
+    !isAmountMatched() && (config?.insertType || "bill") === "bill",
     (data) => {
       // Backend transaction updates are handled via WebSocket (BILL_STORED event)
     }

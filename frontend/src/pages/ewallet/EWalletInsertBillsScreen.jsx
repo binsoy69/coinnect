@@ -33,7 +33,7 @@ export default function EWalletInsertBillsScreen() {
   const { lastError, clearError } = useBillAcceptance(
     ewallet.transactionId,
     "/ewallet/transactions",
-    !isAmountMatched() && !lastError,
+    !isAmountMatched(),
     syncBackendState
   );
 

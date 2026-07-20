@@ -36,7 +36,7 @@ export function useBillAcceptance(transactionId, apiPrefix, enabled, onAccepted)
   }, [subscribe, unsubscribe]);
 
   useEffect(() => {
-    if (!transactionId || !enabled) return undefined;
+    if (!transactionId || !enabled || lastError) return undefined;
     let cancelled = false;
 
     const acceptLoop = async () => {
@@ -78,7 +78,7 @@ export function useBillAcceptance(transactionId, apiPrefix, enabled, onAccepted)
     return () => {
       cancelled = true;
     };
-  }, [transactionId, apiPrefix, enabled]);
+  }, [transactionId, apiPrefix, enabled, lastError]);
 
   const clearError = () => setLastError(null);
 

@@ -28,7 +28,7 @@ export default function ForexInsertMoneyScreen() {
   const { lastError, clearError } = useBillAcceptance(
     transactionId,
     "/forex/transaction",
-    !isAmountMatched() && !lastError,
+    !isAmountMatched(),
     (data) => {
       // Backend transaction updates are handled via WebSocket (BILL_STORED event)
     }
