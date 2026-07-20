@@ -332,7 +332,7 @@ class DiagnosticsRunner:
             )
             if not detected:
                 raise TimeoutError("Timed out waiting for bill at entry IR")
-            result = await acceptor.accept_bill()
+            result = await acceptor.accept_bill(skip_entry_wait=True)
             return result.model_dump(mode="json")
 
         return handler

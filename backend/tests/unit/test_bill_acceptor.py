@@ -161,6 +161,14 @@ class TestAcceptBillSuccess:
         assert result.value == BILL_DENOM_VALUES[BillDenom.PHP_100]
 
     @pytest.mark.asyncio
+    async def test_accept_bill_skip_entry_wait_bypasses_wait_for_bill(self, acceptor, mock_gpio):
+        # Even if is_bill_at_entry is False, skip_entry_wait=True should bypass wait_for_bill
+        mock_gpio.set_bill_at_entry(False)
+        result = await acceptor.accept_bill(skip_entry_wait=True)
+
+        assert result.success is True
+
+    @pytest.mark.asyncio
     async def test_successful_acceptance_returns_confidence_scores(self, acceptor):
         result = await acceptor.accept_bill()
 

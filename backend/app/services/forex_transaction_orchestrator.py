@@ -243,7 +243,7 @@ class ForexTransactionOrchestrator:
 
         await tx.transition_to(TransactionState.AUTHENTICATING)
 
-        result = await self._bill_acceptor.accept_bill()
+        result = await self._bill_acceptor.accept_bill(skip_entry_wait=True)
 
         if not result.success:
             # Check if this is a critical hardware/jam fault

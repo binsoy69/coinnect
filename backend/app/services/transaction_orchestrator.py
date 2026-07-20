@@ -199,8 +199,8 @@ class TransactionOrchestrator:
         # Transition to AUTHENTICATING only after bill is detected
         await tx.transition_to(TransactionState.AUTHENTICATING)
 
-        # Run bill acceptance
-        result = await self._bill_acceptor.accept_bill()
+        # Run bill acceptance (pass skip_entry_wait=True since entry IR was already confirmed above)
+        result = await self._bill_acceptor.accept_bill(skip_entry_wait=True)
 
         if not result.success:
             # Check if this is a critical hardware/jam fault

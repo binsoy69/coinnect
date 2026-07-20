@@ -138,15 +138,25 @@ class BillAcceptor:
             await asyncio.sleep(0.05)  # 50ms poll interval
         return False
 
-    async def accept_bill(self) -> BillAcceptResult:
+    async def accept_bill(self, skip_entry_wait: bool = False) -> BillAcceptResult:
         """Execute full bill acceptance sequence.
+
+        Args:
+            skip_entry_wait: If True, bypass Step 0 (wait_for_bill) because entry
+                presence was already confirmed by the calling orchestrator.
 
         Returns:
             BillAcceptResult with success status and denomination.
         """
         try:
-            # Step 0: Wait for a bill at the entry slot without turning on the motor
-            has_bill = await self.wait_for_bill()
+            # Step 0: Wait for a bill at the entry slot without turning on the motor (if not already verified)
+            if not skip_entry_wait:
+                has_bill = await self.wait_for_bill()
+                if not has_bill:
+                    logger.warning("Bill acceptance aborted: no bill detected at entry sensor")
+                    return BillAcceptResult(error="NO_BILL_DETECTED")
+            else:
+                logger.info("Entry bill presence already confirmed. Proceeding directly to positioning motor.")
 
             # Step 1: Pull bill to camera position
             await self._broadcast(WSEventType.BILL_ACCEPTING, {"step": "positioning"})
