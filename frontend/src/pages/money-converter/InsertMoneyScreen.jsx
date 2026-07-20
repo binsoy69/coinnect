@@ -41,10 +41,10 @@ export default function InsertMoneyScreen() {
   const config = getServiceConfig() || SERVICE_CONFIG[type];
 
   // Physical bill acceptor loop
-  const { lastError } = useBillAcceptance(
+  const { lastError, clearError } = useBillAcceptance(
     transactionId,
     "/transaction",
-    !isAmountMatched() && (config?.insertType || "bill") === "bill",
+    !isAmountMatched() && (config?.insertType || "bill") === "bill" && !lastError,
     (data) => {
       // Backend transaction updates are handled via WebSocket (BILL_STORED event)
     }
@@ -207,6 +207,12 @@ export default function InsertMoneyScreen() {
           </motion.div>
         </div>
       </div>
+      <RejectionModal
+        isOpen={Boolean(lastError)}
+        error={lastError}
+        onClose={clearError}
+        onNavigateWarning={() => navigate(getServiceRoute(ROUTES.WARNING, type))}
+      />
     </PageLayout>
   );
 }

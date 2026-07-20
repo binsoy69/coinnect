@@ -114,6 +114,10 @@ class Settings(BaseSettings):
     bill_position_poll_interval: float = 0.005
     bill_brake_duration: float = 0.15
 
+    # IR Sensor Active Level Configuration (True = LOW on obstacle, False = HIGH on obstacle)
+    ir_entry_active_low: bool = True
+    ir_position_active_low: bool = True
+
 
     # Storage slot capacity
     storage_slot_capacity: int = 100

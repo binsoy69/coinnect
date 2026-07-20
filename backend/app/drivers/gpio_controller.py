@@ -8,6 +8,9 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 
+from typing import Optional
+from app.core.config import Settings, get_settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -85,7 +88,8 @@ class RPiGPIOController(GPIOControllerBase):
     WHITE_LED = 24
     PWM_FREQUENCY = 1000  # 1kHz PWM
 
-    def __init__(self):
+    def __init__(self, settings: Optional[Settings] = None):
+        self._settings = settings or get_settings()
         self._gpio = None
         self._pwm = None
         self._white_led_pwm = None
@@ -119,11 +123,17 @@ class RPiGPIOController(GPIOControllerBase):
         self._pwm = GPIO.PWM(self.MOTOR_ENA, self.PWM_FREQUENCY)
         self._pwm.start(0)
 
-        # Entry IR sensor input (with pull-up; LOW = detected)
-        GPIO.setup(self.IR_ENTRY, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        # Entry IR sensor input
+        pud_entry = (
+            GPIO.PUD_UP if self._settings.ir_entry_active_low else GPIO.PUD_DOWN
+        )
+        GPIO.setup(self.IR_ENTRY, GPIO.IN, pull_up_down=pud_entry)
 
-        # Position IR sensor input (with pull-up; LOW = detected)
-        GPIO.setup(self.IR_POSITION, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        # Position IR sensor input
+        pud_position = (
+            GPIO.PUD_UP if self._settings.ir_position_active_low else GPIO.PUD_DOWN
+        )
+        GPIO.setup(self.IR_POSITION, GPIO.IN, pull_up_down=pud_position)
 
         # LED outputs
         GPIO.setup(self.UV_LED, GPIO.OUT, initial=GPIO.LOW)
@@ -174,13 +184,21 @@ class RPiGPIOController(GPIOControllerBase):
         result = await self._loop.run_in_executor(
             None, self._gpio.input, self.IR_ENTRY
         )
-        return result == self._gpio.LOW  # LOW = detected
+        expected = (
+            self._gpio.LOW if self._settings.ir_entry_active_low else self._gpio.HIGH
+        )
+        return result == expected
 
     async def is_bill_at_position(self) -> bool:
         result = await self._loop.run_in_executor(
             None, self._gpio.input, self.IR_POSITION
         )
-        return result == self._gpio.LOW  # LOW = detected
+        expected = (
+            self._gpio.LOW
+            if self._settings.ir_position_active_low
+            else self._gpio.HIGH
+        )
+        return result == expected
 
     async def uv_led_on(self) -> None:
         await self._loop.run_in_executor(

@@ -13,15 +13,16 @@ import {
 } from "../../constants/ewalletData";
 import { ENABLE_KEYBOARD_SIM } from "../../constants/api";
 
+import RejectionModal from "../../components/transaction/RejectionModal";
 import { useBillAcceptance } from "../../hooks/useBillAcceptance";
 
 export default function EWalletInsertBillsScreen() {
   const navigate = useNavigate();
   const {
     ewallet,
+    isAmountMatched,
     getEWalletConfig,
     getProviderStyles,
-    isAmountMatched,
     simulateCashInsert,
     syncBackendState,
   } = useEWallet();
@@ -29,10 +30,10 @@ export default function EWalletInsertBillsScreen() {
   const styles = getProviderStyles();
 
   // Physical bill acceptor loop
-  useBillAcceptance(
+  const { lastError, clearError } = useBillAcceptance(
     ewallet.transactionId,
     "/ewallet/transactions",
-    !isAmountMatched(),
+    !isAmountMatched() && !lastError,
     syncBackendState
   );
 
@@ -206,6 +207,12 @@ export default function EWalletInsertBillsScreen() {
           </motion.div>
         </div>
       </div>
+      <RejectionModal
+        isOpen={Boolean(lastError)}
+        error={lastError}
+        onClose={clearError}
+        onNavigateWarning={() => navigate(ROUTES.ERROR)}
+      />
     </PageLayout>
   );
 }

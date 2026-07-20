@@ -258,7 +258,7 @@ async def create_hardware_context(settings: Settings) -> HardwareContext:
         from app.drivers.camera_controller import USBCameraController
         from app.drivers.gpio_controller import RPiGPIOController
 
-        context.gpio = RPiGPIOController()
+        context.gpio = RPiGPIOController(settings=settings)
         context.camera = USBCameraController(settings.camera_device)
         context.authenticator = YOLOBillAuthenticator(
             auth_model_path=settings.yolo_auth_model_path,

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { API_BASE } from "../constants/api";
+import { useWebSocket } from "../context/WebSocketContext";
 
 /**
  * Hook to manage physical bill acceptance loop for a given transaction.
@@ -12,6 +13,21 @@ import { API_BASE } from "../constants/api";
 export function useBillAcceptance(transactionId, apiPrefix, enabled, onAccepted) {
   const [isAccepting, setIsAccepting] = useState(false);
   const [lastError, setLastError] = useState(null);
+  const { subscribe, unsubscribe } = useWebSocket();
+
+  // Listen for WebSocket rejection events
+  useEffect(() => {
+    const handleBillRejected = (event) => {
+      if (event.payload) {
+        setLastError(event.payload.reason || event.payload.error || "BILL_REJECTED");
+      }
+    };
+
+    subscribe("BILL_REJECTED", handleBillRejected);
+    return () => {
+      unsubscribe("BILL_REJECTED", handleBillRejected);
+    };
+  }, [subscribe, unsubscribe]);
 
   useEffect(() => {
     if (!transactionId || !enabled) return undefined;
@@ -26,7 +42,6 @@ export function useBillAcceptance(transactionId, apiPrefix, enabled, onAccepted)
           });
           
           if (!resp.ok) {
-            // Wait before retrying on API error
             await new Promise((resolve) => setTimeout(resolve, 1000));
             continue;
           }
@@ -46,7 +61,6 @@ export function useBillAcceptance(transactionId, apiPrefix, enabled, onAccepted)
             setLastError(data.last_rejection || data.error);
           }
         } catch (err) {
-          // Network error, wait and retry
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
       }
@@ -60,5 +74,7 @@ export function useBillAcceptance(transactionId, apiPrefix, enabled, onAccepted)
     };
   }, [transactionId, apiPrefix, enabled, onAccepted]);
 
-  return { isAccepting, lastError };
+  const clearError = () => setLastError(null);
+
+  return { isAccepting, lastError, clearError };
 }

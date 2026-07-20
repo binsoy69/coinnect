@@ -14,6 +14,7 @@ import {
 } from "../../constants/forexData";
 
 import { ENABLE_KEYBOARD_SIM } from "../../constants/api";
+import RejectionModal from "../../components/transaction/RejectionModal";
 import { useBillAcceptance } from "../../hooks/useBillAcceptance";
 
 export default function ForexInsertMoneyScreen() {
@@ -24,10 +25,10 @@ export default function ForexInsertMoneyScreen() {
   const config = getForexConfig();
 
   // Physical bill acceptor loop
-  const { lastError } = useBillAcceptance(
+  const { lastError, clearError } = useBillAcceptance(
     transactionId,
     "/forex/transaction",
-    !isAmountMatched(),
+    !isAmountMatched() && !lastError,
     (data) => {
       // Backend transaction updates are handled via WebSocket (BILL_STORED event)
     }
@@ -219,6 +220,12 @@ export default function ForexInsertMoneyScreen() {
           </motion.div>
         </div>
       </div>
+      <RejectionModal
+        isOpen={Boolean(lastError)}
+        error={lastError}
+        onClose={clearError}
+        onNavigateWarning={() => navigate(getForexRoute(ROUTES.FOREX_WARNING, forex.serviceType))}
+      />
     </PageLayout>
   );
 }

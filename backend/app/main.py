@@ -95,7 +95,7 @@ async def lifespan(app: FastAPI):
         from app.drivers.gpio_controller import RPiGPIOController
         from app.ml.bill_authenticator import YOLOBillAuthenticator
 
-        gpio = RPiGPIOController()
+        gpio = RPiGPIOController(settings=settings)
         camera = USBCameraController(settings.camera_device)
         authenticator = YOLOBillAuthenticator(
             settings.yolo_auth_model_path,

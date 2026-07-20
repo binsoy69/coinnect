@@ -236,6 +236,11 @@ class ForexTransactionOrchestrator:
                 f"Cannot accept bill in state {tx.state.value}",
             )
 
+        detected = await self._bill_acceptor.wait_for_bill(timeout=5.0)
+        if not detected:
+            tx.reset_timeout()
+            return await self.get_transaction_state(tx.transaction_id)
+
         await tx.transition_to(TransactionState.AUTHENTICATING)
 
         result = await self._bill_acceptor.accept_bill()

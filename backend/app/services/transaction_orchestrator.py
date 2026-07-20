@@ -190,7 +190,13 @@ class TransactionOrchestrator:
                 f"Cannot accept bill in state {tx.state.value}",
             )
 
-        # Transition to AUTHENTICATING
+        # Step 0: Wait for bill at entry IR sensor (matching healthcheck flow)
+        detected = await self._bill_acceptor.wait_for_bill(timeout=5.0)
+        if not detected:
+            tx.reset_timeout()
+            return await self.get_transaction_state(tx.transaction_id)
+
+        # Transition to AUTHENTICATING only after bill is detected
         await tx.transition_to(TransactionState.AUTHENTICATING)
 
         # Run bill acceptance
