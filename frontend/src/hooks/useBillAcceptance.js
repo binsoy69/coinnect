@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { API_BASE } from "../constants/api";
 import { useWebSocket } from "../context/WebSocketContext";
 
@@ -14,6 +14,12 @@ export function useBillAcceptance(transactionId, apiPrefix, enabled, onAccepted)
   const [isAccepting, setIsAccepting] = useState(false);
   const [lastError, setLastError] = useState(null);
   const { subscribe, unsubscribe } = useWebSocket();
+  const onAcceptedRef = useRef(onAccepted);
+
+  // Keep callback ref updated without re-triggering the polling effect
+  useEffect(() => {
+    onAcceptedRef.current = onAccepted;
+  }, [onAccepted]);
 
   // Listen for WebSocket rejection events
   useEffect(() => {
@@ -49,8 +55,8 @@ export function useBillAcceptance(transactionId, apiPrefix, enabled, onAccepted)
           const data = await resp.json();
           if (cancelled) break;
 
-          if (onAccepted) {
-            onAccepted(data);
+          if (onAcceptedRef.current) {
+            onAcceptedRef.current(data);
           }
 
           if (data?.state === "WAITING_FOR_CONFIRMATION" || data?.state === "COMPLETE") {
@@ -72,7 +78,7 @@ export function useBillAcceptance(transactionId, apiPrefix, enabled, onAccepted)
     return () => {
       cancelled = true;
     };
-  }, [transactionId, apiPrefix, enabled, onAccepted]);
+  }, [transactionId, apiPrefix, enabled]);
 
   const clearError = () => setLastError(null);
 

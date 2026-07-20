@@ -31,6 +31,7 @@ test("redirects to admin inventory when STATE_CHANGE maintenance event is receiv
     ok: true,
     status: 200,
     json: async () => ({
+      startup_checks: { performed: true, has_errors: false, errors: {} },
       bill_storage_counts: {},
       bill_dispenser_counts: {},
       coin_counts: {},

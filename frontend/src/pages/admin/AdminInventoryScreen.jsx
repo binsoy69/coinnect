@@ -109,7 +109,7 @@ export default function AdminInventoryScreen() {
     setLoadingClaims(true);
     try {
       const data = await request("/admin/claims");
-      setClaims(data.claims);
+      setClaims(data?.claims || []);
     } catch (err) {
       console.error("Failed to load claims", err);
     } finally {
@@ -140,15 +140,13 @@ export default function AdminInventoryScreen() {
 
   const load = useCallback(async () => {
     try {
-      const [current, audit, claimsData] = await Promise.all([
+      const [current, audit] = await Promise.all([
         request("/inventory/"),
         request("/inventory/adjustments?source=ADMIN&limit=50"),
-        request("/admin/claims"),
       ]);
       setInventory(current);
       setDraft(current);
       setHistory(audit.adjustments);
-      setClaims(claimsData.claims);
     } catch (err) {
       if (err.message !== "Admin session expired") setError(err.message);
     } finally {
@@ -172,9 +170,11 @@ export default function AdminInventoryScreen() {
 
   const changes = useMemo(() => {
     if (!inventory || !draft) return [];
-    return SECTIONS.flatMap((section) =>
-      Object.entries(draft[section.key]).flatMap(([denomination, count]) => {
-        const previous = inventory[section.key][denomination];
+    return SECTIONS.flatMap((section) => {
+      const draftSec = draft[section.key] || {};
+      const invSec = inventory[section.key] || {};
+      return Object.entries(draftSec).flatMap(([denomination, count]) => {
+        const previous = invSec[denomination];
         return count !== previous
           ? [{
               location: section.location,
@@ -183,8 +183,8 @@ export default function AdminInventoryScreen() {
               previous,
             }]
           : [];
-      })
-    );
+      });
+    });
   }, [draft, inventory]);
 
   const updateCount = (sectionKey, denomination, value) => {
@@ -303,7 +303,7 @@ export default function AdminInventoryScreen() {
               }`}
             >
               Claims Resolution
-              {claims.length > 0 && (
+              {claims?.length > 0 && (
                 <span className="bg-red-500 text-white rounded-full text-xs px-2.5 py-0.5 font-extrabold">
                   {claims.length}
                 </span>
@@ -333,14 +333,14 @@ export default function AdminInventoryScreen() {
                       <p className="text-sm text-gray-500">{section.description}</p>
                     </div>
                     <span className="text-sm font-semibold text-gray-500">
-                      {Object.keys(draft[section.key]).length} locations
+                      {Object.keys(draft[section.key] || {}).length} locations
                     </span>
                   </div>
                   <div className="overflow-hidden rounded-card border border-gray-200 bg-white">
-                    {Object.entries(draft[section.key]).map(
+                    {Object.entries(draft[section.key] || {}).map(
                       ([denomination, count], index) => {
                         const changed =
-                          count !== inventory[section.key][denomination];
+                          count !== inventory?.[section.key]?.[denomination];
                         const controlName =
                           section.location === "BILL_STORAGE"
                             ? `Storage ${accessibleDenomination(denomination)}`
@@ -425,7 +425,7 @@ export default function AdminInventoryScreen() {
 
               {loadingClaims ? (
                 <p className="text-gray-500 font-semibold">Loading active claims…</p>
-              ) : claims.length === 0 ? (
+              ) : (!claims || claims.length === 0) ? (
                 <div className="rounded-card border border-gray-200 bg-white p-8 text-center text-gray-500 font-semibold shadow-sm">
                   No active claim tickets found. Kiosk balances are verified!
                 </div>
