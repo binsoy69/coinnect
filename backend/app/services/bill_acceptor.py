@@ -101,7 +101,7 @@ class BillAcceptor:
             True if bill detected, False on timeout.
         """
         if timeout is None:
-            timeout = self._settings.bill_acceptance_timeout
+            timeout = min(float(self._settings.bill_acceptance_timeout), 5.0)
 
         # If a bill was previously ejected but not cleared, wait for the entry sensor to clear first.
         if not self._last_bill_cleared:
@@ -136,8 +136,6 @@ class BillAcceptor:
         try:
             # Step 0: Wait for a bill at the entry slot without turning on the motor
             has_bill = await self.wait_for_bill()
-            if not has_bill:
-                return BillAcceptResult(error="TIMEOUT")
 
             # Step 1: Pull bill to camera position
             await self._broadcast(WSEventType.BILL_ACCEPTING, {"step": "positioning"})
