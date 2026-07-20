@@ -25,11 +25,16 @@ export default function ForexProcessingScreen() {
     }
   }, [confirmForexTransaction, transactionId]);
 
-  // Navigate to success when backend signals completion
+  // Navigate to success or warning when backend signals completion or error
   useEffect(() => {
     if (backendState?.state === "completed" || backendState?.state === "COMPLETED") {
       const timer = setTimeout(() => {
         navigate(getForexRoute(ROUTES.FOREX_SUCCESS, forex.serviceType));
+      }, 500);
+      return () => clearTimeout(timer);
+    } else if (backendState?.state === "ERROR" || backendState?.claim_ticket_code) {
+      const timer = setTimeout(() => {
+        navigate(getForexRoute(ROUTES.FOREX_WARNING, forex.serviceType));
       }, 500);
       return () => clearTimeout(timer);
     }

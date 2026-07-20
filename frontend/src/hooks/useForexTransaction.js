@@ -89,6 +89,7 @@ export function useForexTransaction() {
 
     const handleError = (event) => {
       if (event.payload?.transaction_id === txIdRef.current) {
+        setBackendState(event.payload);
         setError(event.payload?.error_message || "Forex transaction error");
       }
     };

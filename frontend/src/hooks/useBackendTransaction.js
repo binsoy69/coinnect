@@ -58,6 +58,7 @@ export function useBackendTransaction() {
 
     const handleError = (event) => {
       if (event.payload?.transaction_id === txIdRef.current) {
+        setBackendState(event.payload);
         setError(event.payload?.error_message || "Transaction error");
       }
     };
