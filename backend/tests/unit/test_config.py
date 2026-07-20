@@ -43,7 +43,7 @@ class TestSettings:
             serial_port_bill="MOCK",
             serial_port_coin="MOCK",
         )
-        assert s.bill_acceptance_timeout == 10
+        assert s.bill_acceptance_timeout == 60
         assert s.sorting_move_timeout == 8
         assert s.dispense_timeout == 5
         assert s.coin_dispense_timeout == 3
@@ -80,4 +80,3 @@ class TestSettings:
             paperang_density="",
         )
         assert s.paperang_density is None
-

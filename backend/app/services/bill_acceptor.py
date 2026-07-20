@@ -101,7 +101,7 @@ class BillAcceptor:
             True if bill detected, False on timeout.
         """
         if timeout is None:
-            timeout = min(float(self._settings.bill_acceptance_timeout), 5.0)
+            timeout = float(self._settings.bill_acceptance_timeout)
 
         # If a bill was previously ejected but not cleared, wait for the entry sensor to stay clear for 300ms
         if not self._last_bill_cleared:

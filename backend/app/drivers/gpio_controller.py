@@ -86,7 +86,7 @@ class RPiGPIOController(GPIOControllerBase):
     IR_POSITION = 6
     UV_LED = 23
     WHITE_LED = 24
-    PWM_FREQUENCY = 1000  # 1kHz PWM
+    PWM_FREQUENCY = 100  # 100Hz PWM for improved motor torque on L298N
 
     def __init__(self, settings: Optional[Settings] = None):
         self._settings = settings or get_settings()
@@ -152,25 +152,31 @@ class RPiGPIOController(GPIOControllerBase):
             await self._loop.run_in_executor(None, self._gpio.cleanup)
         logger.info("RPi GPIO cleaned up")
 
-    async def motor_forward(self, speed: int = 60) -> None:
+    async def motor_forward(self, speed: int = 85) -> None:
         def _forward():
             self._gpio.output(self.MOTOR_IN1, self._gpio.HIGH)
             self._gpio.output(self.MOTOR_IN2, self._gpio.LOW)
-            self._pwm.ChangeDutyCycle(speed)
+            self._gpio.output(self.MOTOR_ENA, self._gpio.HIGH)
+            if self._pwm:
+                self._pwm.ChangeDutyCycle(speed)
         await self._loop.run_in_executor(None, _forward)
 
-    async def motor_reverse(self, speed: int = 80) -> None:
+    async def motor_reverse(self, speed: int = 85) -> None:
         def _reverse():
             self._gpio.output(self.MOTOR_IN1, self._gpio.LOW)
             self._gpio.output(self.MOTOR_IN2, self._gpio.HIGH)
-            self._pwm.ChangeDutyCycle(speed)
+            self._gpio.output(self.MOTOR_ENA, self._gpio.HIGH)
+            if self._pwm:
+                self._pwm.ChangeDutyCycle(speed)
         await self._loop.run_in_executor(None, _reverse)
 
     async def motor_stop(self) -> None:
         def _stop():
             self._gpio.output(self.MOTOR_IN1, self._gpio.LOW)
             self._gpio.output(self.MOTOR_IN2, self._gpio.LOW)
-            self._pwm.ChangeDutyCycle(0)
+            self._gpio.output(self.MOTOR_ENA, self._gpio.LOW)
+            if self._pwm:
+                self._pwm.ChangeDutyCycle(0)
         await self._loop.run_in_executor(None, _stop)
 
     async def motor_brake(self) -> None:

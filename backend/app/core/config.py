@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Hardware timeouts (seconds)
-    bill_acceptance_timeout: int = 10
+    bill_acceptance_timeout: int = 60
     sorting_move_timeout: int = 8
     dispense_timeout: int = 5
     coin_dispense_timeout: int = 3
@@ -97,9 +97,9 @@ class Settings(BaseSettings):
     )
 
     # Bill acceptor motor speeds (PWM duty cycle %)
-    bill_pull_speed: int = 60
-    bill_eject_speed: int = 80
-    bill_store_speed: int = 70
+    bill_pull_speed: int = 85
+    bill_eject_speed: int = 85
+    bill_store_speed: int = 75
 
     # White LED brightness (PWM duty cycle %)
     white_led_brightness: int = 100
@@ -109,7 +109,7 @@ class Settings(BaseSettings):
     bill_pull_duration: float = 1.5
     bill_store_duration: float = 2.0
     bill_eject_duration: float = 1.5
-    bill_positioning_timeout: float = 3.0
+    bill_positioning_timeout: float = 10.0
     bill_at_position_delay: float = 0.05
     bill_position_poll_interval: float = 0.005
     bill_brake_duration: float = 0.15
