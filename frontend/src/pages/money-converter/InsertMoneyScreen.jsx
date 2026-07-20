@@ -44,7 +44,7 @@ export default function InsertMoneyScreen() {
   const { lastError } = useBillAcceptance(
     transactionId,
     "/transaction",
-    !ENABLE_KEYBOARD_SIM && !isAmountMatched() && (config?.insertType || "bill") === "bill",
+    !isAmountMatched() && (config?.insertType || "bill") === "bill",
     (data) => {
       // Backend transaction updates are handled via WebSocket (BILL_STORED event)
     }

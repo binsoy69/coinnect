@@ -27,7 +27,7 @@ export default function ForexInsertMoneyScreen() {
   const { lastError } = useBillAcceptance(
     transactionId,
     "/forex/transaction",
-    !ENABLE_KEYBOARD_SIM && !isAmountMatched(),
+    !isAmountMatched(),
     (data) => {
       // Backend transaction updates are handled via WebSocket (BILL_STORED event)
     }

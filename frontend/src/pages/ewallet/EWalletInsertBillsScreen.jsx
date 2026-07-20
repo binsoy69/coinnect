@@ -32,7 +32,7 @@ export default function EWalletInsertBillsScreen() {
   useBillAcceptance(
     ewallet.transactionId,
     "/ewallet/transactions",
-    !ENABLE_KEYBOARD_SIM && !isAmountMatched(),
+    !isAmountMatched(),
     syncBackendState
   );
 
