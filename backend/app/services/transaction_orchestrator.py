@@ -106,11 +106,19 @@ class TransactionOrchestrator:
             raise TransactionError("", "Inventory reconciliation is required")
 
         # Pre-check: can we dispense the target amount?
-        total_due = target_amount + fee
+        if transaction_type in {"bill-to-bill", "bill-to-coin"}:
+            total_due = target_amount
+            dispense_amount = target_amount - fee
+            if dispense_amount < 0:
+                raise TransactionError("", f"Fee {fee} exceeds target amount {target_amount}")
+        else:
+            total_due = target_amount + fee
+            dispense_amount = target_amount
+
         try:
             calculate_change(
-                target_amount,
-                snapshot.consumables.bill_dispenser_counts,
+                dispense_amount,
+                {} if transaction_type == "bill-to-coin" else snapshot.consumables.bill_dispenser_counts,
                 snapshot.consumables.coin_counts,
                 preferred_denoms=selected_dispense_denoms,
             )
@@ -323,7 +331,7 @@ class TransactionOrchestrator:
         snapshot = self._status.snapshot()
         plan = calculate_change(
             actual_dispense,
-            snapshot.consumables.bill_dispenser_counts,
+            {} if db_record.type == "bill-to-coin" else snapshot.consumables.bill_dispenser_counts,
             snapshot.consumables.coin_counts,
             preferred_denoms=db_record.selected_dispense_denoms,
         )

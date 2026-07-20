@@ -265,9 +265,9 @@ class TestStartTransaction:
             await _start_default_transaction(orchestrator, target_amount=500)
 
     async def test_total_due_includes_fee(self, orchestrator):
-        """total_due = target_amount + fee."""
+        """total_due = target_amount + fee for coin-to-bill transactions."""
         state = await orchestrator.start_transaction(
-            transaction_type="bill-to-bill",
+            transaction_type="coin-to-bill",
             target_amount=100,
             fee=10,
             selected_dispense_denoms=[100],
@@ -276,6 +276,20 @@ class TestStartTransaction:
         assert state["target_amount"] == 100
         assert state["fee"] == 10
         assert state["total_due"] == 110
+
+    async def test_total_due_bill_insertion_fee(self, orchestrator):
+        """total_due = target_amount for bill-to-bill and bill-to-coin transactions."""
+        state = await orchestrator.start_transaction(
+            transaction_type="bill-to-coin",
+            target_amount=100,
+            fee=15,
+            selected_dispense_denoms=[20, 10, 5],
+        )
+
+        assert state["target_amount"] == 100
+        assert state["fee"] == 15
+        assert state["total_due"] == 100
+
 
     async def test_broadcasts_state_change_event(self, orchestrator, ws_manager):
         """Starting a transaction broadcasts WebSocket state change events."""
