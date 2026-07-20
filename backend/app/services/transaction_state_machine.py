@@ -131,7 +131,7 @@ class TransactionStateMachine:
         # Cancel existing timeout
         self._cancel_timeout()
 
-        # Write WAL entry before transition
+        # Write WAL entry for state transition
         wal_entry = WALEntry(
             transaction_id=self._id,
             action=f"STATE_{old_state.value}_TO_{new_state.value}",
@@ -139,7 +139,6 @@ class TransactionStateMachine:
             status=WALStatus.PENDING.value,
         )
         self._db.add(wal_entry)
-        await self._db.flush()
 
         # Update state
         self._state = new_state
@@ -180,9 +179,6 @@ class TransactionStateMachine:
             ):
                 record.completed_at = datetime.utcnow()
 
-        await self._db.commit()
-
-        # Mark WAL entry as completed
         wal_entry.status = WALStatus.COMPLETED.value
         await self._db.commit()
 
