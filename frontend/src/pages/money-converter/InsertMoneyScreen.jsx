@@ -16,7 +16,7 @@ import { useTransaction } from "../../context/TransactionContext";
 import { useBackendTransaction } from "../../hooks/useBackendTransaction";
 import { formatPeso } from "../../constants/denominations";
 import { ENABLE_KEYBOARD_SIM } from "../../constants/api";
-
+import RejectionModal from "../../components/transaction/RejectionModal";
 import { useBillAcceptance } from "../../hooks/useBillAcceptance";
 
 // Service type indicator component
