@@ -227,7 +227,7 @@ export function ForexProvider({ children }) {
 
   // Check if inserted amount matches total due
   const isAmountMatched = useCallback(() => {
-    return forex.moneyInserted >= forex.totalDue;
+    return forex.totalDue > 0 && forex.moneyInserted >= forex.totalDue;
   }, [forex.moneyInserted, forex.totalDue]);
 
   // Get the amount to dispense based on actual inserted amount

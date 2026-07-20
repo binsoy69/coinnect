@@ -5,6 +5,7 @@ import { WebSocketProvider } from './context/WebSocketContext';
 import { TransactionProvider } from './context/TransactionContext';
 import { ForexProvider } from './context/ForexContext';
 import { EWalletProvider } from './context/EWalletContext';
+import ErrorBoundary from './components/common/ErrorBoundary';
 import './index.css';
 import App from './App.jsx';
 
@@ -15,7 +16,9 @@ createRoot(document.getElementById('root')).render(
         <TransactionProvider>
           <ForexProvider>
             <EWalletProvider>
-              <App />
+              <ErrorBoundary>
+                <App />
+              </ErrorBoundary>
             </EWalletProvider>
           </ForexProvider>
         </TransactionProvider>

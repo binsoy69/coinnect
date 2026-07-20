@@ -88,10 +88,11 @@ export function TransactionProvider({ children }) {
   // Add inserted money (simulates hardware input)
   const addInsertedMoney = useCallback((denom, count = 1) => {
     setTransaction(prev => {
-      const currentCount = prev.insertedCounts[denom] || 0;
-      const newCounts = { ...prev.insertedCounts, [denom]: currentCount + count };
+      const numericDenom = typeof denom === 'number' ? denom : (parseInt(String(denom).replace(/\D/g, ''), 10) || 0);
+      const currentCount = prev.insertedCounts[numericDenom] || 0;
+      const newCounts = { ...prev.insertedCounts, [numericDenom]: currentCount + count };
       const moneyInserted = Object.entries(newCounts).reduce(
-        (sum, [d, c]) => sum + (parseInt(d) * c),
+        (sum, [d, c]) => sum + ((parseInt(d, 10) || 0) * c),
         0
       );
       return {
@@ -115,7 +116,7 @@ export function TransactionProvider({ children }) {
 
   // Check if amount matches total due
   const isAmountMatched = useCallback(() => {
-    return transaction.moneyInserted >= transaction.totalDue;
+    return transaction.totalDue > 0 && transaction.moneyInserted >= transaction.totalDue;
   }, [transaction.moneyInserted, transaction.totalDue]);
 
   // Calculate money to dispense
