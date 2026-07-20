@@ -103,27 +103,38 @@ class BillAcceptor:
         if timeout is None:
             timeout = min(float(self._settings.bill_acceptance_timeout), 5.0)
 
-        # If a bill was previously ejected but not cleared, wait for the entry sensor to clear first.
+        # If a bill was previously ejected but not cleared, wait for the entry sensor to stay clear for 300ms
         if not self._last_bill_cleared:
             if await self._gpio.is_bill_at_entry():
                 logger.warning("Bill entry sensor is blocked by previous ejected bill. Waiting for clearance...")
                 clear_deadline = asyncio.get_event_loop().time() + 10.0
+                clear_count = 0
                 while asyncio.get_event_loop().time() < clear_deadline:
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.05)
                     if not (await self._gpio.is_bill_at_entry()):
-                        logger.info("Previous bill cleared.")
-                        self._last_bill_cleared = True
-                        break
+                        clear_count += 1
+                        if clear_count >= 6:  # 300ms continuous clearance
+                            logger.info("Previous bill cleared.")
+                            self._last_bill_cleared = True
+                            break
+                    else:
+                        clear_count = 0
                 else:
                     logger.error("JAM: Previous bill remained blocked for 10 seconds")
                     raise RuntimeError("JAM: Previous bill not removed")
             else:
                 self._last_bill_cleared = True
 
+        # Require bill to be continuously detected at entry sensor for 150ms (3 consecutive 50ms polls)
+        consecutive_detected = 0
         deadline = asyncio.get_event_loop().time() + timeout
         while asyncio.get_event_loop().time() < deadline:
             if await self._gpio.is_bill_at_entry():
-                return True
+                consecutive_detected += 1
+                if consecutive_detected >= 3:  # 150ms continuous detection
+                    return True
+            else:
+                consecutive_detected = 0
             await asyncio.sleep(0.05)  # 50ms poll interval
         return False
 
