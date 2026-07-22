@@ -15,16 +15,57 @@ const QuestionIcon = () => (
   </div>
 );
 
+function calculateAutoBreakdown(amount) {
+  if (!amount || amount <= 0) return {};
+  const denoms = [1000, 500, 200, 100, 50, 20, 10, 5, 1];
+  let rem = amount;
+  const result = {};
+  for (const d of denoms) {
+    if (rem >= d) {
+      const count = Math.floor(rem / d);
+      result[d] = count;
+      rem %= d;
+    }
+  }
+  return result;
+}
+
 export default function ConfirmationScreen() {
   const navigate = useNavigate();
   const { type } = useParams();
   const { transaction } = useTransaction();
-  const { startBackendTransaction } = useBackendTransaction();
+  const { startBackendTransaction, cancelBackendTransaction, transactionId } = useBackendTransaction();
   const [isStarting, setIsStarting] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
 
-  const handleBack = () => {
-    navigate(getServiceRoute(ROUTES.TRANSACTION_FEE, type));
+  const netPayoutAmount = transaction.includeFee
+    ? (transaction.selectedAmount || 0)
+    : Math.max(0, (transaction.selectedAmount || 0) - (transaction.fee || 0));
+
+  const userCounts = transaction.selectedDispenseCounts || {};
+  const userAllocatedSum = Object.entries(userCounts).reduce(
+    (sum, [d, c]) => sum + Number(d) * (c || 0),
+    0
+  );
+
+  const effectiveDispenseCounts =
+    userAllocatedSum === netPayoutAmount && userAllocatedSum > 0
+      ? userCounts
+      : calculateAutoBreakdown(netPayoutAmount);
+
+  const activeBreakdownEntries = Object.entries(effectiveDispenseCounts).filter(
+    ([, count]) => count > 0
+  );
+
+  const handleBack = async () => {
+    if (transactionId) {
+      try {
+        await cancelBackendTransaction();
+      } catch {
+        // Continue navigation if cancel fails
+      }
+    }
+    navigate(getServiceRoute(ROUTES.SELECT_AMOUNT, type));
   };
 
   const handleProceed = async () => {
@@ -37,7 +78,7 @@ export default function ConfirmationScreen() {
         transaction.selectedAmount,
         transaction.fee,
         transaction.selectedDispenseDenominations,
-        transaction.selectedDispenseCounts
+        effectiveDispenseCounts
       );
       navigate(getServiceRoute(ROUTES.INSERT_MONEY, type));
     } catch (err) {
@@ -47,10 +88,7 @@ export default function ConfirmationScreen() {
     }
   };
 
-  const dispenseCounts = transaction.selectedDispenseCounts || {};
-  const activeBreakdownEntries = Object.entries(dispenseCounts).filter(
-    ([, count]) => count > 0
-  );
+
 
   return (
     <PageTransition>

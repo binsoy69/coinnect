@@ -139,7 +139,8 @@ export default function InsertMoneyScreen() {
   return (
     <PageLayout
       headerProps={{
-        showBack: false,
+        showBack: true,
+        onBack: handleChangeSelection,
         subtitle: TRANSACTION_TYPE_LABEL,
         rightContent: serviceIndicator,
       }}

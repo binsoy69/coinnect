@@ -71,6 +71,8 @@ export function TransactionProvider({ children }) {
         includeFee: include,
         fee: feeVal,
         totalDue: (prev.selectedAmount || 0) + fee,
+        selectedDispenseCounts: {},
+        selectedDispenseDenominations: [],
       };
     });
   }, [getFeeForService]);

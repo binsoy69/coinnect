@@ -131,8 +131,7 @@ export default function ForexInsertMoneyScreen() {
     <PageLayout
       headerProps={{
         showBack: true,
-        onBack: () =>
-          navigate(getForexRoute(ROUTES.FOREX_CONFIRM, forex.serviceType)),
+        onBack: handleChangeSelection,
         subtitle: headerSubtitle,
         rightContent: (
           <div className="flex items-center gap-2 bg-coinnect-forex text-white px-3 py-1 rounded-full text-sm">

@@ -105,10 +105,7 @@ export default function EWalletInsertBillsScreen() {
     <PageLayout
       headerProps={{
         showBack: true,
-        onBack: () =>
-          navigate(
-            getEWalletRoute(ROUTES.EWALLET_CONFIRM, ewallet.serviceType),
-          ),
+        onBack: handleChangeSelection,
         subtitle: "Insert Bills",
         rightContent: (
           <div
