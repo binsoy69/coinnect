@@ -17,14 +17,6 @@ export default function ProcessingScreen() {
   const [progressText, setProgressText] = useState("Please wait...");
   const [isDone, setIsDone] = useState(false);
 
-  // Trigger transaction confirmation on mount
-  useEffect(() => {
-    confirmBackendTransaction().catch((err) => {
-      console.error("Error confirming transaction on processing mount:", err);
-      handleComplete(false);
-    });
-  }, [confirmBackendTransaction, handleComplete]);
-
   const handleComplete = useCallback(
     (success) => {
       if (isDone) return;
@@ -37,6 +29,14 @@ export default function ProcessingScreen() {
     },
     [navigate, type, isDone]
   );
+
+  // Trigger transaction confirmation on mount
+  useEffect(() => {
+    confirmBackendTransaction().catch((err) => {
+      console.error("Error confirming transaction on processing mount:", err);
+      handleComplete(false);
+    });
+  }, [confirmBackendTransaction, handleComplete]);
 
   // Subscribe to dispense events
   useEffect(() => {
