@@ -21,7 +21,7 @@ export default function ForexInsertMoneyScreen() {
   const navigate = useNavigate();
   const { forex, addInsertedMoney, getForexConfig, isAmountMatched } =
     useForex();
-  const { simulateForexInsert, transactionId } = useForexTransaction();
+  const { simulateForexInsert, transactionId, cancelForexTransaction } = useForexTransaction();
   const config = getForexConfig();
   const [resetCounter, setResetCounter] = useState(0);
 
@@ -39,6 +39,18 @@ export default function ForexInsertMoneyScreen() {
     clearError();
     setResetCounter((c) => c + 1);
   }, [clearError]);
+
+  const handleChangeSelection = useCallback(async () => {
+    clearError();
+    if (transactionId) {
+      try {
+        await cancelForexTransaction();
+      } catch {
+        // Navigation still lets user recover if cancel fails
+      }
+    }
+    navigate(getForexRoute(ROUTES.FOREX_RATE, forex.serviceType));
+  }, [clearError, transactionId, cancelForexTransaction, navigate, forex.serviceType]);
 
   // Handle timeout - go to warning or conversion screen
   const handleTimeout = useCallback(() => {
@@ -233,6 +245,7 @@ export default function ForexInsertMoneyScreen() {
         error={lastError}
         onClose={handleClearError}
         onNavigateWarning={() => navigate(getForexRoute(ROUTES.FOREX_WARNING, forex.serviceType))}
+        onChangeSelection={handleChangeSelection}
       />
     </PageLayout>
   );

@@ -43,7 +43,13 @@ const REJECTION_MESSAGES = {
 /**
  * Modal popup displayed when a bill is rejected or a hardware error occurs.
  */
-export default function RejectionModal({ isOpen, error, onClose, onNavigateWarning }) {
+export default function RejectionModal({
+  isOpen,
+  error,
+  onClose,
+  onNavigateWarning,
+  onChangeSelection,
+}) {
   if (!isOpen || !error) return null;
 
   // Resolve reason code from error string or dict
@@ -94,15 +100,27 @@ export default function RejectionModal({ isOpen, error, onClose, onNavigateWarni
             {config.message}
           </p>
 
-          {/* Action Button */}
-          <Button
-            variant="primary"
-            size="lg"
-            onClick={handleConfirm}
-            className="w-full font-bold shadow-lg"
-          >
-            {config.isCritical ? "Go to Warning / Help" : "OK, Try Again"}
-          </Button>
+          {/* Action Buttons */}
+          <div className="w-full flex flex-col gap-3">
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={handleConfirm}
+              className="w-full font-bold shadow-lg"
+            >
+              {config.isCritical ? "Go to Warning / Help" : "OK, Try Again"}
+            </Button>
+            {!config.isCritical && onChangeSelection && (
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={onChangeSelection}
+                className="w-full font-semibold border-gray-300 text-gray-700 hover:bg-gray-50"
+              >
+                Choose Different Bill
+              </Button>
+            )}
+          </div>
         </motion.div>
       </div>
     </AnimatePresence>

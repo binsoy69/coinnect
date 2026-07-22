@@ -36,7 +36,7 @@ export default function InsertMoneyScreen() {
   const { type } = useParams();
   const { transaction, addInsertedMoney, getServiceConfig, isAmountMatched } =
     useTransaction();
-  const { simulateInsert, transactionId } = useBackendTransaction();
+  const { simulateInsert, transactionId, cancelBackendTransaction } = useBackendTransaction();
   const [resetCounter, setResetCounter] = useState(0);
 
   const config = getServiceConfig() || SERVICE_CONFIG[type];
@@ -55,6 +55,18 @@ export default function InsertMoneyScreen() {
     clearError();
     setResetCounter((c) => c + 1);
   }, [clearError]);
+
+  const handleChangeSelection = useCallback(async () => {
+    clearError();
+    if (transactionId) {
+      try {
+        await cancelBackendTransaction();
+      } catch {
+        // Continue navigation if cancel fails
+      }
+    }
+    navigate(getServiceRoute(ROUTES.SELECT_AMOUNT, type));
+  }, [clearError, transactionId, cancelBackendTransaction, navigate, type]);
 
   // Auto-navigate when inserted amount meets or exceeds the required amount
   useEffect(() => {
@@ -219,6 +231,7 @@ export default function InsertMoneyScreen() {
         error={lastError}
         onClose={handleClearError}
         onNavigateWarning={() => navigate(getServiceRoute(ROUTES.WARNING, type))}
+        onChangeSelection={handleChangeSelection}
       />
     </PageLayout>
   );

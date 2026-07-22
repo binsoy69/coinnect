@@ -10,12 +10,23 @@ import { formatPeso } from '../../constants/denominations';
 export default function WarningScreen() {
   const navigate = useNavigate();
   const { type } = useParams();
-  const { backendState } = useBackendTransaction();
+  const { backendState, cancelBackendTransaction, transactionId } = useBackendTransaction();
 
   const claimTicket = backendState?.claim_ticket_code;
   const shortfall = backendState?.shortfall;
   const isDispenseError =
     backendState?.state === "ERROR" || Boolean(claimTicket) || shortfall != null;
+
+  const handleChooseDifferent = async () => {
+    if (transactionId) {
+      try {
+        await cancelBackendTransaction();
+      } catch {
+        // Navigation still lets the user recover if backend cancellation fails.
+      }
+    }
+    navigate(getServiceRoute(ROUTES.SELECT_AMOUNT, type));
+  };
 
   const handleInsertMore = () => {
     navigate(getServiceRoute(ROUTES.INSERT_MONEY, type));
@@ -137,17 +148,26 @@ export default function WarningScreen() {
             The total amount you inserted does not match the selected transaction.
           </motion.h1>
 
-          {/* Action button */}
+          {/* Action buttons */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 }}
+            className="flex flex-col sm:flex-row justify-center gap-4"
           >
+            <Button
+              variant="outline"
+              size="xl"
+              onClick={handleChooseDifferent}
+              className="bg-transparent border-white text-white hover:bg-white/10 px-8"
+            >
+              Choose a Different Amount
+            </Button>
             <Button
               variant="white"
               size="xl"
               onClick={handleInsertMore}
-              className="px-12"
+              className="px-8"
             >
               Insert More Money
             </Button>

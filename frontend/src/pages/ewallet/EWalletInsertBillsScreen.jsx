@@ -43,6 +43,11 @@ export default function EWalletInsertBillsScreen() {
     setResetCounter((c) => c + 1);
   }, [clearError]);
 
+  const handleChangeSelection = useCallback(() => {
+    clearError();
+    navigate(getEWalletRoute(ROUTES.EWALLET_AMOUNT, ewallet.serviceType));
+  }, [clearError, navigate, ewallet.serviceType]);
+
   // Handle timeout - proceed when complete, otherwise request coins.
   const handleTimeout = useCallback(() => {
     if (isAmountMatched()) {
@@ -220,6 +225,7 @@ export default function EWalletInsertBillsScreen() {
         error={lastError}
         onClose={handleClearError}
         onNavigateWarning={() => navigate(ROUTES.ERROR)}
+        onChangeSelection={handleChangeSelection}
       />
     </PageLayout>
   );
