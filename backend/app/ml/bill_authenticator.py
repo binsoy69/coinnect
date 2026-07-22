@@ -7,10 +7,12 @@ Two-stage pipeline:
 
 import asyncio
 import logging
+import os
 from abc import ABC, abstractmethod
 from typing import Dict, Optional
 
 import numpy as np
+import yaml
 from pydantic import BaseModel
 
 from app.core.constants import BillDenom
@@ -151,8 +153,21 @@ class YOLOBillAuthenticator(BillAuthenticatorBase):
             from ultralytics import YOLO
 
             path = self._model_paths[currency][model_type]
-            logger.info(f"Loading {model_type} model for {currency}: {path}")
-            task = "classify" if "cls" in path.lower() else None
+            task = None
+            metadata_path = os.path.join(path, "metadata.yaml") if os.path.isdir(path) else None
+            if metadata_path and os.path.exists(metadata_path):
+                try:
+                    with open(metadata_path, "r", encoding="utf-8") as f:
+                        meta = yaml.safe_load(f)
+                        if meta and isinstance(meta, dict) and "task" in meta:
+                            task = meta["task"]
+                except Exception as meta_err:
+                    logger.warning(f"Could not read task from {metadata_path}: {meta_err}")
+
+            if not task:
+                task = "classify" if ("cls" in path.lower() or model_type == "auth") else None
+
+            logger.info(f"Loading {model_type} model for {currency}: {path} (task={task})")
             try:
                 model = YOLO(path, task=task)
                 # Warm up NCNN / PyTorch inference engine with a dummy image pass
