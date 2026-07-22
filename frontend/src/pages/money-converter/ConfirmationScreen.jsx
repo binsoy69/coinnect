@@ -15,19 +15,43 @@ const QuestionIcon = () => (
   </div>
 );
 
-function calculateAutoBreakdown(amount) {
-  if (!amount || amount <= 0) return {};
-  const denoms = [1000, 500, 200, 100, 50, 20, 10, 5, 1];
+function calculateAutoBreakdown(amount, preferredBillDenoms = []) {
+  if (!amount || amount <= 0) return { bills: {}, coins: {}, coinSum: 0 };
+
+  // Available bill denoms to try: use preferred if provided, otherwise standard [500, 100, 50, 20]
+  // Strictly respects user preferred bill choices without introducing unselected bills (e.g. 200)
+  const availableBillDenoms = preferredBillDenoms.length > 0
+    ? [...preferredBillDenoms].sort((a, b) => b - a)
+    : [500, 100, 50, 20];
+
+  const coinDenoms = [20, 10, 5, 1];
   let rem = amount;
-  const result = {};
-  for (const d of denoms) {
+  const bills = {};
+  const coins = {};
+
+  // Phase 1: Bills
+  for (const d of availableBillDenoms) {
     if (rem >= d) {
       const count = Math.floor(rem / d);
-      result[d] = count;
+      bills[d] = count;
       rem %= d;
     }
   }
-  return result;
+
+  // Phase 2: Coins for remainder (e.g., 15, 35, 5)
+  if (rem > 0) {
+    for (const c of coinDenoms) {
+      if (rem >= c) {
+        const count = Math.floor(rem / c);
+        coins[c] = count;
+        rem %= c;
+      }
+    }
+  }
+
+  const coinSum = Object.entries(coins).reduce((sum, [d, c]) => sum + Number(d) * c, 0);
+
+  return { bills, coins, coinSum };
 }
 
 export default function ConfirmationScreen() {
@@ -38,6 +62,7 @@ export default function ConfirmationScreen() {
   const [isStarting, setIsStarting] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
 
+  // Net amount to dispense: if fee not included, deduct fee from payout
   const netPayoutAmount = transaction.includeFee
     ? (transaction.selectedAmount || 0)
     : Math.max(0, (transaction.selectedAmount || 0) - (transaction.fee || 0));
@@ -48,14 +73,15 @@ export default function ConfirmationScreen() {
     0
   );
 
-  const effectiveDispenseCounts =
-    userAllocatedSum === netPayoutAmount && userAllocatedSum > 0
-      ? userCounts
-      : calculateAutoBreakdown(netPayoutAmount);
+  const breakdownObj = userAllocatedSum === netPayoutAmount && userAllocatedSum > 0
+    ? { bills: userCounts, coins: {}, coinSum: 0 }
+    : calculateAutoBreakdown(netPayoutAmount, transaction.selectedDispenseDenominations || []);
 
-  const activeBreakdownEntries = Object.entries(effectiveDispenseCounts).filter(
-    ([, count]) => count > 0
-  );
+  // Merge bills and coins dictionary for backend transaction start
+  const effectiveDispenseCounts = {
+    ...breakdownObj.bills,
+    ...breakdownObj.coins,
+  };
 
   const handleBack = async () => {
     if (transactionId) {
@@ -88,8 +114,6 @@ export default function ConfirmationScreen() {
     }
   };
 
-
-
   return (
     <PageTransition>
       <div className="min-h-screen bg-coinnect-primary flex flex-col items-center justify-center p-4">
@@ -108,7 +132,7 @@ export default function ConfirmationScreen() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="mb-4"
+            className="mb-3"
           >
             <p className="text-xl">
               Amount Selected:{" "}
@@ -121,15 +145,18 @@ export default function ConfirmationScreen() {
             </p>
           </motion.div>
 
-          {/* Total Due */}
+          {/* Total Due & Total to Dispense */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="mb-6"
+            className="mb-6 space-y-1"
           >
             <p className="text-3xl font-bold">
-              Total Due: {formatPeso(transaction.totalDue)}
+              Total Cash to Insert: {formatPeso(transaction.totalDue)}
+            </p>
+            <p className="text-2xl font-extrabold text-amber-300">
+              Total Cash to Dispense: {formatPeso(netPayoutAmount)}
             </p>
           </motion.div>
 
@@ -138,25 +165,39 @@ export default function ConfirmationScreen() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.25 }}
-            className="bg-white/10 backdrop-blur-md rounded-2xl p-4 mb-6 border border-white/20 max-w-lg mx-auto"
+            className="bg-white/10 backdrop-blur-md rounded-2xl p-5 mb-6 border border-white/20 max-w-lg mx-auto shadow-lg"
           >
-            <p className="text-sm font-semibold uppercase tracking-wider text-white/80 mb-2">
+            <p className="text-sm font-semibold uppercase tracking-wider text-white/80 mb-3">
               Planned Dispense Breakdown
             </p>
-            {activeBreakdownEntries.length > 0 ? (
-              <div className="flex flex-wrap gap-3 justify-center">
-                {activeBreakdownEntries.map(([denom, count]) => (
-                  <div
-                    key={denom}
-                    className="bg-white/20 px-4 py-2 rounded-xl text-lg font-bold text-white shadow-sm"
-                  >
-                    {count}x {formatPeso(denom)}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-base font-medium text-white/90">
-                Optimal change auto-allocated ({transaction.selectedDispenseDenominations.length > 0 ? `Preferred: ${transaction.selectedDispenseDenominations.map(d => formatPeso(d)).join(", ")}` : "Largest bills first"})
+
+            <div className="flex flex-wrap gap-3 justify-center mb-2">
+              {/* Bills */}
+              {Object.entries(breakdownObj.bills).map(([denom, count]) => (
+                <div
+                  key={`bill-${denom}`}
+                  className="bg-white/20 border border-white/30 px-4 py-2 rounded-xl text-lg font-bold text-white shadow-sm flex items-center gap-1.5"
+                >
+                  <span className="text-xs bg-white/30 px-1.5 py-0.5 rounded font-mono">Bill</span>
+                  {count}x {formatPeso(denom)}
+                </div>
+              ))}
+
+              {/* Coins */}
+              {Object.entries(breakdownObj.coins).map(([denom, count]) => (
+                <div
+                  key={`coin-${denom}`}
+                  className="bg-amber-400/30 border border-amber-300/40 px-4 py-2 rounded-xl text-lg font-bold text-amber-200 shadow-sm flex items-center gap-1.5"
+                >
+                  <span className="text-xs bg-amber-400/40 text-amber-100 px-1.5 py-0.5 rounded font-mono">Coin</span>
+                  {count}x {formatPeso(denom)}
+                </div>
+              ))}
+            </div>
+
+            {breakdownObj.coinSum > 0 && (
+              <p className="text-xs text-amber-200 bg-amber-500/20 border border-amber-400/30 rounded-xl py-2 px-3 mt-3 font-semibold">
+                ⚠️ Note: {formatPeso(breakdownObj.coinSum)} remainder will be dispensed in coins.
               </p>
             )}
           </motion.div>
