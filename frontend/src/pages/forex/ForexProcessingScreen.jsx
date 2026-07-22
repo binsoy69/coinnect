@@ -19,10 +19,20 @@ export default function ForexProcessingScreen() {
   // Trigger forex transaction confirmation on mount
   useEffect(() => {
     if (transactionId) {
-      confirmForexTransaction().catch((err) => {
-        console.error("Error confirming forex transaction on processing mount:", err);
-        navigate(getForexRoute(ROUTES.FOREX_WARNING, forex.serviceType));
-      });
+      confirmForexTransaction()
+        .then((data) => {
+          if (data) {
+            if (data.state === "completed" || data.state === "COMPLETED" || data.state === "COMPLETE") {
+              navigate(getForexRoute(ROUTES.FOREX_SUCCESS, forex.serviceType));
+            } else if (data.state === "ERROR" || data.claim_ticket_code) {
+              navigate(getForexRoute(ROUTES.FOREX_WARNING, forex.serviceType));
+            }
+          }
+        })
+        .catch((err) => {
+          console.error("Error confirming forex transaction on processing mount:", err);
+          navigate(getForexRoute(ROUTES.FOREX_WARNING, forex.serviceType));
+        });
     }
   }, [confirmForexTransaction, transactionId, navigate, forex.serviceType]);
 

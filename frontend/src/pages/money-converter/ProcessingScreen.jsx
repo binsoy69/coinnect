@@ -32,10 +32,24 @@ export default function ProcessingScreen() {
 
   // Trigger transaction confirmation on mount
   useEffect(() => {
-    confirmBackendTransaction().catch((err) => {
-      console.error("Error confirming transaction on processing mount:", err);
-      handleComplete(false);
-    });
+    confirmBackendTransaction()
+      .then((data) => {
+        if (data) {
+          if (data.state === "COMPLETE") {
+            handleComplete(true);
+          } else if (
+            data.state === "ERROR" ||
+            Boolean(data.claim_ticket_code) ||
+            data.shortfall != null
+          ) {
+            handleComplete(false);
+          }
+        }
+      })
+      .catch((err) => {
+        console.error("Error confirming transaction on processing mount:", err);
+        handleComplete(false);
+      });
   }, [confirmBackendTransaction, handleComplete]);
 
   // Subscribe to dispense events

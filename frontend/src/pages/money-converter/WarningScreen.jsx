@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Button from '../../components/common/Button';
@@ -11,6 +12,12 @@ export default function WarningScreen() {
   const navigate = useNavigate();
   const { type } = useParams();
   const { backendState, cancelBackendTransaction, transactionId } = useBackendTransaction();
+
+  useEffect(() => {
+    if (backendState?.state === "COMPLETE") {
+      navigate(getServiceRoute(ROUTES.SUCCESS, type));
+    }
+  }, [backendState, navigate, type]);
 
   const claimTicket = backendState?.claim_ticket_code;
   const shortfall = backendState?.shortfall;
