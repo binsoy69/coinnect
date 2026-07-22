@@ -8,6 +8,16 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
+"""Transaction REST API endpoints for money changer operations."""
+
+import logging
+from typing import List, Optional
+
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/transaction", tags=["transactions"])
 
 
@@ -19,6 +29,7 @@ class StartTransactionRequest(BaseModel):
     amount: int  # Target amount
     fee: int  # Transaction fee
     selected_dispense_denoms: List[int] = []  # e.g., [50, 100]
+    selected_dispense_counts: Optional[dict] = None  # e.g., {"500": 1, "100": 4, "50": 2}
 
 
 class SimulateInsertRequest(BaseModel):
@@ -39,6 +50,7 @@ class TransactionResponse(BaseModel):
     dispense_plan: Optional[dict] = None
     dispense_result: Optional[dict] = None
     selected_dispense_denoms: list = []
+    selected_dispense_counts: Optional[dict] = {}
     error_code: Optional[str] = None
     error_message: Optional[str] = None
     created_at: Optional[str] = None
@@ -64,6 +76,7 @@ async def start_transaction(req: StartTransactionRequest, request: Request):
             target_amount=req.amount,
             fee=req.fee,
             selected_dispense_denoms=req.selected_dispense_denoms,
+            selected_dispense_counts=req.selected_dispense_counts,
         )
         return TransactionResponse(**state)
     except Exception as e:

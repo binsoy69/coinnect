@@ -89,6 +89,9 @@ class TransactionRecord(Base):
     selected_dispense_denoms: Mapped[list] = mapped_column(
         JSON, default=list
     )
+    selected_dispense_counts: Mapped[Optional[dict]] = mapped_column(
+        JSON, nullable=True
+    )
     # Forex-specific fields (nullable for non-forex transactions)
     from_currency: Mapped[Optional[str]] = mapped_column(
         String, nullable=True

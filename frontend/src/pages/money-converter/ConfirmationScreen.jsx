@@ -36,7 +36,8 @@ export default function ConfirmationScreen() {
         type,
         transaction.selectedAmount,
         transaction.fee,
-        transaction.selectedDispenseDenominations
+        transaction.selectedDispenseDenominations,
+        transaction.selectedDispenseCounts
       );
       navigate(getServiceRoute(ROUTES.INSERT_MONEY, type));
     } catch (err) {
@@ -46,13 +47,18 @@ export default function ConfirmationScreen() {
     }
   };
 
+  const dispenseCounts = transaction.selectedDispenseCounts || {};
+  const activeBreakdownEntries = Object.entries(dispenseCounts).filter(
+    ([, count]) => count > 0
+  );
+
   return (
     <PageTransition>
       <div className="min-h-screen bg-coinnect-primary flex flex-col items-center justify-center p-4">
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="text-center text-white max-w-2xl"
+          className="text-center text-white max-w-2xl w-full"
         >
           {/* Question icon */}
           <div className="transform scale-90">
@@ -87,6 +93,34 @@ export default function ConfirmationScreen() {
             <p className="text-3xl font-bold">
               Total Due: {formatPeso(transaction.totalDue)}
             </p>
+          </motion.div>
+
+          {/* Dispense Breakdown Summary */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+            className="bg-white/10 backdrop-blur-md rounded-2xl p-4 mb-6 border border-white/20 max-w-lg mx-auto"
+          >
+            <p className="text-sm font-semibold uppercase tracking-wider text-white/80 mb-2">
+              Planned Dispense Breakdown
+            </p>
+            {activeBreakdownEntries.length > 0 ? (
+              <div className="flex flex-wrap gap-3 justify-center">
+                {activeBreakdownEntries.map(([denom, count]) => (
+                  <div
+                    key={denom}
+                    className="bg-white/20 px-4 py-2 rounded-xl text-lg font-bold text-white shadow-sm"
+                  >
+                    {count}x {formatPeso(denom)}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-base font-medium text-white/90">
+                Optimal change auto-allocated ({transaction.selectedDispenseDenominations.length > 0 ? `Preferred: ${transaction.selectedDispenseDenominations.map(d => formatPeso(d)).join(", ")}` : "Largest bills first"})
+              </p>
+            )}
           </motion.div>
 
           {/* Instruction */}

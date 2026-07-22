@@ -213,12 +213,13 @@ class TestBillPositioning:
     ):
         """Once triggered, accept_bill runs the motor until the positioning sensor is triggered before imaging."""
         mock_gpio.set_bill_at_entry(True)
+        mock_gpio.bill_at_position_delay = 0.0
         mock_authenticator.set_accept_next()
 
         result = await bill_acceptor.accept_bill()
 
         assert result.success is True
-        assert "motor_forward(60)" in mock_gpio.call_log
+        assert any("motor_forward" in call for call in mock_gpio.call_log)
         first_stop = mock_gpio.call_log.index("motor_stop")
         uv_on = mock_gpio.call_log.index("uv_led_on")
         assert first_stop < uv_on

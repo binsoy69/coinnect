@@ -15,6 +15,7 @@ import {
 
 import { ENABLE_KEYBOARD_SIM } from "../../constants/api";
 import RejectionModal from "../../components/transaction/RejectionModal";
+import SortingOverlay from "../../components/transaction/SortingOverlay";
 import { useBillAcceptance } from "../../hooks/useBillAcceptance";
 
 export default function ForexInsertMoneyScreen() {
@@ -26,7 +27,7 @@ export default function ForexInsertMoneyScreen() {
   const [resetCounter, setResetCounter] = useState(0);
 
   // Physical bill acceptor loop
-  const { lastError, clearError } = useBillAcceptance(
+  const { isSorting, lastError, clearError } = useBillAcceptance(
     transactionId,
     "/forex/transaction",
     !isAmountMatched(),
@@ -231,7 +232,7 @@ export default function ForexInsertMoneyScreen() {
               autoStart={true}
               color="forex"
               resetTrigger={`${forex.totalInserted}_${resetCounter}`}
-              isPaused={Boolean(lastError)}
+              isPaused={Boolean(lastError) || isSorting}
             />
             <p className="text-center text-gray-500 text-sm mt-2">
               This tab will automatically close after 60s if no money is
@@ -240,6 +241,7 @@ export default function ForexInsertMoneyScreen() {
           </motion.div>
         </div>
       </div>
+      <SortingOverlay isOpen={isSorting} />
       <RejectionModal
         isOpen={Boolean(lastError)}
         error={lastError}

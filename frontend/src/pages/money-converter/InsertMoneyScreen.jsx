@@ -17,6 +17,7 @@ import { useBackendTransaction } from "../../hooks/useBackendTransaction";
 import { formatPeso } from "../../constants/denominations";
 import { ENABLE_KEYBOARD_SIM } from "../../constants/api";
 import RejectionModal from "../../components/transaction/RejectionModal";
+import SortingOverlay from "../../components/transaction/SortingOverlay";
 import { useBillAcceptance } from "../../hooks/useBillAcceptance";
 
 // Service type indicator component
@@ -42,7 +43,7 @@ export default function InsertMoneyScreen() {
   const config = getServiceConfig() || SERVICE_CONFIG[type];
 
   // Physical bill acceptor loop
-  const { lastError, clearError } = useBillAcceptance(
+  const { isSorting, lastError, clearError } = useBillAcceptance(
     transactionId,
     "/transaction",
     !isAmountMatched() && (config?.insertType || "bill") === "bill",
@@ -204,7 +205,7 @@ export default function InsertMoneyScreen() {
                 onComplete={handleTimerComplete}
                 showProgressBar={true}
                 resetTrigger={`${transaction.moneyInserted}_${resetCounter}`}
-                isPaused={Boolean(lastError)}
+                isPaused={Boolean(lastError) || isSorting}
               />
 
               <p className="text-center text-gray-400 text-xs mt-2">
@@ -226,6 +227,7 @@ export default function InsertMoneyScreen() {
           </motion.div>
         </div>
       </div>
+      <SortingOverlay isOpen={isSorting} />
       <RejectionModal
         isOpen={Boolean(lastError)}
         error={lastError}

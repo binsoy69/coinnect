@@ -903,6 +903,7 @@ class TestGetTransactionState:
             "dispense_plan",
             "dispense_result",
             "selected_dispense_denoms",
+            "selected_dispense_counts",
             "error_code",
             "error_message",
             "created_at",

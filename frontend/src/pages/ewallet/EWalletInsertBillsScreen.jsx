@@ -14,6 +14,7 @@ import {
 import { ENABLE_KEYBOARD_SIM } from "../../constants/api";
 
 import RejectionModal from "../../components/transaction/RejectionModal";
+import SortingOverlay from "../../components/transaction/SortingOverlay";
 import { useBillAcceptance } from "../../hooks/useBillAcceptance";
 
 export default function EWalletInsertBillsScreen() {
@@ -31,7 +32,7 @@ export default function EWalletInsertBillsScreen() {
   const [resetCounter, setResetCounter] = useState(0);
 
   // Physical bill acceptor loop
-  const { lastError, clearError } = useBillAcceptance(
+  const { isSorting, lastError, clearError } = useBillAcceptance(
     ewallet.transactionId,
     "/ewallet/transactions",
     !isAmountMatched(),
@@ -211,7 +212,7 @@ export default function EWalletInsertBillsScreen() {
               autoStart={true}
               color={ewallet.provider} // 'gcash' or 'maya'
               resetTrigger={`${ewallet.totalInserted}_${resetCounter}`}
-              isPaused={Boolean(lastError)}
+              isPaused={Boolean(lastError) || isSorting}
             />
             <p className="text-center text-gray-500 text-sm mt-2">
               This tab will automatically close after 60s if no money is
@@ -220,6 +221,7 @@ export default function EWalletInsertBillsScreen() {
           </motion.div>
         </div>
       </div>
+      <SortingOverlay isOpen={isSorting} />
       <RejectionModal
         isOpen={Boolean(lastError)}
         error={lastError}

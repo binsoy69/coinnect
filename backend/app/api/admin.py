@@ -199,3 +199,73 @@ async def resolve_claim(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Claim ticket code {claim_ticket_code} not found"
         )
+
+
+class UpdateFeesRequest(BaseModel):
+    fee_bill_to_bill: float | None = None
+    fee_bill_to_coin: float | None = None
+    fee_coin_to_bill: float | None = None
+    ewallet_fee_tiers: list | None = None
+    forex_fees: dict | None = None
+
+
+@router.get("/fees", status_code=status.HTTP_200_OK)
+async def get_fees(request: Request):
+    """Get current machine fee settings."""
+    settings = request.app.state.settings
+    return {
+        "fee_bill_to_bill": int(getattr(settings, "fee_bill_to_bill", 10)),
+        "fee_bill_to_coin": int(getattr(settings, "fee_bill_to_coin", 15)),
+        "fee_coin_to_bill": int(getattr(settings, "fee_coin_to_bill", 3)),
+        "ewallet_fee_tiers": [
+            tier.model_dump() if hasattr(tier, "model_dump") else tier
+            for tier in getattr(settings, "ewallet_fee_tiers", [])
+        ],
+        "forex_fees": {
+            "usd-to-php": float(getattr(settings, "forex_fee_usd_to_php", 5.0)),
+            "php-to-usd": float(getattr(settings, "forex_fee_php_to_usd", 5.0)),
+            "eur-to-php": float(getattr(settings, "forex_fee_eur_to_php", 5.0)),
+            "php-to-eur": float(getattr(settings, "forex_fee_php_to_eur", 5.0)),
+        },
+    }
+
+
+@router.put("/fees", status_code=status.HTTP_200_OK)
+async def update_fees(
+    body: UpdateFeesRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+):
+    """Update machine fee settings (Admin session required)."""
+    require_admin_session(request, authorization)
+    settings = request.app.state.settings
+
+    if body.fee_bill_to_bill is not None:
+        settings.fee_bill_to_bill = int(body.fee_bill_to_bill)
+    if body.fee_bill_to_coin is not None:
+        settings.fee_bill_to_coin = int(body.fee_bill_to_coin)
+    if body.fee_coin_to_bill is not None:
+        settings.fee_coin_to_bill = int(body.fee_coin_to_bill)
+
+    if body.ewallet_fee_tiers is not None:
+        from app.core.config import EWalletFeeTier
+        new_tiers = []
+        for t in body.ewallet_fee_tiers:
+            if isinstance(t, dict):
+                new_tiers.append(EWalletFeeTier(**t))
+            elif isinstance(t, EWalletFeeTier):
+                new_tiers.append(t)
+        settings.ewallet_fee_tiers = new_tiers
+
+    if body.forex_fees is not None:
+        if "usd-to-php" in body.forex_fees:
+            settings.forex_fee_usd_to_php = float(body.forex_fees["usd-to-php"])
+        if "php-to-usd" in body.forex_fees:
+            settings.forex_fee_php_to_usd = float(body.forex_fees["php-to-usd"])
+        if "eur-to-php" in body.forex_fees:
+            settings.forex_fee_eur_to_php = float(body.forex_fees["eur-to-php"])
+        if "php-to-eur" in body.forex_fees:
+            settings.forex_fee_php_to_eur = float(body.forex_fees["php-to-eur"])
+
+    return await get_fees(request)
+

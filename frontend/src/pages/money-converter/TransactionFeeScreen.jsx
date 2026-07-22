@@ -5,6 +5,8 @@ import PageTransition from '../../components/layout/PageTransition';
 import { ROUTES, getServiceRoute } from '../../constants/routes';
 import { useTransaction } from '../../context/TransactionContext';
 
+import { formatPeso } from '../../constants/denominations';
+
 // Question mark icon
 const QuestionIcon = () => (
   <div className="w-32 h-32 mx-auto mb-8 rounded-full border-4 border-white flex items-center justify-center">
@@ -15,7 +17,9 @@ const QuestionIcon = () => (
 export default function TransactionFeeScreen() {
   const navigate = useNavigate();
   const { type } = useParams();
-  const { setIncludeFee } = useTransaction();
+  const { transaction, setIncludeFee } = useTransaction();
+
+  const feeAmount = transaction.fee || 10;
 
   const handleYes = () => {
     setIncludeFee(true);
@@ -43,10 +47,20 @@ export default function TransactionFeeScreen() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="text-3xl font-bold mb-12"
+            className="text-3xl font-bold mb-4"
           >
-            Would you like to insert transaction fee?
+            Would you like to insert {formatPeso(feeAmount)} transaction fee?
           </motion.h1>
+
+          <motion.p
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+            className="text-white/80 text-sm mb-10 max-w-lg mx-auto"
+          >
+            Selecting <strong className="text-white">Yes</strong> adds {formatPeso(feeAmount)} to total cash to insert.<br/>
+            Selecting <strong className="text-white">No</strong> deducts {formatPeso(feeAmount)} from your dispensed cash.
+          </motion.p>
 
           {/* Buttons */}
           <motion.div

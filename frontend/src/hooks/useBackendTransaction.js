@@ -83,7 +83,7 @@ export function useBackendTransaction() {
   }, [subscribe, unsubscribe, addInsertedMoney]);
 
   const startBackendTransaction = useCallback(
-    async (type, amount, fee, dispenseDenoms = []) => {
+    async (type, amount, fee, dispenseDenoms = [], dispenseCounts = null) => {
       setIsLoading(true);
       setError(null);
       try {
@@ -95,6 +95,7 @@ export function useBackendTransaction() {
             amount,
             fee,
             selected_dispense_denoms: dispenseDenoms,
+            selected_dispense_counts: dispenseCounts,
           }),
         });
         if (!resp.ok) {

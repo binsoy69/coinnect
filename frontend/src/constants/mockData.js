@@ -107,6 +107,7 @@ export const DEFAULT_TRANSACTION_STATE = {
   fee: 0,
   totalDue: 0,
   selectedDispenseDenominations: [],
+  selectedDispenseCounts: {},
   insertedCounts: {},
   moneyInserted: 0,
 };

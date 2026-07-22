@@ -77,6 +77,7 @@ class TransactionOrchestrator:
         target_amount: int,
         fee: int,
         selected_dispense_denoms: list,
+        selected_dispense_counts: Optional[dict] = None,
     ) -> dict:
         """Create and start a new money changer transaction.
 
@@ -85,6 +86,7 @@ class TransactionOrchestrator:
             target_amount: Amount user selected to convert
             fee: Transaction fee
             selected_dispense_denoms: User-selected dispense denominations
+            selected_dispense_counts: User-selected breakdown quantities (e.g. {"500": 1, "100": 4})
 
         Returns:
             Transaction state dict.
@@ -121,6 +123,7 @@ class TransactionOrchestrator:
                 {} if transaction_type == "bill-to-coin" else snapshot.consumables.bill_dispenser_counts,
                 snapshot.consumables.coin_counts,
                 preferred_denoms=selected_dispense_denoms,
+                requested_counts=selected_dispense_counts,
             )
         except Exception as e:
             raise TransactionError("", f"Cannot dispense requested amount: {e}")
@@ -149,6 +152,7 @@ class TransactionOrchestrator:
                 fee=fee,
                 total_due=total_due,
                 selected_dispense_denoms=selected_dispense_denoms,
+                selected_dispense_counts=selected_dispense_counts,
             )
             session.add(record)
             await session.commit()
@@ -340,6 +344,7 @@ class TransactionOrchestrator:
             {} if db_record.type == "bill-to-coin" else snapshot.consumables.bill_dispenser_counts,
             snapshot.consumables.coin_counts,
             preferred_denoms=db_record.selected_dispense_denoms,
+            requested_counts=db_record.selected_dispense_counts,
         )
 
         # Store dispense plan
@@ -438,6 +443,7 @@ class TransactionOrchestrator:
                 "dispense_plan": db_record.dispense_plan,
                 "dispense_result": db_record.dispense_result,
                 "selected_dispense_denoms": db_record.selected_dispense_denoms or [],
+                "selected_dispense_counts": db_record.selected_dispense_counts or {},
                 "error_code": db_record.error_code,
                 "error_message": db_record.error_message,
                 "created_at": db_record.created_at.isoformat() if db_record.created_at else None,

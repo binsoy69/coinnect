@@ -12,6 +12,7 @@ import { useWebSocket } from "../context/WebSocketContext";
  */
 export function useBillAcceptance(transactionId, apiPrefix, enabled, onAccepted) {
   const [isAccepting, setIsAccepting] = useState(false);
+  const [isSorting, setIsSorting] = useState(false);
   const [lastError, setLastError] = useState(null);
   const { subscribe, unsubscribe } = useWebSocket();
   const onAcceptedRef = useRef(onAccepted);
@@ -21,16 +22,27 @@ export function useBillAcceptance(transactionId, apiPrefix, enabled, onAccepted)
     onAcceptedRef.current = onAccepted;
   }, [onAccepted]);
 
-  // Listen for WebSocket rejection events
+  // Listen for WebSocket events (BILL_ACCEPTING, BILL_SORTING, BILL_STORED, BILL_REJECTED)
   useEffect(() => {
+    const handleBillAccepting = () => setIsSorting(true);
+    const handleBillSorting = () => setIsSorting(true);
+    const handleBillStored = () => setIsSorting(false);
     const handleBillRejected = (event) => {
+      setIsSorting(false);
       if (event.payload) {
         setLastError(event.payload.reason || event.payload.error || "BILL_REJECTED");
       }
     };
 
+    subscribe("BILL_ACCEPTING", handleBillAccepting);
+    subscribe("BILL_SORTING", handleBillSorting);
+    subscribe("BILL_STORED", handleBillStored);
     subscribe("BILL_REJECTED", handleBillRejected);
+
     return () => {
+      unsubscribe("BILL_ACCEPTING", handleBillAccepting);
+      unsubscribe("BILL_SORTING", handleBillSorting);
+      unsubscribe("BILL_STORED", handleBillStored);
       unsubscribe("BILL_REJECTED", handleBillRejected);
     };
   }, [subscribe, unsubscribe]);
@@ -55,6 +67,13 @@ export function useBillAcceptance(transactionId, apiPrefix, enabled, onAccepted)
           const data = await resp.json();
           if (cancelled) break;
 
+          // If backend state is AUTHENTICATING or SORTING, set isSorting
+          if (data?.state === "AUTHENTICATING" || data?.state === "SORTING") {
+            setIsSorting(true);
+          } else {
+            setIsSorting(false);
+          }
+
           if (onAcceptedRef.current) {
             onAcceptedRef.current(data);
           }
@@ -71,6 +90,7 @@ export function useBillAcceptance(transactionId, apiPrefix, enabled, onAccepted)
         }
       }
       setIsAccepting(false);
+      setIsSorting(false);
     };
 
     acceptLoop();
@@ -80,7 +100,11 @@ export function useBillAcceptance(transactionId, apiPrefix, enabled, onAccepted)
     };
   }, [transactionId, apiPrefix, enabled, lastError]);
 
-  const clearError = () => setLastError(null);
+  const clearError = () => {
+    setLastError(null);
+    setIsSorting(false);
+  };
 
-  return { isAccepting, lastError, clearError };
+  return { isAccepting, isSorting, lastError, clearError };
 }
+

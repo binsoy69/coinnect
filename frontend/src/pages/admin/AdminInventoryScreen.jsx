@@ -117,6 +117,45 @@ export default function AdminInventoryScreen() {
     }
   }, [request]);
 
+  // Fee management state
+  const [feesState, setFeesState] = useState(null);
+  const [loadingFees, setLoadingFees] = useState(false);
+  const [savingFees, setSavingFees] = useState(false);
+  const [feesMsg, setFeesMsg] = useState("");
+  const [feesErr, setFeesErr] = useState("");
+
+  const loadFees = useCallback(async () => {
+    setLoadingFees(true);
+    setFeesErr("");
+    try {
+      const data = await request("/admin/fees");
+      setFeesState(data);
+    } catch (err) {
+      setFeesErr(err.message || "Failed to load fee configuration");
+    } finally {
+      setLoadingFees(false);
+    }
+  }, [request]);
+
+  const saveFees = async () => {
+    if (!feesState) return;
+    setSavingFees(true);
+    setFeesMsg("");
+    setFeesErr("");
+    try {
+      const updated = await request("/admin/fees", {
+        method: "PUT",
+        body: JSON.stringify(feesState),
+      });
+      setFeesState(updated);
+      setFeesMsg("Fee settings updated successfully");
+    } catch (err) {
+      setFeesErr(err.message || "Failed to update fee settings");
+    } finally {
+      setSavingFees(false);
+    }
+  };
+
   const resolveClaim = async (claimCode) => {
     setResolvingSaving(true);
     setResolvingError("");
@@ -157,8 +196,10 @@ export default function AdminInventoryScreen() {
   useEffect(() => {
     if (activeTab === "claims") {
       loadClaims();
+    } else if (activeTab === "fees") {
+      loadFees();
     }
-  }, [activeTab, loadClaims]);
+  }, [activeTab, loadClaims, loadFees]);
 
   useEffect(() => {
     if (!sessionStorage.getItem(TOKEN_KEY)) {
@@ -309,9 +350,20 @@ export default function AdminInventoryScreen() {
                 </span>
               )}
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("fees")}
+              className={`pb-4 px-2 font-bold text-lg border-b-2 transition-colors ${
+                activeTab === "fees"
+                  ? "border-coinnect-primary text-coinnect-primary-dark"
+                  : "border-transparent text-gray-500 hover:text-gray-900"
+              }`}
+            >
+              Fee Management
+            </button>
           </div>
 
-          {activeTab === "reconciliation" ? (
+          {activeTab === "reconciliation" && (
             <>
               <div>
                 <p className="text-sm font-bold uppercase tracking-[0.2em] text-coinnect-primary">
@@ -409,7 +461,9 @@ export default function AdminInventoryScreen() {
                 </section>
               ))}
             </>
-          ) : (
+          )}
+
+          {activeTab === "claims" && (
             <div className="space-y-6">
               <div>
                 <p className="text-sm font-bold uppercase tracking-[0.2em] text-coinnect-primary">
@@ -524,6 +578,211 @@ export default function AdminInventoryScreen() {
                       </div>
                     </article>
                   ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === "fees" && (
+            <div className="space-y-6">
+              <div>
+                <p className="text-sm font-bold uppercase tracking-[0.2em] text-coinnect-primary">
+                  Machine fee configuration
+                </p>
+                <h2 className="mt-2 text-3xl font-extrabold lg:text-4xl">
+                  Manage Transaction Fees
+                </h2>
+                <p className="mt-2 text-gray-600">
+                  Update transaction fee amounts for money converter, e-wallet, and forex exchanges.
+                </p>
+              </div>
+
+              {loadingFees ? (
+                <div className="p-8 text-center text-gray-500 bg-white rounded-card">
+                  Loading fee settings…
+                </div>
+              ) : !feesState ? (
+                <div className="p-8 text-center text-red-500 bg-white rounded-card">
+                  Failed to load fee configuration.
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Money Converter Fees */}
+                  <section className="rounded-card border border-gray-200 bg-white p-6">
+                    <h3 className="text-xl font-bold text-gray-900 mb-4 border-b pb-2">
+                      Money Converter Fees (Fixed ₱)
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-2">
+                          Bill-to-Bill Fee (₱)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={feesState.fee_bill_to_bill ?? 10}
+                          onChange={(e) =>
+                            setFeesState((prev) => ({
+                              ...prev,
+                              fee_bill_to_bill: Number(e.target.value),
+                            }))
+                          }
+                          className="w-full rounded-xl border-2 border-gray-200 p-3 font-bold text-lg focus:border-coinnect-primary outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-2">
+                          Bill-to-Coin Fee (₱)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={feesState.fee_bill_to_coin ?? 15}
+                          onChange={(e) =>
+                            setFeesState((prev) => ({
+                              ...prev,
+                              fee_bill_to_coin: Number(e.target.value),
+                            }))
+                          }
+                          className="w-full rounded-xl border-2 border-gray-200 p-3 font-bold text-lg focus:border-coinnect-primary outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-2">
+                          Coin-to-Bill Fee (₱)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={feesState.fee_coin_to_bill ?? 3}
+                          onChange={(e) =>
+                            setFeesState((prev) => ({
+                              ...prev,
+                              fee_coin_to_bill: Number(e.target.value),
+                            }))
+                          }
+                          className="w-full rounded-xl border-2 border-gray-200 p-3 font-bold text-lg focus:border-coinnect-primary outline-none"
+                        />
+                      </div>
+                    </div>
+                  </section>
+
+                  {/* Forex Fees */}
+                  <section className="rounded-card border border-gray-200 bg-white p-6">
+                    <h3 className="text-xl font-bold text-gray-900 mb-4 border-b pb-2">
+                      Foreign Exchange Fees (Percentage %)
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                      <div>
+                        <label className="block text-xs font-bold uppercase text-gray-500 mb-2">
+                          USD → PHP Fee (%)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={feesState.forex_fees?.["usd-to-php"] ?? 5.0}
+                          onChange={(e) =>
+                            setFeesState((prev) => ({
+                              ...prev,
+                              forex_fees: {
+                                ...prev.forex_fees,
+                                "usd-to-php": Number(e.target.value),
+                              },
+                            }))
+                          }
+                          className="w-full rounded-xl border-2 border-gray-200 p-3 font-bold text-lg focus:border-coinnect-primary outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold uppercase text-gray-500 mb-2">
+                          PHP → USD Fee (%)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={feesState.forex_fees?.["php-to-usd"] ?? 5.0}
+                          onChange={(e) =>
+                            setFeesState((prev) => ({
+                              ...prev,
+                              forex_fees: {
+                                ...prev.forex_fees,
+                                "php-to-usd": Number(e.target.value),
+                              },
+                            }))
+                          }
+                          className="w-full rounded-xl border-2 border-gray-200 p-3 font-bold text-lg focus:border-coinnect-primary outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold uppercase text-gray-500 mb-2">
+                          EUR → PHP Fee (%)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={feesState.forex_fees?.["eur-to-php"] ?? 5.0}
+                          onChange={(e) =>
+                            setFeesState((prev) => ({
+                              ...prev,
+                              forex_fees: {
+                                ...prev.forex_fees,
+                                "eur-to-php": Number(e.target.value),
+                              },
+                            }))
+                          }
+                          className="w-full rounded-xl border-2 border-gray-200 p-3 font-bold text-lg focus:border-coinnect-primary outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold uppercase text-gray-500 mb-2">
+                          PHP → EUR Fee (%)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={feesState.forex_fees?.["php-to-eur"] ?? 5.0}
+                          onChange={(e) =>
+                            setFeesState((prev) => ({
+                              ...prev,
+                              forex_fees: {
+                                ...prev.forex_fees,
+                                "php-to-eur": Number(e.target.value),
+                              },
+                            }))
+                          }
+                          className="w-full rounded-xl border-2 border-gray-200 p-3 font-bold text-lg focus:border-coinnect-primary outline-none"
+                        />
+                      </div>
+                    </div>
+                  </section>
+
+                  {/* Save Fee Settings */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t">
+                    <div>
+                      {feesMsg && (
+                        <p className="flex items-center gap-2 text-sm font-bold text-green-600">
+                          <Check className="h-5 w-5" /> {feesMsg}
+                        </p>
+                      )}
+                      {feesErr && (
+                        <p className="flex items-center gap-2 text-sm font-bold text-red-600">
+                          <AlertTriangle className="h-5 w-5" /> {feesErr}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={savingFees}
+                      onClick={saveFees}
+                      className="min-h-12 rounded-button bg-coinnect-primary px-8 font-bold text-white shadow-md hover:bg-coinnect-primary-dark disabled:opacity-40"
+                    >
+                      {savingFees ? "Saving Fee Settings…" : "Save Fee Settings"}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

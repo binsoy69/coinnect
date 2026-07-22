@@ -1,51 +1,79 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { SERVICE_CONFIG, DEFAULT_TRANSACTION_STATE } from '../constants/mockData';
+import { SERVICE_TYPES } from '../constants/routes';
+import { API_BASE } from '../constants/api';
 
 const TransactionContext = createContext(null);
 
 export function TransactionProvider({ children }) {
   const [transaction, setTransaction] = useState(DEFAULT_TRANSACTION_STATE);
   const [backendTransactionId, setBackendTransactionId] = useState(null);
+  const [machineFees, setMachineFees] = useState(null);
+
+  // Fetch machine fee configuration from backend
+  useEffect(() => {
+    fetch(`${API_BASE}/admin/fees`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data) setMachineFees(data);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Helper to get fee for a service type
+  const getFeeForService = useCallback(
+    (serviceType) => {
+      if (machineFees) {
+        if (serviceType === SERVICE_TYPES.BILL_TO_BILL) return machineFees.fee_bill_to_bill ?? 10;
+        if (serviceType === SERVICE_TYPES.BILL_TO_COIN) return machineFees.fee_bill_to_coin ?? 15;
+        if (serviceType === SERVICE_TYPES.COIN_TO_BILL) return machineFees.fee_coin_to_bill ?? 3;
+      }
+      return SERVICE_CONFIG[serviceType]?.fee || 0;
+    },
+    [machineFees]
+  );
 
   // Initialize transaction with service type
   const startTransaction = useCallback((serviceType) => {
     const config = SERVICE_CONFIG[serviceType];
     if (!config) return;
+    const fee = getFeeForService(serviceType);
 
     setTransaction({
       ...DEFAULT_TRANSACTION_STATE,
       serviceType,
-      fee: config.fee,
+      fee,
     });
-  }, []);
+  }, [getFeeForService]);
 
   // Set selected amount
   const setSelectedAmount = useCallback((amount) => {
     setTransaction(prev => {
-      const config = SERVICE_CONFIG[prev.serviceType];
-      const fee = prev.includeFee ? (config?.fee || 0) : 0;
+      const feeVal = getFeeForService(prev.serviceType);
+      const fee = prev.includeFee ? feeVal : 0;
       return {
         ...prev,
         selectedAmount: amount,
+        fee: feeVal,
         totalDue: amount + fee,
       };
     });
-  }, []);
+  }, [getFeeForService]);
 
   // Toggle fee inclusion
   const setIncludeFee = useCallback((include) => {
     setTransaction(prev => {
-      const config = SERVICE_CONFIG[prev.serviceType];
-      const fee = include ? (config?.fee || 0) : 0;
+      const feeVal = getFeeForService(prev.serviceType);
+      const fee = include ? feeVal : 0;
       return {
         ...prev,
         includeFee: include,
-        fee,
+        fee: feeVal,
         totalDue: (prev.selectedAmount || 0) + fee,
       };
     });
-  }, []);
+  }, [getFeeForService]);
 
   // Set selected dispense denominations
   const setSelectedDispenseDenominations = useCallback((denominations) => {
@@ -55,16 +83,53 @@ export function TransactionProvider({ children }) {
     }));
   }, []);
 
+  // Set selected dispense counts dictionary (e.g. { 500: 1, 100: 4, 50: 2 })
+  const setSelectedDispenseCounts = useCallback((counts) => {
+    setTransaction(prev => {
+      const denoms = Object.entries(counts)
+        .filter(([, count]) => count > 0)
+        .map(([denom]) => Number(denom));
+      return {
+        ...prev,
+        selectedDispenseCounts: counts,
+        selectedDispenseDenominations: denoms,
+      };
+    });
+  }, []);
+
+  // Set count for a single dispense denomination
+  const setDispenseCount = useCallback((denom, count) => {
+    setTransaction(prev => {
+      const newCounts = { ...prev.selectedDispenseCounts, [denom]: Math.max(0, count) };
+      const denoms = Object.entries(newCounts)
+        .filter(([, c]) => c > 0)
+        .map(([d]) => Number(d));
+      return {
+        ...prev,
+        selectedDispenseCounts: newCounts,
+        selectedDispenseDenominations: denoms,
+      };
+    });
+  }, []);
+
   // Toggle a dispense denomination
   const toggleDispenseDenomination = useCallback((denom) => {
     setTransaction(prev => {
       const current = prev.selectedDispenseDenominations;
       const isSelected = current.includes(denom);
+      const newDenoms = isSelected
+        ? current.filter(d => d !== denom)
+        : [...current, denom];
+      const newCounts = { ...prev.selectedDispenseCounts };
+      if (isSelected) {
+        delete newCounts[denom];
+      } else {
+        newCounts[denom] = 1;
+      }
       return {
         ...prev,
-        selectedDispenseDenominations: isSelected
-          ? current.filter(d => d !== denom)
-          : [...current, denom],
+        selectedDispenseDenominations: newDenoms,
+        selectedDispenseCounts: newCounts,
       };
     });
   }, []);
@@ -132,6 +197,8 @@ export function TransactionProvider({ children }) {
     setSelectedAmount,
     setIncludeFee,
     setSelectedDispenseDenominations,
+    setSelectedDispenseCounts,
+    setDispenseCount,
     toggleDispenseDenomination,
     updateInsertedCount,
     addInsertedMoney,

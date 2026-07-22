@@ -82,6 +82,7 @@ def calculate_change(
     available_coins: Dict[str, int],
     preferred_denoms: Optional[List[int]] = None,
     currency: str = "PHP",
+    requested_counts: Optional[Dict[int, int]] = None,
 ) -> DispensePlan:
     """Calculate optimal change dispensing plan.
 
@@ -91,9 +92,9 @@ def calculate_change(
             (e.g., {"PHP_100": 50, "PHP_500": 20}).
         available_coins: Available coin counts by denomination string
             (e.g., {"PHP_20": 100, "PHP_10": 200}).
-        preferred_denoms: User-selected denomination values to prefer
-            (e.g., [50, 100]). These are tried first.
+        preferred_denoms: User-selected denomination values to prefer.
         currency: Currency code ("PHP", "USD", or "EUR").
+        requested_counts: Dict mapping denomination value (e.g. 500) to exact requested count.
 
     Returns:
         DispensePlan with items, total, and exactness flag.
@@ -103,13 +104,13 @@ def calculate_change(
     """
     try:
         return _calculate_change_with_order(
-            amount, available_bills, available_coins, preferred_denoms, currency
+            amount, available_bills, available_coins, preferred_denoms, currency, requested_counts
         )
     except InsufficientInventoryError:
-        if preferred_denoms:
-            logger.info("Preferred change calculation failed. Falling back to standard greedy change.")
+        if requested_counts or preferred_denoms:
+            logger.info("Preferred/requested change calculation failed. Falling back to standard greedy change.")
             return _calculate_change_with_order(
-                amount, available_bills, available_coins, None, currency
+                amount, available_bills, available_coins, None, currency, None
             )
         raise
 
@@ -120,6 +121,7 @@ def _calculate_change_with_order(
     available_coins: Dict[str, int],
     preferred_denoms: Optional[List[int]] = None,
     currency: str = "PHP",
+    requested_counts: Optional[Dict[int, int]] = None,
 ) -> DispensePlan:
     if amount <= 0:
         return DispensePlan(items=[], total_amount=0, is_exact=True)
@@ -128,13 +130,57 @@ def _calculate_change_with_order(
         raise ValueError(f"Unsupported currency for change: {currency}")
 
     remaining = amount
-    items: List[DispensePlanItem] = []
+    items_dict: Dict[str, DispensePlanItem] = {}
 
     # Build working copies of available inventory
     bills_avail = dict(available_bills)
     coins_avail = dict(available_coins)
 
-    # Determine denomination ordering based on user preferences
+    def add_item(denom_key: str, denom_type: str, count: int, val: int):
+        if count <= 0:
+            return
+        if denom_key in items_dict:
+            items_dict[denom_key].count += count
+        else:
+            items_dict[denom_key] = DispensePlanItem(
+                denom=denom_key,
+                denom_type=denom_type,
+                count=count,
+                value=val,
+            )
+
+    # Phase 0: Fulfill explicit requested counts first (if provided)
+    if requested_counts:
+        # Sort requested denoms descending by value
+        sorted_req = sorted(requested_counts.items(), key=lambda x: int(x[0]), reverse=True)
+        for d_val, req_qty in sorted_req:
+            val = int(d_val)
+            req_qty = int(req_qty)
+            if remaining <= 0 or req_qty <= 0 or val > remaining:
+                continue
+
+            denom_key = f"{currency}_{val}" if currency != "PHP" or val >= 20 else f"PHP_{val}"
+            # Check if this denom is a bill or a coin
+            # For PHP, 20 can be bill or coin; prioritize bill dispenser first
+            if denom_key in bills_avail or currency != "PHP":
+                avail = bills_avail.get(denom_key, 0)
+                count = min(req_qty, avail, remaining // val)
+                if count > 0:
+                    add_item(denom_key, "bill", count, val)
+                    remaining -= count * val
+                    bills_avail[denom_key] = avail - count
+                    req_qty -= count
+
+            if req_qty > 0 and currency == "PHP" and remaining >= val:
+                coin_key = f"PHP_{val}"
+                avail = coins_avail.get(coin_key, 0)
+                count = min(req_qty, avail, remaining // val)
+                if count > 0:
+                    add_item(coin_key, "coin", count, val)
+                    remaining -= count * val
+                    coins_avail[coin_key] = avail - count
+
+    # Determine denomination ordering based on user preferences for remaining shortfall
     bill_order = _get_bill_order(preferred_denoms, currency)
 
     # Phase 1: Dispense bills (largest preferred first, then remaining)
@@ -147,14 +193,7 @@ def _calculate_change_with_order(
             continue
         count = min(remaining // value, avail)
         if count > 0:
-            items.append(
-                DispensePlanItem(
-                    denom=denom_key,
-                    denom_type="bill",
-                    count=count,
-                    value=value,
-                )
-            )
+            add_item(denom_key, "bill", count, value)
             remaining -= count * value
             bills_avail[denom_key] = avail - count
 
@@ -170,16 +209,12 @@ def _calculate_change_with_order(
                 continue
             count = min(remaining // value, avail)
             if count > 0:
-                items.append(
-                    DispensePlanItem(
-                        denom=denom_key,
-                        denom_type="coin",
-                        count=count,
-                        value=value,
-                    )
-                )
+                add_item(denom_key, "coin", count, value)
                 remaining -= count * value
                 coins_avail[denom_key] = avail - count
+
+    items = list(items_dict.values())
+
 
     total_dispensed = amount - remaining
     is_exact = remaining == 0

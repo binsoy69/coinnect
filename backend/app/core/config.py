@@ -141,6 +141,11 @@ class Settings(BaseSettings):
     forex_cache_ttl_seconds: int = 86400  # 24 hours
     forex_rate_refresh_interval: int = 3600  # Auto-refresh every 1 hour
 
+    # Money Converter fees (fixed amounts in PHP)
+    fee_bill_to_bill: int = 10
+    fee_bill_to_coin: int = 15
+    fee_coin_to_bill: int = 3
+
     # Forex fees (percentage per currency pair)
     forex_fee_usd_to_php: float = 5.0
     forex_fee_php_to_usd: float = 5.0
