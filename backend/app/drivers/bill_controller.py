@@ -51,11 +51,12 @@ class BillController:
 
     async def dispense(self, denom: BillDenom, count: int) -> DispenseResponse:
         """Dispense `count` bills of the given denomination.
-        Duration: ~600-700ms per bill.
+        Duration: ~600-700ms per bill plus mechanical verification.
         """
+        timeout = max(15.0, count * 3.0 + 10.0)
         raw = await self._serial.send_bill_command(
             {"cmd": "DISPENSE", "denom": denom.value, "count": count},
-            timeout=count * 2.0 + 5.0,
+            timeout=timeout,
         )
         return self._parse_or_raise(raw, DispenseResponse)
 

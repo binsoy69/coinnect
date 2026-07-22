@@ -71,7 +71,7 @@ class TestBillControllerDispense:
         }
         await controller.dispense(BillDenom.PHP_100, 10)
         _, kwargs = mock_serial_manager.send_bill_command.call_args
-        assert kwargs["timeout"] == 10 * 2.0 + 5.0
+        assert kwargs["timeout"] == max(15.0, 10 * 3.0 + 10.0)
 
     async def test_dispense_jam_error(self, controller, mock_serial_manager):
         mock_serial_manager.send_bill_command.return_value = {
