@@ -1,6 +1,9 @@
 import numpy as np
 import ncnn
 import torch
+from pathlib import Path
+
+MODEL_DIR = Path(__file__).resolve().parent
 
 def test_inference():
     torch.manual_seed(0)
@@ -8,8 +11,8 @@ def test_inference():
     out = []
 
     with ncnn.Net() as net:
-        net.load_param("usd_cls_best_ncnn_model/model.ncnn.param")
-        net.load_model("usd_cls_best_ncnn_model/model.ncnn.bin")
+        net.load_param(str(MODEL_DIR / "model.ncnn.param"))
+        net.load_model(str(MODEL_DIR / "model.ncnn.bin"))
 
         with net.create_extractor() as ex:
             ex.input("in0", ncnn.Mat(in0.squeeze(0).numpy()).clone())
