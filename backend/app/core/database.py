@@ -42,12 +42,23 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 
 
 async def init_db() -> None:
-    """Create all tables. Called during app startup."""
+    """Create all tables and perform lightweight schema migrations."""
+    from sqlalchemy import text
     from app.models.db_models import Base
 
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        def _migrate_schema(sync_conn):
+            result = sync_conn.execute(text("PRAGMA table_info(transactions)"))
+            columns = [row[1] for row in result.fetchall()]
+            if columns and "selected_dispense_counts" not in columns:
+                logger.info("Migrating schema: adding selected_dispense_counts to transactions table")
+                sync_conn.execute(text("ALTER TABLE transactions ADD COLUMN selected_dispense_counts JSON"))
+
+        await conn.run_sync(_migrate_schema)
+
     logger.info("Database tables initialized")
 
 
