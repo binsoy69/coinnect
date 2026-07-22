@@ -21,8 +21,9 @@ export default function ProcessingScreen() {
   useEffect(() => {
     confirmBackendTransaction().catch((err) => {
       console.error("Error confirming transaction on processing mount:", err);
+      handleComplete(false);
     });
-  }, [confirmBackendTransaction]);
+  }, [confirmBackendTransaction, handleComplete]);
 
   const handleComplete = useCallback(
     (success) => {

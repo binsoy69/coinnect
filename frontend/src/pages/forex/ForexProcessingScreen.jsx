@@ -21,9 +21,10 @@ export default function ForexProcessingScreen() {
     if (transactionId) {
       confirmForexTransaction().catch((err) => {
         console.error("Error confirming forex transaction on processing mount:", err);
+        navigate(getForexRoute(ROUTES.FOREX_WARNING, forex.serviceType));
       });
     }
-  }, [confirmForexTransaction, transactionId]);
+  }, [confirmForexTransaction, transactionId, navigate, forex.serviceType]);
 
   // Navigate to success or warning when backend signals completion or error
   useEffect(() => {

@@ -31,7 +31,7 @@ export default function EWalletProcessingScreen() {
         const data = await refreshBackendTransaction().catch(() => null);
         if (
           !cancelled &&
-          ["COMPLETE", "CLAIM_REQUIRED", "FAILED"].includes(data?.state)
+          ["COMPLETE", "CLAIM_REQUIRED", "FAILED", "ERROR"].includes(data?.state)
         ) {
           clearInterval(interval);
           navigate(getEWalletRoute(ROUTES.EWALLET_SUMMARY, ewallet.serviceType));

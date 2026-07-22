@@ -69,10 +69,10 @@ CANCELLABLE_STATES: Set[TransactionState] = {
 # Timeout per state in seconds (None = no timeout)
 STATE_TIMEOUTS: Dict[TransactionState, Optional[float]] = {
     TransactionState.WAITING_FOR_BILL: 60.0,
-    TransactionState.AUTHENTICATING: 25.0,
-    TransactionState.SORTING: 25.0,
+    TransactionState.AUTHENTICATING: 60.0,
+    TransactionState.SORTING: 30.0,
     TransactionState.WAITING_FOR_CONFIRMATION: 60.0,
-    TransactionState.DISPENSING: 30.0,
+    TransactionState.DISPENSING: 45.0,
 }
 
 

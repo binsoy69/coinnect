@@ -154,7 +154,16 @@ class YOLOBillAuthenticator(BillAuthenticatorBase):
             logger.info(f"Loading {model_type} model for {currency}: {path}")
             task = "classify" if "cls" in path.lower() else None
             try:
-                self._loaded_models[currency][model_type] = YOLO(path, task=task)
+                model = YOLO(path, task=task)
+                # Warm up NCNN / PyTorch inference engine with a dummy image pass
+                try:
+                    dummy_img = np.zeros((640, 640, 3), dtype=np.uint8)
+                    model.predict(dummy_img, verbose=False)
+                except Exception as warmup_err:
+                    logger.warning(
+                        f"Warmup prediction for {currency} {model_type} produced warning/error: {warmup_err}"
+                    )
+                self._loaded_models[currency][model_type] = model
                 self._load_errors.pop(f"{currency}_{model_type}", None)
             except Exception as e:
                 self._load_errors[f"{currency}_{model_type}"] = str(e)
