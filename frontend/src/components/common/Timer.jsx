@@ -31,14 +31,24 @@ export default function Timer({
   showProgressBar = true,
   autoStart = true,
   resetTrigger,
+  isPaused = false,
   color = "primary", // 'primary' or 'forex'
   className = "",
 }) {
-  const { seconds, remainingProgress, reset } = useCountdown(
+  const { seconds, remainingProgress, reset, pause, resume } = useCountdown(
     initialSeconds,
     onComplete,
     autoStart,
   );
+
+  // Handle pausing/resuming timer when isPaused prop changes
+  useEffect(() => {
+    if (isPaused) {
+      pause();
+    } else {
+      resume();
+    }
+  }, [isPaused, pause, resume]);
 
   // Reset timer when resetTrigger changes (skip the initial mount)
   const isFirstRender = useRef(true);

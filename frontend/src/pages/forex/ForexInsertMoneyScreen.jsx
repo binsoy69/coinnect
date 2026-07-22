@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import PageLayout from "../../components/layout/PageLayout";
@@ -23,6 +23,7 @@ export default function ForexInsertMoneyScreen() {
     useForex();
   const { simulateForexInsert, transactionId } = useForexTransaction();
   const config = getForexConfig();
+  const [resetCounter, setResetCounter] = useState(0);
 
   // Physical bill acceptor loop
   const { lastError, clearError } = useBillAcceptance(
@@ -33,6 +34,11 @@ export default function ForexInsertMoneyScreen() {
       // Backend transaction updates are handled via WebSocket (BILL_STORED event)
     }
   );
+
+  const handleClearError = useCallback(() => {
+    clearError();
+    setResetCounter((c) => c + 1);
+  }, [clearError]);
 
   // Handle timeout - go to warning or conversion screen
   const handleTimeout = useCallback(() => {
@@ -212,6 +218,8 @@ export default function ForexInsertMoneyScreen() {
               showProgressBar={true}
               autoStart={true}
               color="forex"
+              resetTrigger={`${forex.totalInserted}_${resetCounter}`}
+              isPaused={Boolean(lastError)}
             />
             <p className="text-center text-gray-500 text-sm mt-2">
               This tab will automatically close after 60s if no money is
@@ -223,7 +231,7 @@ export default function ForexInsertMoneyScreen() {
       <RejectionModal
         isOpen={Boolean(lastError)}
         error={lastError}
-        onClose={clearError}
+        onClose={handleClearError}
         onNavigateWarning={() => navigate(getForexRoute(ROUTES.FOREX_WARNING, forex.serviceType))}
       />
     </PageLayout>

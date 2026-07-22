@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import PageLayout from "../../components/layout/PageLayout";
@@ -28,6 +28,7 @@ export default function EWalletInsertBillsScreen() {
   } = useEWallet();
   const config = getEWalletConfig();
   const styles = getProviderStyles();
+  const [resetCounter, setResetCounter] = useState(0);
 
   // Physical bill acceptor loop
   const { lastError, clearError } = useBillAcceptance(
@@ -36,6 +37,11 @@ export default function EWalletInsertBillsScreen() {
     !isAmountMatched(),
     syncBackendState
   );
+
+  const handleClearError = useCallback(() => {
+    clearError();
+    setResetCounter((c) => c + 1);
+  }, [clearError]);
 
   // Handle timeout - proceed when complete, otherwise request coins.
   const handleTimeout = useCallback(() => {
@@ -199,6 +205,8 @@ export default function EWalletInsertBillsScreen() {
               showProgressBar={true}
               autoStart={true}
               color={ewallet.provider} // 'gcash' or 'maya'
+              resetTrigger={`${ewallet.totalInserted}_${resetCounter}`}
+              isPaused={Boolean(lastError)}
             />
             <p className="text-center text-gray-500 text-sm mt-2">
               This tab will automatically close after 60s if no money is
@@ -210,7 +218,7 @@ export default function EWalletInsertBillsScreen() {
       <RejectionModal
         isOpen={Boolean(lastError)}
         error={lastError}
-        onClose={clearError}
+        onClose={handleClearError}
         onNavigateWarning={() => navigate(ROUTES.ERROR)}
       />
     </PageLayout>

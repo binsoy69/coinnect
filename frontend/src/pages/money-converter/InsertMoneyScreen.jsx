@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion } from "framer-motion";
 import PageLayout from "../../components/layout/PageLayout";
 import InsertMoneyPanel from "../../components/transaction/InsertMoneyPanel";
@@ -37,6 +37,7 @@ export default function InsertMoneyScreen() {
   const { transaction, addInsertedMoney, getServiceConfig, isAmountMatched } =
     useTransaction();
   const { simulateInsert, transactionId } = useBackendTransaction();
+  const [resetCounter, setResetCounter] = useState(0);
 
   const config = getServiceConfig() || SERVICE_CONFIG[type];
 
@@ -49,6 +50,11 @@ export default function InsertMoneyScreen() {
       // Backend transaction updates are handled via WebSocket (BILL_STORED event)
     }
   );
+
+  const handleClearError = useCallback(() => {
+    clearError();
+    setResetCounter((c) => c + 1);
+  }, [clearError]);
 
   // Auto-navigate when inserted amount meets or exceeds the required amount
   useEffect(() => {
@@ -185,7 +191,8 @@ export default function InsertMoneyScreen() {
                 seconds={TIMER_DURATIONS.INSERT_MONEY}
                 onComplete={handleTimerComplete}
                 showProgressBar={true}
-                resetTrigger={transaction.moneyInserted}
+                resetTrigger={`${transaction.moneyInserted}_${resetCounter}`}
+                isPaused={Boolean(lastError)}
               />
 
               <p className="text-center text-gray-400 text-xs mt-2">
@@ -210,7 +217,7 @@ export default function InsertMoneyScreen() {
       <RejectionModal
         isOpen={Boolean(lastError)}
         error={lastError}
-        onClose={clearError}
+        onClose={handleClearError}
         onNavigateWarning={() => navigate(getServiceRoute(ROUTES.WARNING, type))}
       />
     </PageLayout>
