@@ -6,10 +6,19 @@
 #include <PinChangeInterrupt.h>
 #include <EEPROM.h>
 
+// ArduinoJson 7 allocates its document storage from the heap in 1 KB blocks.
+// The Uno has only 2 KB of SRAM and this sketch keeps a command document and
+// response document alive at the same time, so v7 can emit empty `{}` replies
+// when the heap is exhausted. ArduinoJson 6 uses the fixed stack capacities
+// declared below and is required for this AVR target.
+#if ARDUINOJSON_VERSION_MAJOR >= 7
+#error "uno_coin_security requires ArduinoJson 6.x (install ArduinoJson@6.21.6)"
+#endif
+
 // Coinnect Uno firmware: coin accept/dispense + security + RFID.
 // Serial protocol: newline-delimited JSON at 115200 baud.
 
-static const char *FIRMWARE_VERSION = "3.0.0-uno";
+static const char *FIRMWARE_VERSION = "3.0.1-uno";
 static const char *CONTROLLER_ID = "COIN_SECURITY";
 
 // MFRC522 RFID reader pins.
@@ -879,10 +888,11 @@ void handleCoinAcceptorEnable(JsonDocument &cmdDoc) {
   coinAcceptorShouldBeEnabled = enabled;
   setCoinAcceptorEnabled(enabled);
 
-  StaticJsonDocument<96> doc;
-  doc["status"] = "OK";
-  doc["enabled"] = (bool)coinAcceptorEnabled;
-  sendDocument(doc);
+  // Reuse the parsed command buffer to keep peak SRAM usage low on the Uno.
+  cmdDoc.clear();
+  cmdDoc["status"] = "OK";
+  cmdDoc["enabled"] = (bool)coinAcceptorEnabled;
+  sendDocument(cmdDoc);
 }
 
 

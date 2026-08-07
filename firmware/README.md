@@ -14,12 +14,17 @@ variant for the coin/security controller.
 Install these before compiling:
 
 ```bash
-arduino-cli lib install ArduinoJson
+arduino-cli lib install ArduinoJson@6.21.6
 arduino-cli lib install AccelStepper
 arduino-cli lib install Servo
 arduino-cli lib install MFRC522
 arduino-cli lib install PinChangeInterrupt
 ```
+
+`uno_coin_security` requires ArduinoJson 6.x. ArduinoJson 7 uses heap-backed
+JSON documents and can exhaust the Uno's 2 KB SRAM, causing valid commands to
+produce empty `{}` serial responses. The sketch includes a compile-time guard
+against building the Uno firmware with ArduinoJson 7.
 
 ## Compile
 
