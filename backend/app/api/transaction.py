@@ -1,20 +1,10 @@
 """Transaction REST API endpoints for money changer operations."""
 
 import logging
-from typing import List, Optional
+from typing import Annotated, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
-
-logger = logging.getLogger(__name__)
-
-"""Transaction REST API endpoints for money changer operations."""
-
-import logging
-from typing import List, Optional
-
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StrictInt, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +15,36 @@ router = APIRouter(prefix="/transaction", tags=["transactions"])
 
 
 class StartTransactionRequest(BaseModel):
-    type: str  # "bill-to-bill", "bill-to-coin", "coin-to-bill"
-    amount: int  # Target amount
-    fee: int  # Transaction fee
-    selected_dispense_denoms: List[int] = []  # e.g., [50, 100]
-    selected_dispense_counts: Optional[dict] = None  # e.g., {"500": 1, "100": 4, "50": 2}
+    model_config = {"extra": "forbid"}
+
+    type: Literal["bill-to-bill", "bill-to-coin", "coin-to-bill"]
+    amount: Annotated[int, Field(strict=True, gt=0, le=1_000)]
+    selected_dispense_denoms: List[StrictInt] = Field(default_factory=list)
+    selected_dispense_counts: Optional[Dict[int, StrictInt]] = None
+
+    @model_validator(mode="after")
+    def validate_transaction_options(self):
+        allowed_amounts = {
+            "bill-to-bill": {20, 50, 100, 200, 500, 1000},
+            "bill-to-coin": {20, 50, 100, 200},
+            "coin-to-bill": {20, 50, 100, 200},
+        }
+        allowed_outputs = {
+            "bill-to-bill": {20, 50, 100, 200, 500, 1000},
+            "bill-to-coin": {1, 5, 10, 20},
+            "coin-to-bill": {20, 50, 100, 200, 500, 1000},
+        }
+        if self.amount not in allowed_amounts[self.type]:
+            raise ValueError("Unsupported amount for transaction type")
+        allowed = allowed_outputs[self.type]
+        if any(denom not in allowed for denom in self.selected_dispense_denoms):
+            raise ValueError("Unsupported dispense denomination")
+        if self.selected_dispense_counts is not None:
+            for denom, count in self.selected_dispense_counts.items():
+                limit = 50 if self.type == "bill-to-coin" else 20
+                if denom not in allowed or count < 0 or count > limit:
+                    raise ValueError("Invalid requested denomination count")
+        return self
 
 
 class SimulateInsertRequest(BaseModel):
@@ -44,13 +59,14 @@ class TransactionResponse(BaseModel):
     target_amount: int
     fee: int
     total_due: int
+    payout_amount: int
     inserted_amount: int
     dispensed_amount: int
-    inserted_denominations: dict = {}
+    inserted_denominations: dict = Field(default_factory=dict)
     dispense_plan: Optional[dict] = None
     dispense_result: Optional[dict] = None
-    selected_dispense_denoms: list = []
-    selected_dispense_counts: Optional[dict] = {}
+    selected_dispense_denoms: list = Field(default_factory=list)
+    selected_dispense_counts: Optional[dict] = Field(default_factory=dict)
     error_code: Optional[str] = None
     error_message: Optional[str] = None
     claim_ticket_code: Optional[str] = None
@@ -76,17 +92,14 @@ async def start_transaction(req: StartTransactionRequest, request: Request):
         state = await orchestrator.start_transaction(
             transaction_type=req.type,
             target_amount=req.amount,
-            fee=req.fee,
             selected_dispense_denoms=req.selected_dispense_denoms,
             selected_dispense_counts=req.selected_dispense_counts,
         )
         return TransactionResponse(**state)
     except Exception as e:
-        if "maintenance mode" in str(e).lower():
-            raise HTTPException(status_code=423, detail=str(e))
-        if "already in progress" in str(e):
-            raise HTTPException(status_code=409, detail=str(e))
-        raise HTTPException(status_code=400, detail=str(e))
+        message = str(e)
+        status = 423 if "maintenance mode" in message.lower() else 409 if "already in progress" in message else 422
+        raise HTTPException(status_code=status, detail=_error_detail(e, message))
 
 
 @router.get("/{transaction_id}", response_model=TransactionResponse)
@@ -97,7 +110,7 @@ async def get_transaction(transaction_id: str, request: Request):
         state = await orchestrator.get_transaction_state(transaction_id)
         return TransactionResponse(**state)
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=_error_detail(e, str(e)))
 
 
 @router.delete("/{transaction_id}", response_model=TransactionResponse)
@@ -114,7 +127,9 @@ async def cancel_transaction(transaction_id: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        message = str(e)
+        status = 409 if "CASH_ALREADY_ACCEPTED" in message else 422
+        raise HTTPException(status_code=status, detail=_error_detail(e, message))
 
 
 @router.post(
@@ -131,7 +146,7 @@ async def confirm_transaction(transaction_id: str, request: Request):
                 raise HTTPException(
                     status_code=404, detail="Transaction not found"
                 ) from exc
-            if state["state"] not in {"COMPLETE", "ERROR"}:
+            if state["state"] not in {"COMPLETE", "ERROR", "CLAIM_REQUIRED"}:
                 raise HTTPException(
                     status_code=409, detail="Transaction is not confirmable"
                 )
@@ -141,7 +156,18 @@ async def confirm_transaction(transaction_id: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=422, detail=_error_detail(e, str(e)))
+
+
+def _error_detail(exc: Exception, message: str) -> dict:
+    transaction_id = getattr(exc, "transaction_id", None)
+    code = "CASH_ALREADY_ACCEPTED" if "CASH_ALREADY_ACCEPTED" in message else exc.__class__.__name__.upper()
+    return {
+        "code": code,
+        "message": message,
+        "transaction_id": transaction_id,
+        "state": None,
+    }
 
 
 @router.post("/{transaction_id}/accept-bill")
@@ -175,6 +201,13 @@ async def simulate_insert(
     """
     orchestrator = request.app.state.transaction_orchestrator
     settings = request.app.state.settings
+
+    if (
+        settings.environment.lower() == "production"
+        or not settings.use_mock_hardware
+        or not settings.use_mock_serial
+    ):
+        raise HTTPException(status_code=404, detail="Not found")
 
     try:
         if orchestrator.active_transaction_id != transaction_id:

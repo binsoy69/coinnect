@@ -5,11 +5,15 @@ with claim ticket generation, and progress event broadcasting.
 """
 
 import pytest
+import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import Settings
-from app.core.errors import HardwareError
+from app.core.errors import HardwareError, TimeoutError as CommandTimeoutError
 from app.models.events import WSEventType
+from app.models.db_models import Base, DispenseExecution, PhysicalOperation, TransactionRecord
 from app.services.change_calculator import DispensePlan, DispensePlanItem
 from app.services.dispense_orchestrator import DispenseOrchestrator, DispenseResult
 from app.services.machine_status import MachineStatus
@@ -70,6 +74,23 @@ def orchestrator(bill_controller, coin_controller, machine_status, ws_manager):
         machine_status=machine_status,
         ws_manager=ws_manager,
     )
+
+
+@pytest.fixture
+async def persistent_orchestrator(bill_controller, coin_controller, machine_status, ws_manager):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    service = DispenseOrchestrator(
+        bill_controller=bill_controller,
+        coin_controller=coin_controller,
+        machine_status=machine_status,
+        ws_manager=ws_manager,
+        db_session_factory=factory,
+    )
+    yield service, factory
+    await engine.dispose()
 
 
 # ---------------------------------------------------------------------------
@@ -369,3 +390,74 @@ class TestProgressBroadcast:
         assert event.type == WSEventType.DISPENSE_COMPLETE
         assert event.payload["success"] is False
         assert event.payload["claim_ticket_code"] is not None
+
+
+@pytest.mark.asyncio
+async def test_persistent_execution_owns_motion_and_replays_result(
+    persistent_orchestrator, bill_controller
+):
+    orchestrator, factory = persistent_orchestrator
+    transaction_id = str(uuid.uuid4())
+    async with factory() as session:
+        session.add(TransactionRecord(
+            id=transaction_id,
+            type="bill-to-bill",
+            state="WAITING_FOR_CONFIRMATION",
+            target_amount=100,
+            fee=0,
+            total_due=100,
+        ))
+        await session.commit()
+    bill_controller.dispense.return_value = MagicMock(dispensed=1)
+    plan = _bill_plan({"PHP_100": (1, 100)})
+
+    first = await orchestrator.execute_dispense(plan, transaction_id, "STANDARD")
+    replay = await orchestrator.execute_dispense(plan, transaction_id, "STANDARD")
+
+    assert first.success is True
+    assert replay.success is True
+    bill_controller.dispense.assert_awaited_once()
+    operation_id = bill_controller.dispense.await_args.kwargs["operation_id"]
+    assert str(uuid.UUID(operation_id)) == operation_id
+    async with factory() as session:
+        executions = list((await session.execute(select(DispenseExecution))).scalars())
+        operations = list((await session.execute(select(PhysicalOperation))).scalars())
+        source = await session.get(TransactionRecord, transaction_id)
+        assert len(executions) == 1
+        assert len(operations) == 1
+        assert operations[0].state == "COMPLETED"
+        assert source.state == "DISPENSING"
+
+
+@pytest.mark.asyncio
+async def test_serial_timeout_queries_status_without_replaying_motion(
+    persistent_orchestrator, bill_controller
+):
+    orchestrator, factory = persistent_orchestrator
+    transaction_id = str(uuid.uuid4())
+    async with factory() as session:
+        session.add(TransactionRecord(
+            id=transaction_id,
+            type="bill-to-bill",
+            state="WAITING_FOR_CONFIRMATION",
+            target_amount=100,
+            fee=0,
+            total_due=100,
+        ))
+        await session.commit()
+    bill_controller.dispense.side_effect = CommandTimeoutError("DISPENSE", 1)
+    bill_controller.operation_status.return_value = MagicMock(
+        operation_status="COMPLETED", dispensed=1, code=None
+    )
+
+    result = await orchestrator.execute_dispense(
+        _bill_plan({"PHP_100": (1, 100)}), transaction_id, "STANDARD"
+    )
+
+    assert result.success is True
+    bill_controller.dispense.assert_awaited_once()
+    bill_controller.operation_status.assert_awaited_once()
+    async with factory() as session:
+        operation = (await session.execute(select(PhysicalOperation))).scalar_one()
+        assert operation.state == "COMPLETED"
+        assert operation.confirmed_count == 1

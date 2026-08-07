@@ -35,7 +35,7 @@ class TestCommands:
             SortCommand(denom="INVALID")
 
     def test_dispense_command_valid(self):
-        cmd = DispenseCommand(denom="PHP_500", count=3)
+        cmd = DispenseCommand(denom="PHP_500", count=3, operation_id="550e8400-e29b-41d4-a716-446655440000")
         assert cmd.count == 3
         assert cmd.denom == "PHP_500"
 
@@ -48,9 +48,14 @@ class TestCommands:
             DispenseCommand(denom="PHP_100", count=0)
 
     def test_coin_dispense_command(self):
-        cmd = CoinDispenseCommand(denom=5, count=3)
+        cmd = CoinDispenseCommand(denom=5, count=3, operation_id="550e8400-e29b-41d4-a716-446655440000")
         d = cmd.model_dump()
-        assert d == {"cmd": "COIN_DISPENSE", "denom": 5, "count": 3}
+        assert d == {
+            "cmd": "COIN_DISPENSE",
+            "denom": 5,
+            "count": 3,
+            "operation_id": "550e8400-e29b-41d4-a716-446655440000",
+        }
 
     def test_coin_acceptor_enable_command(self):
         cmd = CoinAcceptorEnableCommand(enabled=True)

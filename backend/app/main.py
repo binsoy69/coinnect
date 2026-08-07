@@ -14,7 +14,10 @@ if hasattr(sys.stderr, "reconfigure"):
     except Exception:
         pass
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
@@ -38,6 +41,8 @@ from app.services.admin_session import AdminSessionService
 from app.services.inventory_service import InventoryService
 from app.services.receipt_service import ReceiptService
 from app.services.operation_mode import OperationModeManager
+from app.services.claim_service import ClaimService
+from app.services.gateway_inbox import GatewayInboxWorker
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +72,9 @@ async def lifespan(app: FastAPI):
     operation_mode = OperationModeManager()
     admin_sessions = AdminSessionService(settings, operation_mode)
     receipt_service = ReceiptService(settings)
+    claim_service = ClaimService(
+        get_session_factory(), ws_manager, receipt_service
+    )
     bill_controller = BillController(serial_manager)
     coin_controller = CoinSecurityController(serial_manager)
     admin_sessions.set_coin_controller(coin_controller)
@@ -133,6 +141,7 @@ async def lifespan(app: FastAPI):
         machine_status=machine_status,
         ws_manager=ws_manager,
         inventory_service=inventory_service,
+        db_session_factory=get_session_factory(),
     )
 
     transaction_orchestrator = TransactionOrchestrator(
@@ -144,6 +153,7 @@ async def lifespan(app: FastAPI):
         db_session_factory=get_session_factory(),
         operation_mode=operation_mode,
         receipt_service=receipt_service,
+        claim_service=claim_service,
     )
     event_dispatcher.set_transaction_orchestrator(transaction_orchestrator)
 
@@ -159,6 +169,7 @@ async def lifespan(app: FastAPI):
         db_session_factory=get_session_factory(),
         operation_mode=operation_mode,
         receipt_service=receipt_service,
+        claim_service=claim_service,
     )
 
     # --- Phase 4: PayMongo e-wallet services ---
@@ -174,6 +185,10 @@ async def lifespan(app: FastAPI):
         db_session_factory=get_session_factory(),
         operation_mode=operation_mode,
         receipt_service=receipt_service,
+        claim_service=claim_service,
+    )
+    gateway_inbox = GatewayInboxWorker(
+        get_session_factory(), ewallet_orchestrator, settings
     )
     event_dispatcher.set_ewallet_orchestrator(ewallet_orchestrator)
 
@@ -186,17 +201,21 @@ async def lifespan(app: FastAPI):
     app.state.gpio = gpio
     app.state.camera = camera
     app.state.bill_acceptor = bill_acceptor
+    app.state.bill_controller = bill_controller
+    app.state.coin_controller = coin_controller
     app.state.dispense_orchestrator = dispense_orchestrator
     app.state.transaction_orchestrator = transaction_orchestrator
     app.state.forex_rate_service = forex_rate_service
     app.state.forex_transaction_orchestrator = forex_transaction_orchestrator
     app.state.paymongo_client = paymongo_client
     app.state.ewallet_orchestrator = ewallet_orchestrator
+    app.state.gateway_inbox = gateway_inbox
     app.state.db_session_factory = get_session_factory()
     app.state.inventory_service = inventory_service
     app.state.operation_mode = operation_mode
     app.state.admin_sessions = admin_sessions
     app.state.receipt_service = receipt_service
+    app.state.claim_service = claim_service
 
     # Instantiate StartupCheckService
     from app.services.startup_check import StartupCheckService
@@ -274,9 +293,13 @@ async def lifespan(app: FastAPI):
     await event_dispatcher.start()
 
     # Recover any transactions interrupted by crash/power loss
+    # Physical send intents are the recovery authority and must be resolved
+    # before gateway events can authorize any further payout.
+    await dispense_orchestrator.recover_started_operations(claim_service)
     await transaction_orchestrator.recover_pending_transactions()
     await ewallet_orchestrator.recover_pending_transactions()
     await forex_transaction_orchestrator.recover_pending_transactions()
+    await gateway_inbox.start()
 
     # Asynchronously run system startup diagnostic checks
     async def _run_startup_diagnostics():
@@ -298,6 +321,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Coinnect backend shutting down")
     await forex_rate_service.stop()
+    await gateway_inbox.stop()
     await paymongo_client.close()
     await event_dispatcher.stop()
     await serial_manager.shutdown()
@@ -322,6 +346,20 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(request: Request, exc: RequestValidationError):
+        first = exc.errors()[0] if exc.errors() else {}
+        return JSONResponse(
+            status_code=422,
+            content={"detail": {
+                "code": "VALIDATION_ERROR",
+                "message": first.get("msg", "Request validation failed"),
+                "transaction_id": request.path_params.get("transaction_id"),
+                "state": None,
+                "errors": jsonable_encoder(exc.errors()),
+            }},
+        )
     app.include_router(api_router)
     return app
 

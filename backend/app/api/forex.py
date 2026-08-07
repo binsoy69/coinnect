@@ -163,7 +163,16 @@ async def cancel_forex_transaction(transaction_id: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        message = str(e)
+        raise HTTPException(
+            status_code=409 if "CASH_ALREADY_ACCEPTED" in message else 422,
+            detail={
+                "code": "CASH_ALREADY_ACCEPTED" if "CASH_ALREADY_ACCEPTED" in message else "FOREX_TRANSACTION_ERROR",
+                "message": message,
+                "transaction_id": transaction_id,
+                "state": None,
+            },
+        )
 
 
 @router.post("/transaction/{transaction_id}/confirm", response_model=ForexTransactionResponse)
@@ -178,7 +187,7 @@ async def confirm_forex_transaction(transaction_id: str, request: Request):
                 raise HTTPException(
                     status_code=404, detail="Transaction not found"
                 ) from exc
-            if state["state"] not in {"COMPLETE", "ERROR"}:
+            if state["state"] not in {"COMPLETE", "ERROR", "CLAIM_REQUIRED"}:
                 raise HTTPException(
                     status_code=409, detail="Transaction is not confirmable"
                 )
@@ -205,7 +214,16 @@ async def trigger_forex_bill_acceptance(transaction_id: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        message = str(e)
+        raise HTTPException(
+            status_code=409 if "CASH_ALREADY_ACCEPTED" in message else 422,
+            detail={
+                "code": "CASH_ALREADY_ACCEPTED" if "CASH_ALREADY_ACCEPTED" in message else "FOREX_TRANSACTION_ERROR",
+                "message": message,
+                "transaction_id": transaction_id,
+                "state": None,
+            },
+        )
 
 
 @router.post("/transaction/{transaction_id}/simulate-insert")
@@ -218,6 +236,12 @@ async def simulate_forex_insert(
     """
     orchestrator = request.app.state.forex_transaction_orchestrator
     settings = request.app.state.settings
+    if (
+        settings.environment.lower() == "production"
+        or not settings.use_mock_hardware
+        or not settings.use_mock_serial
+    ):
+        raise HTTPException(status_code=404, detail="Not found")
     body = await request.json()
     denom = body.get("denom", 0)
     currency = body.get("currency", "PHP")

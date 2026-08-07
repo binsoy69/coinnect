@@ -35,7 +35,7 @@ function ConverterStateProbe() {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    starter.startBackendTransaction("coin-to-bill", 100, 3);
+    starter.startBackendTransaction("coin-to-bill", 100, [100]);
   }, [starter]);
 
   return (

@@ -11,6 +11,7 @@ import argparse
 import json
 import sys
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
@@ -104,10 +105,13 @@ def check_bill(args: argparse.Namespace) -> None:
             require_ok(probe.command(payload), payload["cmd"])
 
         if args.actuate:
+            operation_id = str(uuid.uuid4())
             for payload in [
                 {"cmd": "HOME"},
                 {"cmd": "SORT", "denom": "PHP_20"},
-                {"cmd": "DISPENSE", "denom": "PHP_20", "count": 1},
+                {"cmd": "DISPENSE", "denom": "PHP_20", "count": 1, "operation_id": operation_id},
+                {"cmd": "DISPENSE_OPERATION_STATUS", "operation_id": operation_id},
+                {"cmd": "DISPENSE", "denom": "PHP_20", "count": 1, "operation_id": operation_id},
             ]:
                 require_ok(probe.command(payload), payload["cmd"])
     finally:
@@ -127,13 +131,16 @@ def check_coin(args: argparse.Namespace) -> None:
             require_ok(probe.command(payload), payload["cmd"])
 
         if args.actuate:
+            operation_id = str(uuid.uuid4())
             for payload in [
                 {"cmd": "COIN_ACCEPTOR_ENABLE", "enabled": True},
                 {"cmd": "COIN_ACCEPTOR_ENABLE", "enabled": False},
                 {"cmd": "COIN_SORTER_POSITION", "position": "LEFT"},
                 {"cmd": "COIN_SORTER_POSITION", "position": "RIGHT"},
                 {"cmd": "COIN_SORTER_POSITION", "position": "CENTER"},
-                {"cmd": "COIN_DISPENSE", "denom": 1, "count": 1},
+                {"cmd": "COIN_DISPENSE", "denom": 1, "count": 1, "operation_id": operation_id},
+                {"cmd": "DISPENSE_OPERATION_STATUS", "operation_id": operation_id},
+                {"cmd": "COIN_DISPENSE", "denom": 1, "count": 1, "operation_id": operation_id},
                 {"cmd": "SECURITY_LOCK"},
                 {"cmd": "SECURITY_UNLOCK"},
                 {"cmd": "SECURITY_LOCK"},

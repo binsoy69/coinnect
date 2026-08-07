@@ -20,11 +20,13 @@ def controller(mock_serial_manager):
 
 
 class TestCoinDispense:
+    operation_id = "123e4567-e89b-12d3-a456-426614174000"
+
     async def test_coin_dispense_success(self, controller, mock_serial_manager):
         mock_serial_manager.send_coin_command.return_value = {
             "status": "OK", "dispensed": 3
         }
-        resp = await controller.coin_dispense(denom=5, count=3)
+        resp = await controller.coin_dispense(denom=5, count=3, operation_id=self.operation_id)
         assert resp.dispensed == 3
 
     async def test_coin_dispense_error(self, controller, mock_serial_manager):
@@ -32,7 +34,7 @@ class TestCoinDispense:
             "status": "ERROR", "code": "INVALID_DENOM"
         }
         with pytest.raises(HardwareError) as exc_info:
-            await controller.coin_dispense(denom=7, count=1)
+            await controller.coin_dispense(denom=7, count=1, operation_id=self.operation_id)
         assert exc_info.value.code == "INVALID_DENOM"
 
 

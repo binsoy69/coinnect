@@ -6,7 +6,6 @@ from typing import Literal
 
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     HTTPException,
     Request,
     status,
@@ -105,8 +104,13 @@ async def accept_bill(transaction_id: str, request: Request):
 async def simulate_insert(
     transaction_id: str, body: SimulateCashRequest, request: Request
 ):
-    if not request.app.state.settings.use_mock_hardware:
-        raise HTTPException(status_code=403, detail="Mock hardware is disabled")
+    settings = request.app.state.settings
+    if (
+        settings.environment.lower() == "production"
+        or not settings.use_mock_hardware
+        or not settings.use_mock_serial
+    ):
+        raise HTTPException(status_code=404, detail="Not found")
     try:
         return await request.app.state.ewallet_orchestrator.record_cash_insert(
             transaction_id, body.denomination
@@ -137,11 +141,20 @@ async def cancel_transaction(transaction_id: str, request: Request):
             transaction_id
         )
     except Exception as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        message = str(exc)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": getattr(exc, "code", "EWALLET_TRANSACTION_ERROR"),
+                "message": message,
+                "transaction_id": transaction_id,
+                "state": None,
+            },
+        ) from exc
 
 
 @router.post("/webhook")
-async def paymongo_webhook(request: Request, background_tasks: BackgroundTasks):
+async def paymongo_webhook(request: Request):
     raw_body = await request.body()
     signature = request.headers.get("Paymongo-Signature") or request.headers.get(
         "X-Paymongo-Signature"
@@ -152,13 +165,11 @@ async def paymongo_webhook(request: Request, background_tasks: BackgroundTasks):
     try:
         payload = __import__("json").loads(raw_body)
         event = _normalize_gateway_event(payload)
-        background_tasks.add_task(
-            request.app.state.ewallet_orchestrator.process_gateway_event,
-            event,
-        )
+        if not event.get("id") or not event.get("resource_id"):
+            raise ValueError("Gateway event id and resource_id are required")
+        return await request.app.state.ewallet_orchestrator.enqueue_gateway_event(event)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"accepted": True}
 
 
 
@@ -188,7 +199,7 @@ def _normalize_gateway_event(payload: dict) -> dict:
         "id": str(
             data.get("id")
             or payload.get("id")
-            or __import__("uuid").uuid4()
+            or ""
         ),
         "type": str(event_type),
         "resource_id": resource_id,
@@ -196,5 +207,3 @@ def _normalize_gateway_event(payload: dict) -> dict:
         "status": status_value,
         "payload": payload,
     }
-
-

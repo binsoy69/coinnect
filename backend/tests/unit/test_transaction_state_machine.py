@@ -164,30 +164,31 @@ class TestCancellation:
 
         assert state_machine.state == TransactionState.CANCELLED
 
-    async def test_cancel_from_non_cancellable_state_transitions_to_error(self, state_machine):
+    async def test_cancel_from_non_cancellable_state_is_rejected(self, state_machine):
         await state_machine.transition_to(TransactionState.WAITING_FOR_BILL)
         await state_machine.transition_to(TransactionState.WAITING_FOR_CONFIRMATION)
         await state_machine.transition_to(TransactionState.DISPENSING)
 
-        await state_machine.cancel()
+        with pytest.raises(InvalidTransitionError):
+            await state_machine.cancel()
+        assert state_machine.state == TransactionState.DISPENSING
 
-        assert state_machine.state == TransactionState.ERROR
-
-    async def test_cancel_from_authenticating_transitions_to_error(self, state_machine):
+    async def test_cancel_from_authenticating_is_rejected(self, state_machine):
         await state_machine.transition_to(TransactionState.WAITING_FOR_BILL)
         await state_machine.transition_to(TransactionState.AUTHENTICATING)
 
-        await state_machine.cancel()
+        with pytest.raises(InvalidTransitionError):
+            await state_machine.cancel()
+        assert state_machine.state == TransactionState.AUTHENTICATING
 
-        assert state_machine.state == TransactionState.ERROR
-
-    async def test_cancel_from_terminal_state_is_noop(self, state_machine):
+    async def test_cancel_from_terminal_state_is_rejected(self, state_machine):
         await state_machine.transition_to(TransactionState.WAITING_FOR_BILL)
         await state_machine.transition_to(TransactionState.WAITING_FOR_CONFIRMATION)
         await state_machine.transition_to(TransactionState.DISPENSING)
         await state_machine.transition_to(TransactionState.COMPLETE)
 
-        await state_machine.cancel()
+        with pytest.raises(InvalidTransitionError):
+            await state_machine.cancel()
 
         # Still COMPLETE -- cancel() does nothing for terminal states
         assert state_machine.state == TransactionState.COMPLETE
@@ -259,7 +260,7 @@ class TestWebSocketBroadcast:
 # ---------------------------------------------------------------------------
 
 class TestWriteAheadLog:
-    async def test_transition_creates_wal_entry(self, state_machine, db_session):
+    async def test_state_transition_does_not_create_recovery_wal(self, state_machine, db_session):
         from sqlalchemy import select
         from app.models.db_models import WALEntry
 
@@ -268,13 +269,9 @@ class TestWriteAheadLog:
         result = await db_session.execute(select(WALEntry))
         entries = result.scalars().all()
 
-        assert len(entries) == 1
-        assert entries[0].transaction_id == "test-tx-001"
-        assert "IDLE" in entries[0].action
-        assert "WAITING_FOR_BILL" in entries[0].action
-        assert entries[0].status == "COMPLETED"
+        assert entries == []
 
-    async def test_multiple_transitions_create_multiple_wal_entries(
+    async def test_multiple_transitions_do_not_create_recovery_wal_entries(
         self, state_machine, db_session
     ):
         from sqlalchemy import select
@@ -286,4 +283,4 @@ class TestWriteAheadLog:
 
         result = await db_session.execute(select(WALEntry))
         entries = result.scalars().all()
-        assert len(entries) == 3
+        assert entries == []

@@ -103,9 +103,9 @@ export const CONVERTER_SERVICES = [
 export const DEFAULT_TRANSACTION_STATE = {
   serviceType: null,
   selectedAmount: null,
-  includeFee: true,
   fee: 0,
   totalDue: 0,
+  payoutAmount: null,
   selectedDispenseDenominations: [],
   selectedDispenseCounts: {},
   insertedCounts: {},

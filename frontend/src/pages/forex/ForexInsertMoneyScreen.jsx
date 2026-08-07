@@ -22,24 +22,26 @@ export default function ForexInsertMoneyScreen() {
   const navigate = useNavigate();
   const { forex, addInsertedMoney, getForexConfig, isAmountMatched } =
     useForex();
-  const { simulateForexInsert, transactionId, cancelForexTransaction } = useForexTransaction();
+  const { simulateForexInsert, transactionId, backendState, cancelForexTransaction } = useForexTransaction();
   const config = getForexConfig();
   const [resetCounter, setResetCounter] = useState(0);
+  const hasAcceptedCash = forex.moneyInserted > 0 || (backendState?.inserted_amount || 0) > 0;
 
   // Physical bill acceptor loop
   const { isSorting, lastError, clearError } = useBillAcceptance(
     transactionId,
     "/forex/transaction",
     !isAmountMatched(),
-    (data) => {
+    () => {
       // Backend transaction updates are handled via WebSocket (BILL_STORED event)
     }
   );
 
   const handleClearError = useCallback(() => {
     clearError();
+    if (hasAcceptedCash) return;
     setResetCounter((c) => c + 1);
-  }, [clearError]);
+  }, [clearError, hasAcceptedCash]);
 
   const handleChangeSelection = useCallback(async () => {
     clearError();
@@ -47,11 +49,11 @@ export default function ForexInsertMoneyScreen() {
       try {
         await cancelForexTransaction();
       } catch {
-        // Navigation still lets user recover if cancel fails
+        return;
       }
     }
     navigate(getForexRoute(ROUTES.FOREX_RATE, forex.serviceType));
-  }, [clearError, transactionId, cancelForexTransaction, navigate, forex.serviceType]);
+  }, [clearError, hasAcceptedCash, transactionId, cancelForexTransaction, navigate, forex.serviceType]);
 
   // Handle timeout - go to warning or conversion screen
   const handleTimeout = useCallback(() => {
@@ -130,7 +132,7 @@ export default function ForexInsertMoneyScreen() {
   return (
     <PageLayout
       headerProps={{
-        showBack: true,
+        showBack: !hasAcceptedCash,
         onBack: handleChangeSelection,
         subtitle: headerSubtitle,
         rightContent: (

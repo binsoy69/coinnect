@@ -39,8 +39,8 @@ The Raspberry Pi communicates with **two Arduino Mega controllers** via separate
 | Commands                                        | Arduino              | Serial Port      |
 | ----------------------------------------------- | -------------------- | ---------------- |
 | SORT, HOME, SORT_STATUS                         | #1 (Bill)            | /dev/ttyUSB0     |
-| DISPENSE, DISPENSE_STATUS                       | #1 (Bill)            | /dev/ttyUSB0     |
-| COIN_DISPENSE, COIN_CHANGE, COIN_RESET, COIN_STATUS | #2 (Coin & Security) | /dev/ttyACM0     |
+| DISPENSE, DISPENSE_STATUS, DISPENSE_OPERATION_STATUS, DISPENSE_OPERATION_ACK | #1 (Bill) | /dev/ttyUSB0 |
+| COIN_DISPENSE, COIN_CHANGE, COIN_RESET, COIN_STATUS, DISPENSE_OPERATION_STATUS, DISPENSE_OPERATION_ACK | #2 (Coin & Security) | /dev/ttyACM0 |
 | COIN_ACCEPTOR_ENABLE, COIN_SORTER_POSITION     | #2 (Coin & Security) | /dev/ttyACM0     |
 | SECURITY_LOCK, SECURITY_UNLOCK, SECURITY_STATUS | #2 (Coin & Security) | /dev/ttyACM0     |
 | PING, VERSION, RESET                            | Both                 | Individual ports |
@@ -86,15 +86,23 @@ Valid denominations: PHP_20, PHP_50, PHP_100, PHP_200, PHP_500, PHP_1000, USD_10
 
 | Command         | Request                                          | Response                        |
 | --------------- | ------------------------------------------------ | ------------------------------- |
-| DISPENSE        | `{"cmd":"DISPENSE","denom":"PHP_100","count":2}` | `{"status":"OK","dispensed":2}` |
+| DISPENSE        | `{"cmd":"DISPENSE","denom":"PHP_100","count":2,"operation_id":"550e8400-e29b-41d4-a716-446655440000"}` | `{"status":"OK","dispensed":2,"operation_id":"550e8400-e29b-41d4-a716-446655440000"}` |
 | DISPENSE_STATUS | `{"cmd":"DISPENSE_STATUS","denom":"PHP_100"}`    | `{"status":"OK","ready":true}`  |
+| DISPENSE_OPERATION_STATUS | `{"cmd":"DISPENSE_OPERATION_STATUS","operation_id":"..."}` | `{"status":"OK","operation_id":"...","operation_status":"COMPLETED","dispensed":2}` |
+| DISPENSE_OPERATION_ACK | `{"cmd":"DISPENSE_OPERATION_ACK","operation_id":"..."}` | `{"status":"OK","operation_id":"..."}` |
 | CONVEYOR        | `{"cmd":"CONVEYOR","target":"PHP"}`              | `{"status":"OK","target":"PHP"}`|
 
 ### 8.3.3 Coin System Commands
 
 | Command       | Request                                       | Response                                           |
 | ------------- | --------------------------------------------- | -------------------------------------------------- |
-| COIN_DISPENSE | `{"cmd":"COIN_DISPENSE","denom":5,"count":3}` | `{"status":"OK","dispensed":3}`                    |
+| COIN_DISPENSE | `{"cmd":"COIN_DISPENSE","denom":5,"count":3,"operation_id":"550e8400-e29b-41d4-a716-446655440000"}` | `{"status":"OK","dispensed":3,"operation_id":"550e8400-e29b-41d4-a716-446655440000"}` |
+
+Dispense operation IDs are immutable UUIDs. Controllers journal `STARTED`
+before motion and the terminal result before replying. Replaying a completed
+ID returns the cached result without motion. An unfinished or corrupt journal
+returns `RECOVERY_REQUIRED`; the backend must query status and obtain operator
+reconciliation before sending `DISPENSE_OPERATION_ACK`.
 | COIN_CHANGE   | `{"cmd":"COIN_CHANGE","amount":47}`           | `{"status":"OK","breakdown":{"20":2,"5":1,"1":2}}` |
 | COIN_RESET    | `{"cmd":"COIN_RESET"}`                        | `{"status":"OK","previous_total":150}`             |
 | COIN_ACCEPTOR_ENABLE | `{"cmd":"COIN_ACCEPTOR_ENABLE","enabled":true}` | `{"status":"OK","enabled":true}`          |

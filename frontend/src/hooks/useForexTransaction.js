@@ -196,10 +196,11 @@ export function useForexTransaction() {
       );
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData.detail || `HTTP ${resp.status}`);
+        throw new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
       }
       const data = await resp.json();
       setBackendState(data);
+      setTransactionId(null);
       return data;
     } catch (err) {
       setError(err.message);
@@ -229,7 +230,6 @@ export function useForexTransaction() {
       throw err;
     } finally {
       setIsLoading(false);
-      setTransactionId(null);
     }
   }, [setBackendState, setTransactionId, transactionId]);
 

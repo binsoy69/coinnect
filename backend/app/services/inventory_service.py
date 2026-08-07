@@ -153,12 +153,39 @@ class InventoryService:
             reference_id=reference_id,
         )
 
+    async def reserve_in_session(
+        self,
+        session,
+        quantities: dict[tuple[str, str], int],
+        reference_id: str | None = None,
+    ) -> None:
+        """Reserve using the caller's transaction for atomic dispense ownership."""
+        await self._apply_deltas_in_session(
+            session,
+            {key: -count for key, count in quantities.items()},
+            reason="DISPENSE_RESERVED",
+            reference_id=reference_id,
+        )
+
     async def restore(
         self,
         quantities: dict[tuple[str, str], int],
         reference_id: str | None = None,
     ) -> None:
         await self._apply_deltas(
+            quantities,
+            reason="DISPENSE_RECONCILED",
+            reference_id=reference_id,
+        )
+
+    async def restore_in_session(
+        self,
+        session,
+        quantities: dict[tuple[str, str], int],
+        reference_id: str | None = None,
+    ) -> None:
+        await self._apply_deltas_in_session(
+            session,
             quantities,
             reason="DISPENSE_RECONCILED",
             reference_id=reference_id,
@@ -184,32 +211,37 @@ class InventoryService:
         reference_id: str | None,
     ) -> None:
         async with self._db_factory() as session:
-            pending = []
-            for (location_value, denomination), delta in deltas.items():
-                location = InventoryLocation(location_value)
-                self._validate_key(location, denomination)
-                row = await self._get_balance(session, location, denomination)
-                new_count = row.count + delta
-                if new_count < 0:
-                    raise ValueError("Insufficient persisted inventory")
-                pending.append((row, location, denomination, delta, new_count))
-            for row, location, denomination, delta, new_count in pending:
-                old_count = row.count
-                row.count = new_count
-                session.add(
-                    InventoryAdjustment(
-                        location=location.value,
-                        denomination=denomination,
-                        old_count=old_count,
-                        new_count=new_count,
-                        delta=delta,
-                        reason=reason,
-                        source="SYSTEM",
-                        reference_id=reference_id,
-                    )
-                )
+            await self._apply_deltas_in_session(
+                session, deltas, reason=reason, reference_id=reference_id
+            )
             await session.commit()
         await self._refresh_runtime()
+
+    async def _apply_deltas_in_session(
+        self, session, deltas, *, reason: str, reference_id: str | None
+    ) -> None:
+        pending = []
+        for (location_value, denomination), delta in deltas.items():
+            location = InventoryLocation(location_value)
+            self._validate_key(location, denomination)
+            row = await self._get_balance(session, location, denomination)
+            new_count = row.count + delta
+            if new_count < 0:
+                raise ValueError("Insufficient persisted inventory")
+            pending.append((row, location, denomination, delta, new_count))
+        for row, location, denomination, delta, new_count in pending:
+            old_count = row.count
+            row.count = new_count
+            session.add(InventoryAdjustment(
+                location=location.value,
+                denomination=denomination,
+                old_count=old_count,
+                new_count=new_count,
+                delta=delta,
+                reason=reason,
+                source="SYSTEM",
+                reference_id=reference_id,
+            ))
 
     async def _refresh_runtime(self) -> None:
         async with self._db_factory() as session:

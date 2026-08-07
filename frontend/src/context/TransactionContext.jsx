@@ -56,31 +56,24 @@ export function TransactionProvider({ children }) {
   const setSelectedAmount = useCallback((amount) => {
     setTransaction(prev => {
       const feeVal = getFeeForService(prev.serviceType);
-      const fee = prev.includeFee ? feeVal : 0;
+      const userAddsFee = prev.serviceType === SERVICE_TYPES.COIN_TO_BILL;
       return {
         ...prev,
         selectedAmount: amount,
         fee: feeVal,
-        totalDue: amount + fee,
+        totalDue: amount + (userAddsFee ? feeVal : 0),
       };
     });
   }, [getFeeForService]);
 
-  // Toggle fee inclusion
-  const setIncludeFee = useCallback((include) => {
-    setTransaction(prev => {
-      const feeVal = getFeeForService(prev.serviceType);
-      const fee = include ? feeVal : 0;
-      return {
-        ...prev,
-        includeFee: include,
-        fee: feeVal,
-        totalDue: (prev.selectedAmount || 0) + fee,
-        selectedDispenseCounts: {},
-        selectedDispenseDenominations: [],
-      };
-    });
-  }, [getFeeForService]);
+  const applyAuthoritativeTerms = useCallback((state) => {
+    setTransaction(prev => ({
+      ...prev,
+      fee: state.fee,
+      totalDue: state.total_due,
+      payoutAmount: state.payout_amount,
+    }));
+  }, []);
 
   // Set selected dispense denominations
   const setSelectedDispenseDenominations = useCallback((denominations) => {
@@ -195,8 +188,12 @@ export function TransactionProvider({ children }) {
 
   // Calculate money to dispense
   const getMoneyToDispense = useCallback(() => {
-    return transaction.selectedAmount || 0;
-  }, [transaction.selectedAmount]);
+    if (transaction.payoutAmount != null) return transaction.payoutAmount;
+    if (transaction.serviceType === SERVICE_TYPES.COIN_TO_BILL) {
+      return transaction.selectedAmount || 0;
+    }
+    return Math.max(0, (transaction.selectedAmount || 0) - (transaction.fee || 0));
+  }, [transaction.fee, transaction.payoutAmount, transaction.selectedAmount, transaction.serviceType]);
 
   const value = {
     transaction,
@@ -208,7 +205,7 @@ export function TransactionProvider({ children }) {
     setDispenseProgress,
     startTransaction,
     setSelectedAmount,
-    setIncludeFee,
+    applyAuthoritativeTerms,
     setSelectedDispenseDenominations,
     setSelectedDispenseCounts,
     setDispenseCount,

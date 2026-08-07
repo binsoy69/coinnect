@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.api.ws import ConnectionManager
 from app.core.config import EWalletFeeTier, Settings
-from app.models.db_models import Base, EWalletTransactionRecord
+from app.models.db_models import Base, EWalletTransactionRecord, GatewayEventRecord
 from app.services.ewallet_orchestrator import EWalletOrchestrator
 from app.services.paymongo_client import DisbursementResult, QRPaymentResult
 from app.services.machine_status import MachineStatus
@@ -309,3 +309,25 @@ async def test_cash_in_coin_acceptor_control(ewallet_dependencies):
     await orchestrator.cancel_transaction(tx2["transaction_id"])
     mock_coin_controller.set_coin_acceptor_enabled.assert_awaited_once_with(False)
 
+
+@pytest.mark.asyncio
+async def test_gateway_event_is_durable_and_idempotent(ewallet_dependencies):
+    orchestrator, _, _, factory = ewallet_dependencies
+    event = {
+        "id": "evt_durable_1",
+        "type": "payment.paid",
+        "resource_id": "pi_missing_for_now",
+        "payment_id": "pay_1",
+        "status": "succeeded",
+    }
+
+    first = await orchestrator.enqueue_gateway_event(event)
+    duplicate = await orchestrator.enqueue_gateway_event(event)
+
+    assert first == {"accepted": True, "event_id": "evt_durable_1", "duplicate": False}
+    assert duplicate == {"accepted": True, "event_id": "evt_durable_1", "duplicate": True}
+    async with factory() as session:
+        stored = await session.get(GatewayEventRecord, "evt_durable_1")
+        assert stored.status == "RECEIVED"
+        assert stored.processed is False
+        assert stored.payload["resource_id"] == "pi_missing_for_now"

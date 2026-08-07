@@ -1,11 +1,12 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <AccelStepper.h>
+#include <EEPROM.h>
 
 // Coinnect Mega #1 firmware: bill sorting + bill dispensing.
 // Serial protocol: newline-delimited JSON at 115200 baud.
 
-static const char *FIRMWARE_VERSION = "2.0.0";
+static const char *FIRMWARE_VERSION = "3.0.0";
 static const char *CONTROLLER_ID = "BILL";
 
 // Stepper / A4988 pins.
@@ -103,6 +104,102 @@ static uint8_t dispenseUnitIndex = 0;
 static int dispenseTargetCount = 0;
 static int dispenseActualCount = 0;
 static uint8_t dispenseAttempt = 0;
+static long dispenseCommandId = -1;
+static char dispenseOperationId[37] = "";
+
+struct __attribute__((packed)) OperationJournalRecord {
+  uint32_t magic;
+  uint32_t sequence;
+  char operationId[37];
+  uint8_t state;  // 1=STARTED, 2=COMPLETED, 3=FAILED, 4=AMBIGUOUS
+  int16_t dispensed;
+  uint16_t crc;
+};
+static const uint32_t JOURNAL_MAGIC = 0x434E4A31UL;
+static OperationJournalRecord journalRecord = {};
+static int journalSlot = -1;
+
+uint16_t journalCrc(const OperationJournalRecord &record) {
+  const uint8_t *bytes = reinterpret_cast<const uint8_t *>(&record);
+  uint16_t crc = 0xFFFF;
+  for (size_t i = 0; i < sizeof(OperationJournalRecord) - sizeof(record.crc); i++) {
+    crc ^= bytes[i];
+    for (uint8_t bit = 0; bit < 8; bit++) crc = (crc & 1) ? (crc >> 1) ^ 0xA001 : crc >> 1;
+  }
+  return crc;
+}
+
+void loadOperationJournal() {
+  bool corrupt = false;
+  const int slots = EEPROM.length() / sizeof(OperationJournalRecord);
+  for (int slot = 0; slot < slots; slot++) {
+    OperationJournalRecord candidate;
+    EEPROM.get(slot * sizeof(OperationJournalRecord), candidate);
+    if (candidate.magic != JOURNAL_MAGIC) continue;
+    if (candidate.crc != journalCrc(candidate)) { corrupt = true; continue; }
+    if (journalSlot < 0 || candidate.sequence > journalRecord.sequence) {
+      journalRecord = candidate;
+      journalSlot = slot;
+    }
+  }
+  if (corrupt) {
+    journalRecord = {};
+    journalRecord.state = 4;
+  }
+}
+
+void persistOperation(uint8_t state, const char *operationId, int dispensed) {
+  OperationJournalRecord next = {};
+  next.magic = JOURNAL_MAGIC;
+  next.sequence = journalRecord.sequence + 1;
+  strncpy(next.operationId, operationId ? operationId : "", 36);
+  next.operationId[36] = '\0';
+  next.state = state;
+  next.dispensed = dispensed;
+  next.crc = journalCrc(next);
+  const int slots = EEPROM.length() / sizeof(OperationJournalRecord);
+  journalSlot = (journalSlot + 1) % slots;
+  EEPROM.put(journalSlot * sizeof(OperationJournalRecord), next);
+  journalRecord = next;
+}
+
+bool isValidOperationId(const char *value) {
+  if (!value || strlen(value) != 36) return false;
+  for (uint8_t i = 0; i < 36; i++) {
+    if (i == 8 || i == 13 || i == 18 || i == 23) {
+      if (value[i] != '-') return false;
+    } else if (!isxdigit(value[i])) return false;
+  }
+  return true;
+}
+
+bool findOperation(const char *operationId, OperationJournalRecord &found) {
+  bool matched = false;
+  const int slots = EEPROM.length() / sizeof(OperationJournalRecord);
+  for (int slot = 0; slot < slots; slot++) {
+    OperationJournalRecord candidate;
+    EEPROM.get(slot * sizeof(OperationJournalRecord), candidate);
+    if (candidate.magic == JOURNAL_MAGIC && candidate.crc == journalCrc(candidate)
+        && strcmp(candidate.operationId, operationId) == 0
+        && (!matched || candidate.sequence > found.sequence)) {
+      found = candidate;
+      matched = true;
+    }
+  }
+  return matched;
+}
+
+void clearCorruptJournalSlots() {
+  const int slots = EEPROM.length() / sizeof(OperationJournalRecord);
+  for (int slot = 0; slot < slots; slot++) {
+    OperationJournalRecord candidate;
+    EEPROM.get(slot * sizeof(OperationJournalRecord), candidate);
+    if (candidate.magic == JOURNAL_MAGIC && candidate.crc != journalCrc(candidate)) {
+      uint32_t cleared = 0;
+      EEPROM.put(slot * sizeof(OperationJournalRecord), cleared);
+    }
+  }
+}
 
 enum BillDispenseStep {
   BILL_STEP_IDLE,
@@ -133,13 +230,14 @@ void sendReadyEvent() {
   sendDocument(doc);
 }
 
-void sendError(const char *code, int dispensed = -1) {
+void sendError(const char *code, int dispensed = -1, const char *operationId = NULL) {
   StaticJsonDocument<128> doc;
   doc["status"] = "ERROR";
   doc["code"] = code;
   if (dispensed >= 0) {
     doc["dispensed"] = dispensed;
   }
+  if (operationId && operationId[0]) doc["operation_id"] = operationId;
   sendDocument(doc);
 }
 
@@ -377,10 +475,14 @@ void serviceDispense() {
           runConveyorForDenom(dispensers[dispenseUnitIndex].denom);
         }
 
-        StaticJsonDocument<96> doc;
+        persistOperation(2, dispenseOperationId, dispenseActualCount);
+        currentCommandId = dispenseCommandId;
+        StaticJsonDocument<160> doc;
         doc["status"] = "OK";
         doc["dispensed"] = dispenseActualCount;
+        doc["operation_id"] = dispenseOperationId;
         sendDocument(doc);
+        currentCommandId = -1;
         return;
       }
 
@@ -435,7 +537,10 @@ void serviceDispense() {
           if (dispenseActualCount > 0) {
             runConveyorForDenom(dispensers[dispenseUnitIndex].denom);
           }
-          sendError("JAM", dispenseActualCount);
+          persistOperation(3, dispenseOperationId, dispenseActualCount);
+          currentCommandId = dispenseCommandId;
+          sendError("JAM", dispenseActualCount, dispenseOperationId);
+          currentCommandId = -1;
         }
       }
       break;
@@ -467,7 +572,10 @@ void serviceDispense() {
         if (dispenseActualCount > 0) {
           runConveyorForDenom(dispensers[dispenseUnitIndex].denom);
         }
-        sendError("JAM", dispenseActualCount);
+        persistOperation(3, dispenseOperationId, dispenseActualCount);
+        currentCommandId = dispenseCommandId;
+        sendError("JAM", dispenseActualCount, dispenseOperationId);
+        currentCommandId = -1;
       }
       break;
     }
@@ -502,6 +610,7 @@ void handleVersion() {
 
 void handleReset() {
   stopAllDispensers();
+  if (dispenseActive) persistOperation(4, dispenseOperationId, dispenseActualCount);
   dispenseActive = false; // Abort any active bill dispense
   sorter.stop();
   sorter.setCurrentPosition(0);
@@ -611,6 +720,28 @@ void handleDispense(JsonDocument &cmdDoc) {
   }
   const char *denom = cmdDoc["denom"] | "";
   const int count = cmdDoc["count"] | 0;
+  const char *operationId = cmdDoc["operation_id"] | "";
+  if (!isValidOperationId(operationId)) {
+    sendError("INVALID_PARAM", -1, operationId);
+    return;
+  }
+  OperationJournalRecord prior = {};
+  if (findOperation(operationId, prior)) {
+    if (prior.state == 2) {
+      StaticJsonDocument<160> doc;
+      doc["status"] = "OK";
+      doc["dispensed"] = prior.dispensed;
+      doc["operation_id"] = operationId;
+      sendDocument(doc);
+    } else {
+      sendError("RECOVERY_REQUIRED", prior.dispensed, operationId);
+    }
+    return;
+  }
+  if (journalRecord.state == 1 || journalRecord.state == 4) {
+    sendError("RECOVERY_REQUIRED", journalRecord.dispensed, operationId);
+    return;
+  }
   const int unitIndex = findDispenserIndex(denom);
   if (unitIndex < 0) {
     sendError("INVALID_DENOM");
@@ -621,11 +752,46 @@ void handleDispense(JsonDocument &cmdDoc) {
     return;
   }
 
+  persistOperation(1, operationId, 0);
+  strncpy(dispenseOperationId, operationId, 36);
+  dispenseOperationId[36] = '\0';
+  dispenseCommandId = currentCommandId;
   dispenseActive = true;
   dispenseUnitIndex = (uint8_t)unitIndex;
   dispenseTargetCount = count;
   dispenseActualCount = 0;
   billDispenseStep = BILL_STEP_IDLE;
+}
+
+void handleOperationStatus(JsonDocument &cmdDoc) {
+  const char *operationId = cmdDoc["operation_id"] | "";
+  StaticJsonDocument<192> doc;
+  doc["status"] = "OK";
+  doc["operation_id"] = operationId;
+  OperationJournalRecord prior = {};
+  if (journalRecord.state == 4 && journalRecord.operationId[0] == '\0') {
+    doc["operation_status"] = "AMBIGUOUS";
+  } else if (!findOperation(operationId, prior)) {
+    doc["operation_status"] = "NOT_FOUND";
+  } else {
+    doc["operation_status"] = prior.state == 1 ? "STARTED" : prior.state == 2 ? "COMPLETED" : prior.state == 3 ? "FAILED" : "AMBIGUOUS";
+    doc["dispensed"] = prior.dispensed;
+  }
+  sendDocument(doc);
+}
+
+void handleOperationAck(JsonDocument &cmdDoc) {
+  const char *operationId = cmdDoc["operation_id"] | "";
+  if (journalRecord.state != 4 && strcmp(operationId, journalRecord.operationId) != 0) {
+    sendError("NOT_FOUND", -1, operationId);
+    return;
+  }
+  clearCorruptJournalSlots();
+  persistOperation(0, "", 0);
+  StaticJsonDocument<128> doc;
+  doc["status"] = "OK";
+  doc["operation_id"] = operationId;
+  sendDocument(doc);
 }
 
 void handleDispenseStatus(JsonDocument &cmdDoc) {
@@ -721,6 +887,10 @@ void dispatchCommand(const String &line) {
     handleDispense(cmdDoc);
   } else if (strcmp(cmd, "DISPENSE_STATUS") == 0) {
     handleDispenseStatus(cmdDoc);
+  } else if (strcmp(cmd, "DISPENSE_OPERATION_STATUS") == 0) {
+    handleOperationStatus(cmdDoc);
+  } else if (strcmp(cmd, "DISPENSE_OPERATION_ACK") == 0) {
+    handleOperationAck(cmdDoc);
   } else if (strcmp(cmd, "CONVEYOR") == 0) {
     handleConveyor(cmdDoc);
   } else if (strcmp(cmd, "SET_SLOT_POSITIONS") == 0) {
@@ -795,6 +965,7 @@ void setup() {
   setupStepper();
   setupDispensers();
   setupConveyors();
+  loadOperationJournal();
   delay(250);
   sendReadyEvent();
   // NOTE: homeSorter() removed from setup() to avoid blocking serial

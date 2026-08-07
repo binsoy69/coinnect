@@ -58,18 +58,20 @@ class TestBillControllerHome:
 
 
 class TestBillControllerDispense:
+    operation_id = "123e4567-e89b-12d3-a456-426614174000"
+
     async def test_dispense_success(self, controller, mock_serial_manager):
         mock_serial_manager.send_bill_command.return_value = {
             "status": "OK", "dispensed": 5
         }
-        resp = await controller.dispense(BillDenom.PHP_500, 5)
+        resp = await controller.dispense(BillDenom.PHP_500, 5, self.operation_id)
         assert resp.dispensed == 5
 
     async def test_dispense_timeout_scales_with_count(self, controller, mock_serial_manager):
         mock_serial_manager.send_bill_command.return_value = {
             "status": "OK", "dispensed": 10
         }
-        await controller.dispense(BillDenom.PHP_100, 10)
+        await controller.dispense(BillDenom.PHP_100, 10, self.operation_id)
         _, kwargs = mock_serial_manager.send_bill_command.call_args
         assert kwargs["timeout"] == max(15.0, 10 * 3.0 + 10.0)
 
@@ -78,7 +80,7 @@ class TestBillControllerDispense:
             "status": "ERROR", "code": "JAM", "dispensed": 2
         }
         with pytest.raises(HardwareError) as exc_info:
-            await controller.dispense(BillDenom.PHP_100, 5)
+            await controller.dispense(BillDenom.PHP_100, 5, self.operation_id)
         assert exc_info.value.code == "JAM"
         assert exc_info.value.dispensed == 2
 

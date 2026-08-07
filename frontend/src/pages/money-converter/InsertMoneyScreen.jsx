@@ -37,8 +37,9 @@ export default function InsertMoneyScreen() {
   const { type } = useParams();
   const { transaction, addInsertedMoney, getServiceConfig, isAmountMatched } =
     useTransaction();
-  const { simulateInsert, transactionId, cancelBackendTransaction } = useBackendTransaction();
+  const { simulateInsert, transactionId, backendState, cancelBackendTransaction } = useBackendTransaction();
   const [resetCounter, setResetCounter] = useState(0);
+  const hasAcceptedCash = transaction.moneyInserted > 0 || (backendState?.inserted_amount || 0) > 0;
 
   const config = getServiceConfig() || SERVICE_CONFIG[type];
 
@@ -47,7 +48,7 @@ export default function InsertMoneyScreen() {
     transactionId,
     "/transaction",
     !isAmountMatched() && (config?.insertType || "bill") === "bill",
-    (data) => {
+    () => {
       // Backend transaction updates are handled via WebSocket (BILL_STORED event)
     }
   );
@@ -59,15 +60,16 @@ export default function InsertMoneyScreen() {
 
   const handleChangeSelection = useCallback(async () => {
     clearError();
+    if (hasAcceptedCash) return;
     if (transactionId) {
       try {
         await cancelBackendTransaction();
       } catch {
-        // Continue navigation if cancel fails
+        return;
       }
     }
     navigate(getServiceRoute(ROUTES.SELECT_AMOUNT, type));
-  }, [clearError, transactionId, cancelBackendTransaction, navigate, type]);
+  }, [clearError, hasAcceptedCash, transactionId, cancelBackendTransaction, navigate, type]);
 
   // Auto-navigate when inserted amount meets or exceeds the required amount
   useEffect(() => {
@@ -139,7 +141,7 @@ export default function InsertMoneyScreen() {
   return (
     <PageLayout
       headerProps={{
-        showBack: true,
+        showBack: !hasAcceptedCash,
         onBack: handleChangeSelection,
         subtitle: TRANSACTION_TYPE_LABEL,
         rightContent: serviceIndicator,

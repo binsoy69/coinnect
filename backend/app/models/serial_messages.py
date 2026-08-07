@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field, StrictBool
 
 from app.core.constants import BillDenom, ErrorCode
 
+UUID_PATTERN = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+
 # ============================================================================
 # Commands (RPi -> Arduino)
 # ============================================================================
@@ -26,6 +28,7 @@ class DispenseCommand(BaseModel):
     cmd: Literal["DISPENSE"] = "DISPENSE"
     denom: BillDenom
     count: int = Field(ge=1, le=20)
+    operation_id: str = Field(pattern=UUID_PATTERN)
 
 
 class DispenseStatusCommand(BaseModel):
@@ -37,6 +40,7 @@ class CoinDispenseCommand(BaseModel):
     cmd: Literal["COIN_DISPENSE"] = "COIN_DISPENSE"
     denom: int = Field(description="Coin denomination integer (1, 5, 10, 20)")
     count: int = Field(ge=1, le=50)
+    operation_id: str = Field(pattern=UUID_PATTERN)
 
 
 class CoinChangeCommand(BaseModel):
@@ -119,6 +123,7 @@ class SortStatusResponse(BaseModel):
 class DispenseResponse(BaseModel):
     status: Literal["OK"]
     dispensed: int
+    operation_id: Optional[str] = None
 
 
 class DispenseStatusResponse(BaseModel):
@@ -129,6 +134,15 @@ class DispenseStatusResponse(BaseModel):
 class CoinDispenseResponse(BaseModel):
     status: Literal["OK"]
     dispensed: int
+    operation_id: Optional[str] = None
+
+
+class OperationStatusResponse(BaseModel):
+    status: Literal["OK"]
+    operation_id: str
+    operation_status: Literal["NOT_FOUND", "STARTED", "COMPLETED", "FAILED", "AMBIGUOUS"]
+    dispensed: int = 0
+    code: Optional[str] = None
 
 
 class CoinChangeResponse(BaseModel):
@@ -191,6 +205,7 @@ class ErrorResponse(BaseModel):
     status: Literal["ERROR"]
     code: ErrorCode
     dispensed: Optional[int] = None
+    operation_id: Optional[str] = None
 
 
 class ConveyorResponse(BaseModel):

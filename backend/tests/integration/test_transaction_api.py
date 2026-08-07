@@ -106,11 +106,11 @@ async def test_app():
     # dispense() is called during confirm (DispenseOrchestrator).
     # Return an object with a .dispensed attribute matching the requested count.
     bill_controller.dispense = AsyncMock(
-        side_effect=lambda denom, count: MagicMock(dispensed=count)
+        side_effect=lambda denom, count, **kwargs: MagicMock(dispensed=count)
     )
     # coin_dispense() is called when the dispense plan includes coins.
     coin_controller.coin_dispense = AsyncMock(
-        side_effect=lambda denom, count: MagicMock(dispensed=count)
+        side_effect=lambda denom, count, **kwargs: MagicMock(dispensed=count)
     )
     coin_controller.set_coin_acceptor_enabled = AsyncMock()
 
@@ -157,7 +157,6 @@ async def client(test_app):
 START_PAYLOAD = {
     "type": "coin-to-bill",
     "amount": 200,
-    "fee": 0,
     "selected_dispense_denoms": [100, 50],
 }
 
@@ -193,7 +192,6 @@ class TestStartTransaction:
         payload = {
             "type": "bill-to-bill",
             "amount": 200,
-            "fee": 0,
             "selected_dispense_denoms": [100, 50],
         }
         resp = await _start_transaction(client, payload)
@@ -250,7 +248,6 @@ class TestGetTransaction:
         payload = {
             "type": "bill-to-bill",
             "amount": 200,
-            "fee": 0,
             "selected_dispense_denoms": [100, 50],
         }
         start = (await _start_transaction(client, payload)).json()
@@ -381,7 +378,7 @@ class TestConfirmTransaction:
         await _simulate_bill_insert(client, tx_id, denom=100)
 
         resp = await client.post(f"/api/v1/transaction/{tx_id}/confirm")
-        assert resp.status_code == 400
+        assert resp.status_code == 422
 
     async def test_confirm_wrong_id_returns_404(self, client):
         start = (await _start_transaction(client)).json()
@@ -516,7 +513,6 @@ class TestFullLifecycle:
         payload = {
             "type": "coin-to-bill",
             "amount": 100,
-            "fee": 0,
             "selected_dispense_denoms": [50, 20],
         }
         start = (await _start_transaction(client, payload)).json()
@@ -545,53 +541,28 @@ class TestFullLifecycle:
         # Insert one bill
         await _simulate_bill_insert(client, tx_id1, denom=100)
 
-        # Cancel
+        # Accepted cash creates an obligation and cannot be cancelled.
         cancel = await client.delete(f"/api/v1/transaction/{tx_id1}")
-        assert cancel.status_code == 200
-        assert cancel.json()["state"] == "CANCELLED"
+        assert cancel.status_code == 409
+        assert cancel.json()["detail"]["code"] == "CASH_ALREADY_ACCEPTED"
 
-        # Start a new transaction
-        start2 = await _start_transaction(client)
-        assert start2.status_code == 200
-        tx_id2 = start2.json()["transaction_id"]
-        assert tx_id2 != tx_id1
-        assert start2.json()["inserted_amount"] == 0
-
-    async def test_lifecycle_with_fee(self, client):
-        """Transaction with a fee requires inserted_amount >= target_amount + fee."""
+    async def test_client_fee_is_rejected(self, client):
+        """A client cannot override the server fee."""
         payload = {
             "type": "coin-to-bill",
             "amount": 100,
             "fee": 50,
             "selected_dispense_denoms": [100, 50],
         }
-        start = (await _start_transaction(client, payload)).json()
-        tx_id = start["transaction_id"]
-        assert start["total_due"] == 150  # amount + fee
-
-        # Insert 100 -- not enough (need 150)
-        ins1 = (await _simulate_bill_insert(client, tx_id, denom=100)).json()
-        assert ins1["state"] == "WAITING_FOR_BILL"
-        assert ins1["inserted_amount"] == 100
-
-        # Insert another 50 -- now total is 150, meets total_due
-        ins2 = (await _simulate_bill_insert(client, tx_id, denom=50)).json()
-        assert ins2["state"] == "WAITING_FOR_CONFIRMATION"
-        assert ins2["inserted_amount"] == 150
-
-        # Confirm -- dispenses the target_amount (100), not total_due
-        confirm = await client.post(f"/api/v1/transaction/{tx_id}/confirm")
-        assert confirm.status_code == 200
-        body = confirm.json()
-        assert body["state"] == "COMPLETE"
-        assert body["dispensed_amount"] == 100
+        response = await _start_transaction(client, payload)
+        assert response.status_code == 422
+        assert response.json()["detail"]
 
     async def test_lifecycle_coin_inserts(self, client):
         """Transaction using coin inserts instead of bills."""
         payload = {
             "type": "coin-to-bill",
             "amount": 100,
-            "fee": 0,
             "selected_dispense_denoms": [100],
         }
         start = (await _start_transaction(client, payload)).json()

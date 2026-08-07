@@ -339,10 +339,10 @@ class TestRecoverPendingTransactions:
             record = await session.get(TransactionRecord, tx_id)
             assert record.state == TransactionState.ERROR.value
             assert record.error_code == "CRASH_RECOVERY"
-            assert "FOREX_RATE_LOCKED" in record.error_message
+            assert "stuck active state" in record.error_message
 
             wal = await session.get(WALEntry, wal_id)
-            assert wal.status == WALStatus.ROLLED_BACK.value
+            assert wal.status == WALStatus.PENDING.value
 
     @pytest.mark.asyncio
     async def test_recovery_ignores_non_forex_transactions(

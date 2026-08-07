@@ -11,6 +11,7 @@ from app.models.serial_messages import (
     CoinResetResponse,
     CoinSorterPositionResponse,
     CoinStatusResponse,
+    OperationStatusResponse,
     ErrorResponse,
     PingResponse,
     SecurityLockResponse,
@@ -26,17 +27,28 @@ class CoinSecurityController:
     def __init__(self, serial_manager: SerialManager):
         self._serial = serial_manager
 
-    async def coin_dispense(self, denom: int, count: int) -> CoinDispenseResponse:
+    async def coin_dispense(self, denom: int, count: int, operation_id: str) -> CoinDispenseResponse:
         """Dispense `count` coins of the given denomination (1, 5, 10, 20).
         Duration: ~250ms per coin.
         """
         settings = self._serial._settings
         timeout = count * settings.coin_dispense_timeout_factor + settings.coin_dispense_timeout_base
         raw = await self._serial.send_coin_command(
-            {"cmd": "COIN_DISPENSE", "denom": denom, "count": count},
+            {"cmd": "COIN_DISPENSE", "denom": denom, "count": count, "operation_id": operation_id},
             timeout=timeout,
         )
         return self._parse_or_raise(raw, CoinDispenseResponse)
+
+    async def operation_status(self, operation_id: str) -> OperationStatusResponse:
+        raw = await self._serial.send_coin_command(
+            {"cmd": "DISPENSE_OPERATION_STATUS", "operation_id": operation_id}
+        )
+        return self._parse_or_raise(raw, OperationStatusResponse)
+
+    async def acknowledge_operation(self, operation_id: str) -> dict:
+        return await self._serial.send_coin_command(
+            {"cmd": "DISPENSE_OPERATION_ACK", "operation_id": operation_id}
+        )
 
     async def coin_change(self, amount: int) -> CoinChangeResponse:
         """Compute and dispense optimal change for the given amount.

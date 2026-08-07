@@ -11,7 +11,6 @@ export default function ForexWarningScreen() {
   const navigate = useNavigate();
   const { forex } = useForex();
   const {
-    cancelForexTransaction,
     refreshForexTransaction,
     transactionId,
     backendState,
@@ -23,26 +22,37 @@ export default function ForexWarningScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    let pollTimer;
     if (!transactionId) {
       return undefined;
     }
-    refreshForexTransaction()
-      .then((data) => {
-        if (!cancelled && data?.state === "COMPLETE") {
+    const check = async () => {
+      try {
+        const data = await refreshForexTransaction();
+        if (cancelled) return;
+        if (data?.state === "COMPLETE") {
           navigate(
             getForexRoute(ROUTES.FOREX_SUCCESS, forex.serviceType),
             { replace: true }
           );
+          return;
         }
-      })
-      .catch((err) => {
-        if (!cancelled) setStatusError(err.message);
-      })
-      .finally(() => {
-        if (!cancelled) setIsChecking(false);
-      });
+        if (["CLAIM_REQUIRED", "ERROR", "CANCELLED"].includes(data?.state)) {
+          setIsChecking(false);
+          return;
+        }
+        pollTimer = window.setTimeout(check, 1000);
+      } catch (err) {
+        if (!cancelled) {
+          setStatusError(err.message);
+          setIsChecking(false);
+        }
+      }
+    };
+    check();
     return () => {
       cancelled = true;
+      if (pollTimer) window.clearTimeout(pollTimer);
     };
   }, [
     forex.serviceType,
@@ -58,17 +68,6 @@ export default function ForexWarningScreen() {
   const isNonTerminal =
     backendState?.state === "DISPENSING" ||
     backendState?.state === "WAITING_FOR_CONFIRMATION";
-
-  const handleChooseDifferent = async () => {
-    if (transactionId) {
-      try {
-        await cancelForexTransaction();
-      } catch {
-        // Navigation still lets the user recover if backend cancellation fails.
-      }
-    }
-    navigate(getForexRoute(ROUTES.FOREX_RATE, forex.serviceType));
-  };
 
   const handleInsertMore = () => {
     navigate(getForexRoute(ROUTES.FOREX_INSERT, forex.serviceType));
@@ -222,14 +221,6 @@ export default function ForexWarningScreen() {
         transition={{ delay: 0.5 }}
         className="flex gap-4"
       >
-        <Button
-          variant="outline"
-          size="xl"
-          onClick={handleChooseDifferent}
-          className="bg-transparent border-white text-white hover:bg-white/10 min-w-[220px]"
-        >
-          Choose a Different Amount
-        </Button>
         <Button
           variant="outline"
           size="xl"

@@ -28,7 +28,10 @@ export default function SelectDispenseScreen() {
   const { transaction, setDispenseCount, getServiceConfig } = useTransaction();
 
   const config = getServiceConfig() || SERVICE_CONFIG[type];
-  const targetAmount = transaction.selectedAmount || 0;
+  const selectedAmount = transaction.selectedAmount || 0;
+  const targetAmount = type === SERVICE_TYPES.COIN_TO_BILL
+    ? selectedAmount
+    : Math.max(0, selectedAmount - (transaction.fee || 0));
 
   // Filter dispense options: for bill-to-bill, only allow denominations strictly smaller than target amount
   const availableDenominations = useMemo(() => {
@@ -39,7 +42,10 @@ export default function SelectDispenseScreen() {
     return opts;
   }, [config?.dispenseOptions, type, targetAmount]);
 
-  const counts = transaction.selectedDispenseCounts || {};
+  const counts = useMemo(
+    () => transaction.selectedDispenseCounts || {},
+    [transaction.selectedDispenseCounts]
+  );
 
   // Calculate total allocated money
   const allocatedTotal = useMemo(() => {
@@ -66,7 +72,7 @@ export default function SelectDispenseScreen() {
 
   const handleProceed = () => {
     if (allocatedTotal > 0 || transaction.selectedDispenseDenominations.length > 0) {
-      navigate(getServiceRoute(ROUTES.TRANSACTION_FEE, type));
+      navigate(getServiceRoute(ROUTES.CONFIRMATION, type));
     }
   };
 

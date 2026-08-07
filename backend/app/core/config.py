@@ -164,6 +164,11 @@ class Settings(BaseSettings):
     paymongo_sandbox: bool = True
     paymongo_timeout_seconds: int = 15
     paymongo_max_retries: int = 3
+    paymongo_webhook_lease_seconds: int = 60
+    paymongo_webhook_fast_retry_seconds: list[int] = Field(
+        default_factory=lambda: [1, 5, 30, 120, 300], min_length=1
+    )
+    paymongo_webhook_reconciliation_interval_seconds: int = 3600
 
     paymongo_source_account_number: str = ""
     paymongo_source_account_name: str = "Coinnect"

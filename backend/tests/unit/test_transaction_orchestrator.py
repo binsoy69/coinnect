@@ -5,9 +5,11 @@ start, bill/coin insertion, confirmation, cancellation, and WAL recovery.
 """
 
 import uuid
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.api.ws import ConnectionManager
@@ -16,6 +18,7 @@ from app.core.constants import BillDenom
 from app.core.errors import TransactionError
 from app.models.db_models import (
     Base,
+    ClaimRecord,
     TransactionRecord,
     TransactionState,
     WALEntry,
@@ -25,6 +28,9 @@ from app.services.bill_acceptor import BillAcceptResult
 from app.services.dispense_orchestrator import DispenseResult
 from app.services.machine_status import MachineStatus
 from app.services.transaction_orchestrator import TransactionOrchestrator
+from app.services.claim_service import ClaimService
+from app.services.operation_mode import OperationModeManager
+from app.services.transaction_state_machine import STATE_TIMEOUTS
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +54,9 @@ def test_settings():
         bill_store_duration=0.0,
         bill_eject_duration=0.0,
         bill_acceptance_timeout=1,
+        fee_bill_to_bill=0,
+        fee_bill_to_coin=0,
+        fee_coin_to_bill=0,
     )
 
 
@@ -264,8 +273,13 @@ class TestStartTransaction:
         with pytest.raises(TransactionError, match="Cannot dispense"):
             await _start_default_transaction(orchestrator, target_amount=500)
 
-    async def test_total_due_includes_fee(self, orchestrator):
+    async def test_total_due_includes_server_fee(self, orchestrator, monkeypatch):
         """total_due = target_amount + fee for coin-to-bill transactions."""
+        authoritative = Settings(fee_coin_to_bill=7)
+        monkeypatch.setattr(
+            "app.services.transaction_orchestrator.get_settings",
+            lambda: authoritative,
+        )
         state = await orchestrator.start_transaction(
             transaction_type="coin-to-bill",
             target_amount=100,
@@ -274,8 +288,8 @@ class TestStartTransaction:
         )
 
         assert state["target_amount"] == 100
-        assert state["fee"] == 10
-        assert state["total_due"] == 110
+        assert state["fee"] == 7
+        assert state["total_due"] == 107
 
     async def test_total_due_bill_insertion_fee(self, orchestrator):
         """total_due = target_amount for bill-to-bill and bill-to-coin transactions."""
@@ -287,7 +301,7 @@ class TestStartTransaction:
         )
 
         assert state["target_amount"] == 100
-        assert state["fee"] == 15
+        assert state["fee"] == 0
         assert state["total_due"] == 100
 
 
@@ -640,8 +654,7 @@ class TestCancelTransaction:
     async def test_cancel_after_bill_inserted(
         self, orchestrator, mock_bill_acceptor
     ):
-        """A transaction can be cancelled after a bill has been inserted
-        (while still in WAITING_FOR_BILL)."""
+        """Accepted cash makes a transaction non-cancellable."""
         mock_bill_acceptor.accept_bill.return_value = BillAcceptResult(
             success=True,
             denomination=BillDenom.PHP_50,
@@ -653,10 +666,52 @@ class TestCancelTransaction:
         await _start_default_transaction(orchestrator, target_amount=200)
         await orchestrator.handle_bill_inserted()
 
-        state = await orchestrator.cancel_transaction()
+        with pytest.raises(TransactionError, match="CASH_ALREADY_ACCEPTED"):
+            await orchestrator.cancel_transaction()
+        assert orchestrator.has_active_transaction is True
 
-        assert state["state"] == TransactionState.CANCELLED.value
+    async def test_cash_timeout_creates_claim_and_releases_operation_lock(
+        self,
+        orchestrator,
+        mock_bill_acceptor,
+        mock_coin_controller,
+        ws_manager,
+        db_session_factory,
+        monkeypatch,
+    ):
+        receipt = AsyncMock()
+        receipt.print_claim_ticket = AsyncMock()
+        operation_mode = OperationModeManager()
+        orchestrator._operation_mode = operation_mode
+        orchestrator._claim_service = ClaimService(
+            db_session_factory, ws_manager, receipt
+        )
+        mock_bill_acceptor.accept_bill.return_value = BillAcceptResult(
+            success=True,
+            denomination=BillDenom.PHP_50,
+            value=50,
+            auth_confidence=0.98,
+            denom_confidence=0.95,
+        )
+        monkeypatch.setitem(STATE_TIMEOUTS, TransactionState.WAITING_FOR_BILL, 0.02)
+
+        started = await _start_default_transaction(orchestrator, target_amount=200)
+        await orchestrator.handle_bill_inserted()
+        await asyncio.sleep(0.06)
+
+        async with db_session_factory() as session:
+            record = await session.get(TransactionRecord, started["transaction_id"])
+            claim = (await session.execute(
+                select(ClaimRecord).where(ClaimRecord.transaction_id == record.id)
+            )).scalar_one()
+            assert record.state == TransactionState.CLAIM_REQUIRED.value
+            assert claim.claim_kind == "INPUT_REFUND"
+            assert claim.amount == 50
+            assert claim.currency == "PHP"
         assert orchestrator.has_active_transaction is False
+        assert operation_mode.has_active_transaction is False
+        mock_coin_controller.set_coin_acceptor_enabled.assert_awaited_with(False)
+        receipt.print_claim_ticket.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -712,11 +767,11 @@ class TestRecoverPendingTransactions:
             assert record is not None
             assert record.state == TransactionState.ERROR.value
             assert record.error_code == "CRASH_RECOVERY"
-            assert "DISPENSE_START" in record.error_message
+            assert "stuck active state" in record.error_message
 
-            # Verify WAL entry is rolled back
+            # Generic state WAL is no longer the recovery authority.
             wal = await session.get(WALEntry, wal_id)
-            assert wal.status == WALStatus.ROLLED_BACK.value
+            assert wal.status == WALStatus.PENDING.value
 
     async def test_recovery_handles_multiple_entries(
         self, orchestrator, db_session_factory
@@ -897,6 +952,7 @@ class TestGetTransactionState:
             "target_amount",
             "fee",
             "total_due",
+            "payout_amount",
             "inserted_amount",
             "dispensed_amount",
             "inserted_denominations",

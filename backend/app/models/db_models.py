@@ -28,6 +28,7 @@ class TransactionState(str, enum.Enum):
     COMPLETE = "COMPLETE"
     CANCELLED = "CANCELLED"
     ERROR = "ERROR"
+    CLAIM_REQUIRED = "CLAIM_REQUIRED"
 
 
 class TransactionType(str, enum.Enum):
@@ -60,6 +61,29 @@ class WALStatus(str, enum.Enum):
     PENDING = "PENDING"
     COMPLETED = "COMPLETED"
     ROLLED_BACK = "ROLLED_BACK"
+
+
+class ClaimStatus(str, enum.Enum):
+    OPEN = "OPEN"
+    PROVISIONAL = "PROVISIONAL"
+    RESOLVED = "RESOLVED"
+
+
+class PhysicalOperationState(str, enum.Enum):
+    PLANNED = "PLANNED"
+    STARTED = "STARTED"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    AMBIGUOUS = "AMBIGUOUS"
+    RECONCILED = "RECONCILED"
+
+
+class DispenseExecutionState(str, enum.Enum):
+    PLANNED = "PLANNED"
+    RUNNING = "RUNNING"
+    COMPLETE = "COMPLETE"
+    FAILED = "FAILED"
+    AMBIGUOUS = "AMBIGUOUS"
 
 
 class TransactionRecord(Base):
@@ -230,12 +254,92 @@ class GatewayEventRecord(Base):
     resource_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     processed: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String, default="RECEIVED")
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     processing_error: Mapped[Optional[str]] = mapped_column(
         String, nullable=True
     )
-    processed_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow
+    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class ClaimRecord(Base):
+    """Unified, auditable customer obligation."""
+
+    __tablename__ = "claims"
+    __table_args__ = (
+        UniqueConstraint("source_kind", "transaction_id", "claim_kind", name="uq_claim_source_kind"),
     )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    claim_ticket_code: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    source_kind: Mapped[str] = mapped_column(String, nullable=False)
+    transaction_id: Mapped[str] = mapped_column(String, nullable=False)
+    claim_kind: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, default=ClaimStatus.OPEN.value)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String, nullable=False)
+    confirmed_dispensed_amount: Mapped[int] = mapped_column(Integer, default=0)
+    ambiguous_amount: Mapped[int] = mapped_column(Integer, default=0)
+    reason_code: Mapped[str] = mapped_column(String, nullable=False)
+    reason_message: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    resolution_notes: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    resolved_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+
+class DispenseExecution(Base):
+    """Exactly-once ownership record for one transaction payout."""
+
+    __tablename__ = "dispense_executions"
+    __table_args__ = (
+        UniqueConstraint("source_kind", "transaction_id", name="uq_dispense_execution_source"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    source_kind: Mapped[str] = mapped_column(String, nullable=False)
+    transaction_id: Mapped[str] = mapped_column(String, nullable=False)
+    state: Mapped[str] = mapped_column(String, default=DispenseExecutionState.PLANNED.value)
+    plan: Mapped[dict] = mapped_column(JSON, default=dict)
+    requested_amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    confirmed_amount: Mapped[int] = mapped_column(Integer, default=0)
+    ambiguous_amount: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class PhysicalOperation(Base):
+    """Durable intent and outcome for one controller dispense command."""
+
+    __tablename__ = "physical_operations"
+    __table_args__ = (
+        UniqueConstraint("execution_id", "sequence", name="uq_physical_operation_sequence"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    execution_id: Mapped[str] = mapped_column(String, nullable=False)
+    transaction_id: Mapped[str] = mapped_column(String, nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    controller: Mapped[str] = mapped_column(String, nullable=False)
+    action: Mapped[str] = mapped_column(String, default="DISPENSE")
+    denomination: Mapped[str] = mapped_column(String, nullable=False)
+    requested_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    denomination_value: Mapped[int] = mapped_column(Integer, nullable=False)
+    confirmed_count: Mapped[int] = mapped_column(Integer, default=0)
+    inventory_reconciled: Mapped[bool] = mapped_column(Boolean, default=False)
+    state: Mapped[str] = mapped_column(String, default=PhysicalOperationState.PLANNED.value)
+    error_code: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    reconciliation_notes: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    reconciled_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
 class InventoryBalance(Base):

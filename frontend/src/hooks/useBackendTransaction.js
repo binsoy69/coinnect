@@ -22,6 +22,7 @@ export function useBackendTransaction() {
     setBackendState,
     dispenseProgress,
     setDispenseProgress,
+    applyAuthoritativeTerms,
   } = useTransaction();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -95,7 +96,7 @@ export function useBackendTransaction() {
   ]);
 
   const startBackendTransaction = useCallback(
-    async (type, amount, fee, dispenseDenoms = [], dispenseCounts = null) => {
+    async (type, amount, dispenseDenoms = [], dispenseCounts = null) => {
       setIsLoading(true);
       setError(null);
       try {
@@ -105,18 +106,18 @@ export function useBackendTransaction() {
           body: JSON.stringify({
             type,
             amount,
-            fee,
             selected_dispense_denoms: dispenseDenoms,
             selected_dispense_counts: dispenseCounts,
           }),
         });
         if (!resp.ok) {
           const errData = await resp.json().catch(() => ({}));
-          throw new Error(errData.detail || `HTTP ${resp.status}`);
+          throw new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
         }
         const data = await resp.json();
         setBackendTransactionId(data.transaction_id);
         setBackendState(data);
+        applyAuthoritativeTerms(data);
         return data;
       } catch (err) {
         setError(err.message);
@@ -125,7 +126,7 @@ export function useBackendTransaction() {
         setIsLoading(false);
       }
     },
-    [setBackendState, setBackendTransactionId]
+    [applyAuthoritativeTerms, setBackendState, setBackendTransactionId]
   );
 
   const confirmBackendTransaction = useCallback(async () => {
@@ -139,7 +140,7 @@ export function useBackendTransaction() {
       );
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData.detail || `HTTP ${resp.status}`);
+        throw new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
       }
       const data = await resp.json();
       setBackendState(data);
@@ -162,7 +163,7 @@ export function useBackendTransaction() {
       );
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData.detail || `HTTP ${resp.status}`);
+        throw new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
       }
       const data = await resp.json();
       setBackendState(data);
@@ -185,17 +186,17 @@ export function useBackendTransaction() {
       );
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData.detail || `HTTP ${resp.status}`);
+        throw new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
       }
       const data = await resp.json();
       setBackendState(data);
+      setBackendTransactionId(null);
       return data;
     } catch (err) {
       setError(err.message);
       throw err;
     } finally {
       setIsLoading(false);
-      setBackendTransactionId(null);
     }
   }, [
     backendTransactionId,

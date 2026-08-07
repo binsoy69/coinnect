@@ -13,7 +13,6 @@ export default function WarningScreen() {
   const { type } = useParams();
   const {
     backendState,
-    cancelBackendTransaction,
     refreshBackendTransaction,
     transactionId,
   } = useBackendTransaction();
@@ -24,23 +23,34 @@ export default function WarningScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    let pollTimer;
     if (!transactionId) {
       return undefined;
     }
-    refreshBackendTransaction()
-      .then((data) => {
-        if (!cancelled && data?.state === "COMPLETE") {
+    const check = async () => {
+      try {
+        const data = await refreshBackendTransaction();
+        if (cancelled) return;
+        if (data?.state === "COMPLETE") {
           navigate(getServiceRoute(ROUTES.SUCCESS, type), { replace: true });
+          return;
         }
-      })
-      .catch((err) => {
-        if (!cancelled) setStatusError(err.message);
-      })
-      .finally(() => {
-        if (!cancelled) setIsChecking(false);
-      });
+        if (["CLAIM_REQUIRED", "ERROR", "CANCELLED"].includes(data?.state)) {
+          setIsChecking(false);
+          return;
+        }
+        pollTimer = window.setTimeout(check, 1000);
+      } catch (err) {
+        if (!cancelled) {
+          setStatusError(err.message);
+          setIsChecking(false);
+        }
+      }
+    };
+    check();
     return () => {
       cancelled = true;
+      if (pollTimer) window.clearTimeout(pollTimer);
     };
   }, [navigate, refreshBackendTransaction, transactionId, type]);
 
@@ -51,17 +61,6 @@ export default function WarningScreen() {
   const isNonTerminal =
     backendState?.state === "DISPENSING" ||
     backendState?.state === "WAITING_FOR_CONFIRMATION";
-
-  const handleChooseDifferent = async () => {
-    if (transactionId) {
-      try {
-        await cancelBackendTransaction();
-      } catch {
-        // Navigation still lets the user recover if backend cancellation fails.
-      }
-    }
-    navigate(getServiceRoute(ROUTES.SELECT_AMOUNT, type));
-  };
 
   const handleInsertMore = () => {
     navigate(getServiceRoute(ROUTES.INSERT_MONEY, type));
@@ -222,14 +221,6 @@ export default function WarningScreen() {
             transition={{ delay: 0.4 }}
             className="flex flex-col sm:flex-row justify-center gap-4"
           >
-            <Button
-              variant="outline"
-              size="xl"
-              onClick={handleChooseDifferent}
-              className="bg-transparent border-white text-white hover:bg-white/10 px-8"
-            >
-              Choose a Different Amount
-            </Button>
             <Button
               variant="white"
               size="xl"

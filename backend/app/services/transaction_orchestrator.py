@@ -19,8 +19,6 @@ from app.core.errors import TransactionError
 from app.models.db_models import (
     TransactionRecord,
     TransactionState,
-    WALEntry,
-    WALStatus,
 )
 from app.models.events import WSEvent, WSEventType
 from app.services.bill_acceptor import BillAcceptor
@@ -31,6 +29,7 @@ from app.services.machine_status import MachineStatus
 from app.services.transaction_state_machine import TransactionStateMachine
 from app.services.operation_mode import OperationModeManager
 from app.services.receipt_service import ReceiptService
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +50,7 @@ class TransactionOrchestrator:
         db_session_factory: async_sessionmaker,
         operation_mode: OperationModeManager | None = None,
         receipt_service: ReceiptService | None = None,
+        claim_service=None,
     ):
         self._bill_acceptor = bill_acceptor
         self._dispenser = dispense_orchestrator
@@ -64,6 +64,7 @@ class TransactionOrchestrator:
         self._operation_owner: Optional[str] = None
         self._receipt_service = receipt_service
         self._confirm_lock = asyncio.Lock()
+        self._claim_service = claim_service
 
     @property
     def has_active_transaction(self) -> bool:
@@ -77,16 +78,15 @@ class TransactionOrchestrator:
         self,
         transaction_type: str,
         target_amount: int,
-        fee: int,
         selected_dispense_denoms: list,
         selected_dispense_counts: Optional[dict] = None,
+        fee: Optional[int] = None,
     ) -> dict:
         """Create and start a new money changer transaction.
 
         Args:
             transaction_type: "bill-to-bill", "bill-to-coin", or "coin-to-bill"
             target_amount: Amount user selected to convert
-            fee: Transaction fee
             selected_dispense_denoms: User-selected dispense denominations
             selected_dispense_counts: User-selected breakdown quantities (e.g. {"500": 1, "100": 4})
 
@@ -101,6 +101,18 @@ class TransactionOrchestrator:
                 self._active_tx.transaction_id,
                 "A transaction is already in progress",
             )
+
+        settings = get_settings()
+        fee_map = {
+            "bill-to-bill": settings.fee_bill_to_bill,
+            "bill-to-coin": settings.fee_bill_to_coin,
+            "coin-to-bill": settings.fee_coin_to_bill,
+        }
+        if transaction_type not in fee_map:
+            raise TransactionError("", "Unsupported transaction type")
+        # ``fee`` is accepted only for compatibility with internal callers;
+        # client-provided values are never used and the HTTP schema forbids it.
+        fee = fee_map[transaction_type]
 
         # Validate machine is ready
         snapshot = self._status.snapshot()
@@ -120,15 +132,33 @@ class TransactionOrchestrator:
             dispense_amount = target_amount
 
         try:
+            bill_inventory = (
+                {} if transaction_type == "bill-to-coin"
+                else snapshot.consumables.bill_dispenser_counts
+            )
+            coin_inventory = (
+                snapshot.consumables.coin_counts
+                if transaction_type == "bill-to-coin" else {}
+            )
             calculate_change(
                 dispense_amount,
-                {} if transaction_type == "bill-to-coin" else snapshot.consumables.bill_dispenser_counts,
-                snapshot.consumables.coin_counts,
+                bill_inventory,
+                coin_inventory,
                 preferred_denoms=selected_dispense_denoms,
                 requested_counts=selected_dispense_counts,
             )
         except Exception as e:
             raise TransactionError("", f"Cannot dispense requested amount: {e}")
+
+        if selected_dispense_counts is not None:
+            requested_total = sum(
+                int(denom) * int(count)
+                for denom, count in selected_dispense_counts.items()
+            )
+            if requested_total != dispense_amount:
+                raise TransactionError(
+                    "", "Requested denomination counts must exactly match payout"
+                )
 
         # Create transaction
         tx_id = str(uuid.uuid4())
@@ -163,6 +193,7 @@ class TransactionOrchestrator:
                 transaction_type=transaction_type,
                 ws_manager=self._ws,
                 db_session=session,
+                on_timeout=self._handle_timeout,
             )
             await self._active_tx.transition_to(
                 TransactionState.WAITING_FOR_BILL
@@ -223,7 +254,7 @@ class TransactionOrchestrator:
                     TransactionState.ERROR,
                     {"error_code": "HARDWARE_FAULT", "error_message": result.error},
                 )
-                self._clear_active()
+                await self._cleanup_active()
                 return await self.get_transaction_state(tx.transaction_id)
 
             # Bill rejected - go back to WAITING_FOR_BILL
@@ -321,6 +352,7 @@ class TransactionOrchestrator:
                 TransactionState.DISPENSING,
                 TransactionState.COMPLETE,
                 TransactionState.ERROR,
+                TransactionState.CLAIM_REQUIRED,
             }:
                 return await self.get_transaction_state(tx.transaction_id)
             return await self._confirm_transaction_once(tx)
@@ -346,17 +378,16 @@ class TransactionOrchestrator:
         if not db_record:
             raise TransactionError(tx.transaction_id, "Transaction record not found")
 
-        # Deduct fee from inserted amount and auto-adjust target amount to dispense
+        # The selected amount remains immutable; the server-authoritative fee
+        # determines the payout for bill-funded conversions.
         actual_dispense = db_record.inserted_amount - db_record.fee
-        db_record.target_amount = actual_dispense
-        await session.commit()
 
         # Calculate dispense plan
         snapshot = self._status.snapshot()
         plan = calculate_change(
             actual_dispense,
             {} if db_record.type == "bill-to-coin" else snapshot.consumables.bill_dispenser_counts,
-            snapshot.consumables.coin_counts,
+            snapshot.consumables.coin_counts if db_record.type == "bill-to-coin" else {},
             preferred_denoms=db_record.selected_dispense_denoms,
             requested_counts=db_record.selected_dispense_counts,
         )
@@ -373,7 +404,7 @@ class TransactionOrchestrator:
 
         # Execute dispense
         result = await self._dispenser.execute_dispense(
-            plan, reference_id=tx.transaction_id
+            plan, reference_id=tx.transaction_id, source_kind="STANDARD"
         )
 
         # Update record with result
@@ -389,23 +420,36 @@ class TransactionOrchestrator:
             if self._receipt_service:
                 await self._receipt_service.print_receipt(db_record)
         else:
-            await tx.transition_to(
-                TransactionState.ERROR,
-                {
+            if self._claim_service:
+                claim = await self._claim_service.create(
+                    source_kind="STANDARD",
+                    transaction_id=db_record.id,
+                    claim_kind="OUTPUT_SHORTFALL",
+                    amount=result.shortfall,
+                    currency="PHP",
+                    reason_code="AMBIGUOUS_DISPENSE" if result.ambiguous_amount else "PARTIAL_DISPENSE",
+                    reason_message=result.error,
+                    confirmed_dispensed_amount=result.total_dispensed,
+                    ambiguous_amount=result.ambiguous_amount,
+                    provisional=bool(result.ambiguous_amount),
+                    record=db_record,
+                    session=session,
+                )
+                await tx.transition_to(TransactionState.CLAIM_REQUIRED, {
+                    "error_code": "PARTIAL_DISPENSE",
+                    "error_message": result.error,
+                    "dispensed_amount": result.total_dispensed,
+                    "shortfall": result.shortfall,
+                    "claim_ticket_code": claim.claim_ticket_code,
+                })
+            else:
+                await tx.transition_to(TransactionState.ERROR, {
                     "error_code": "PARTIAL_DISPENSE",
                     "error_message": result.error,
                     "dispensed_amount": result.total_dispensed,
                     "shortfall": result.shortfall,
                     "claim_ticket_code": result.claim_ticket_code,
-                },
-            )
-            if self._receipt_service:
-                await self._receipt_service.print_claim_ticket(
-                    db_record,
-                    claim_code=result.claim_ticket_code,
-                    shortfall=result.shortfall,
-                    error_reason=result.error
-                )
+                })
 
         state = await self.get_transaction_state(tx.transaction_id)
 
@@ -422,6 +466,13 @@ class TransactionOrchestrator:
         """
         tx = self._require_active_transaction()
 
+        record = await self._get_db_record(self._active_session, tx.transaction_id)
+        if record and record.inserted_amount > 0:
+            raise TransactionError(
+                tx.transaction_id,
+                "CASH_ALREADY_ACCEPTED: transaction cannot be cancelled",
+            )
+
         await tx.cancel()
         state = await self.get_transaction_state(tx.transaction_id)
 
@@ -429,6 +480,36 @@ class TransactionOrchestrator:
         await self._cleanup_active()
 
         return state
+
+    async def _handle_timeout(self, expected_state: TransactionState) -> None:
+        tx = self._require_active_transaction()
+        record = await self._get_db_record(self._active_session, tx.transaction_id)
+        if record and record.inserted_amount > 0 and self._claim_service:
+            claim = await self._claim_service.create(
+                source_kind="STANDARD",
+                transaction_id=record.id,
+                claim_kind="INPUT_REFUND",
+                amount=record.inserted_amount,
+                currency="PHP",
+                reason_code="TIMEOUT_AFTER_CASH",
+                reason_message=f"Timeout in {expected_state.value}",
+                record=record,
+                session=self._active_session,
+            )
+            await tx.transition_to(
+                TransactionState.CLAIM_REQUIRED,
+                {
+                    "claim_ticket_code": claim.claim_ticket_code,
+                    "error_code": "TIMEOUT_AFTER_CASH",
+                    "error_message": f"Timeout in {expected_state.value}",
+                },
+            )
+        else:
+            await tx.transition_to(
+                TransactionState.CANCELLED,
+                {"error_code": "TIMEOUT", "error_message": f"Timeout in {expected_state.value}"},
+            )
+        await self._cleanup_active()
 
     async def get_transaction_state(self, transaction_id: str) -> dict:
         """Get current state of a transaction.
@@ -451,6 +532,11 @@ class TransactionOrchestrator:
                 "target_amount": db_record.target_amount,
                 "fee": db_record.fee,
                 "total_due": db_record.total_due,
+                "payout_amount": (
+                    db_record.target_amount - db_record.fee
+                    if db_record.type in {"bill-to-bill", "bill-to-coin"}
+                    else db_record.target_amount
+                ),
                 "inserted_amount": db_record.inserted_amount,
                 "dispensed_amount": db_record.dispensed_amount,
                 "inserted_denominations": db_record.inserted_denominations or {},
@@ -475,32 +561,8 @@ class TransactionOrchestrator:
 
 
     async def recover_pending_transactions(self) -> None:
-        """Recover from pending WAL entries on startup.
-
-        Called during app initialization to handle transactions that
-        were interrupted by power loss or crash.
-        """
+        """Close non-physical transactions interrupted by a backend crash."""
         async with self._db_factory() as session:
-            result = await session.execute(
-                select(WALEntry)
-                .join(TransactionRecord, WALEntry.transaction_id == TransactionRecord.id)
-                .where(
-                    WALEntry.status == WALStatus.PENDING.value,
-                    ~TransactionRecord.type.like("forex-%")
-                )
-            )
-            pending_entries = result.scalars().all()
-
-            for entry in pending_entries:
-                try:
-                    await self._recover_wal_entry(session, entry)
-                except Exception as e:
-                    logger.error(
-                        f"Failed to recover WAL entry {entry.id}: {e}",
-                        exc_info=True,
-                    )
-
-            # Also recover any transaction stuck in active/physical states
             stuck_result = await session.execute(
                 select(TransactionRecord).where(
                     TransactionRecord.state.in_(
@@ -518,44 +580,30 @@ class TransactionOrchestrator:
                 logger.warning(
                     f"Recovering transaction {record.id} stuck in active state {record.state}"
                 )
-                record.state = TransactionState.ERROR.value
-                record.error_code = "CRASH_RECOVERY"
-                record.error_message = "Recovered from stuck active state during startup"
-                record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                if self._claim_service and record.inserted_amount > 0:
+                    dispensing = record.state == TransactionState.DISPENSING.value
+                    await self._claim_service.create(
+                        source_kind="STANDARD",
+                        transaction_id=record.id,
+                        claim_kind="OUTPUT_SHORTFALL" if dispensing else "INPUT_REFUND",
+                        amount=(record.target_amount - record.fee) if dispensing else record.inserted_amount,
+                        currency="PHP",
+                        reason_code="CRASH_RECOVERY",
+                        reason_message="Recovered interrupted transaction during startup",
+                        provisional=dispensing,
+                        record=record,
+                        session=session,
+                    )
+                else:
+                    record.state = TransactionState.ERROR.value
+                    record.error_code = "CRASH_RECOVERY"
+                    record.error_message = "Recovered from stuck active state during startup"
+                    record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
-            if pending_entries or stuck_records:
+            if stuck_records:
                 await session.commit()
             else:
-                logger.info("No pending WAL entries or stuck transactions to recover")
-
-    async def _recover_wal_entry(
-        self, session: AsyncSession, entry: WALEntry
-    ) -> None:
-        """Recover a single pending WAL entry."""
-        logger.info(
-            f"Recovering WAL entry {entry.id}: "
-            f"tx={entry.transaction_id} action={entry.action}"
-        )
-
-        # Find the transaction record
-        result = await session.execute(
-            select(TransactionRecord).where(
-                TransactionRecord.id == entry.transaction_id
-            )
-        )
-        record = result.scalar_one_or_none()
-
-        if record:
-            # Mark transaction as ERROR with recovery note
-            record.state = TransactionState.ERROR.value
-            record.error_code = "CRASH_RECOVERY"
-            record.error_message = f"Recovered from pending action: {entry.action}"
-            record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
-
-        # Mark WAL entry as rolled back
-        entry.status = WALStatus.ROLLED_BACK.value
-
-        logger.info(f"WAL entry {entry.id} recovered (rolled back)")
+                logger.info("No stuck standard transactions to recover")
 
     def _require_active_transaction(self) -> TransactionStateMachine:
         """Get the active transaction or raise an error."""
@@ -576,14 +624,18 @@ class TransactionOrchestrator:
 
     async def _cleanup_active(self) -> None:
         """Clean up the active transaction and session."""
-        await self._set_coin_acceptor_enabled(False)
-        if self._active_session:
-            await self._active_session.close()
-            self._active_session = None
-        self._active_tx = None
-        if self._operation_mode and self._operation_owner:
-            self._operation_mode.end_transaction(self._operation_owner)
-            self._operation_owner = None
+        try:
+            await self._set_coin_acceptor_enabled(False)
+        except Exception as exc:
+            logger.error("Failed to disable coin acceptor during cleanup: %s", exc)
+        finally:
+            if self._active_session:
+                await self._active_session.close()
+                self._active_session = None
+            self._active_tx = None
+            if self._operation_mode and self._operation_owner:
+                self._operation_mode.end_transaction(self._operation_owner)
+                self._operation_owner = None
 
     async def _set_coin_acceptor_enabled(self, enabled: bool) -> None:
         if self._coin_controller is None:

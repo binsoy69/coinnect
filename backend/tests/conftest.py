@@ -23,6 +23,9 @@ os.environ["DB_URL"] = "sqlite+aiosqlite:///:memory:"
 os.environ["HOST"] = "0.0.0.0"
 os.environ["PAYMONGO_SANDBOX"] = "true"
 os.environ["DISPENSE_UI_DELAY"] = "0.0"
+os.environ["FEE_BILL_TO_BILL"] = "0"
+os.environ["FEE_BILL_TO_COIN"] = "0"
+os.environ["FEE_COIN_TO_BILL"] = "0"
 
 from app.api.ws import ConnectionManager
 from app.core.config import Settings

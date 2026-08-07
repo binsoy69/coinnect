@@ -1,11 +1,13 @@
 # Coinnect Firmware
 
-Arduino CLI firmware for the dual-Mega architecture.
+Arduino CLI firmware for the dual-Mega architecture, with an Arduino Uno
+variant for the coin/security controller.
 
 ## Controllers
 
 1. **mega_bill**: Controls Bill Sorting (Stepper) and Dispensing (DC Motors).
 2. **mega_coin_security**: Controls Coin Acceptor, Coin Sorter Servo, Coin Dispenser (Servos), and Security (Shock Sensors, Solenoid).
+3. **uno_coin_security**: Pin-compatible Uno alternative for the coin/security controller. It implements the same operation-ID recovery protocol using the Uno EEPROM.
 
 ## Required Libraries
 
@@ -15,6 +17,8 @@ Install these before compiling:
 arduino-cli lib install ArduinoJson
 arduino-cli lib install AccelStepper
 arduino-cli lib install Servo
+arduino-cli lib install MFRC522
+arduino-cli lib install PinChangeInterrupt
 ```
 
 ## Compile
@@ -22,6 +26,7 @@ arduino-cli lib install Servo
 ```bash
 arduino-cli compile --fqbn arduino:avr:mega firmware/mega_bill
 arduino-cli compile --fqbn arduino:avr:mega firmware/mega_coin_security
+arduino-cli compile --fqbn arduino:avr:uno firmware/uno_coin_security
 arduino-cli compile --fqbn arduino:avr:mega firmware/test_shock_sensor
 arduino-cli compile --fqbn arduino:avr:mega firmware/test_solenoid
 ```
@@ -31,6 +36,7 @@ arduino-cli compile --fqbn arduino:avr:mega firmware/test_solenoid
 ```bash
 arduino-cli upload --port /dev/ttyUSB0 --fqbn arduino:avr:mega firmware/mega_bill
 arduino-cli upload --port /dev/ttyACM0 --fqbn arduino:avr:mega firmware/mega_coin_security
+arduino-cli upload --port /dev/ttyACM0 --fqbn arduino:avr:uno firmware/uno_coin_security
 arduino-cli upload --port /dev/ttyACM0 --fqbn arduino:avr:mega firmware/test_shock_sensor
 arduino-cli upload --port /dev/ttyACM0 --fqbn arduino:avr:mega firmware/test_solenoid
 ```
@@ -38,6 +44,11 @@ arduino-cli upload --port /dev/ttyACM0 --fqbn arduino:avr:mega firmware/test_sol
 Upload only one sketch at a time to the coin/security Mega. The `test_*`
 sketches are bench tools and replace the production `mega_coin_security`
 firmware until the production sketch is uploaded again.
+
+Upload either `mega_coin_security` or `uno_coin_security`, according to the
+installed board. Both require UUID operation IDs for `COIN_DISPENSE`, journal
+dispense intent before servo motion, and support operation status and
+ambiguity acknowledgement commands.
 
 ## Smoke Test
 

@@ -9,7 +9,7 @@ import string
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.ws import ConnectionManager
@@ -49,6 +49,7 @@ class EWalletOrchestrator:
         operation_mode: OperationModeManager | None = None,
         receipt_service: ReceiptService | None = None,
         coin_controller: CoinSecurityController | None = None,
+        claim_service=None,
     ):
         self._settings = settings
         self._gateway = gateway
@@ -63,6 +64,33 @@ class EWalletOrchestrator:
         self._operation_owner: str | None = None
         self._receipt_service = receipt_service
         self._confirm_lock = asyncio.Lock()
+        self._claim_service = claim_service
+        self._timeout_tasks: dict[str, asyncio.Task] = {}
+
+    async def enqueue_gateway_event(self, event: dict) -> dict:
+        """Durably accept a verified gateway event before acknowledging it."""
+        event_id = str(event.get("id") or "").strip()
+        if not event_id:
+            raise EWalletTransactionError("Gateway event ID is required", "INVALID_EVENT")
+        async with self._db_factory() as session:
+            if await session.get(GatewayEventRecord, event_id):
+                return {"accepted": True, "event_id": event_id, "duplicate": True}
+            session.add(GatewayEventRecord(
+                id=event_id,
+                event_type=str(event.get("type", "unknown")),
+                resource_id=event.get("resource_id"),
+                payload=event,
+                processed=False,
+                status="RECEIVED",
+            ))
+            try:
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                if await session.get(GatewayEventRecord, event_id):
+                    return {"accepted": True, "event_id": event_id, "duplicate": True}
+                raise
+        return {"accepted": True, "event_id": event_id, "duplicate": False}
 
     @property
     def has_active_transaction(self) -> bool:
@@ -186,6 +214,7 @@ class EWalletOrchestrator:
             await self._broadcast(record, WSEventType.EWALLET_GATEWAY_PENDING)
         else:
             await self._broadcast(record, WSEventType.EWALLET_STATE_CHANGED)
+        self._reset_timeout(tx_id)
         return await self.get_transaction(tx_id)
 
     async def record_cash_insert(
@@ -215,6 +244,7 @@ class EWalletOrchestrator:
                 else WSEventType.EWALLET_STATE_CHANGED
             )
             await self._broadcast(record, event)
+        self._reset_timeout(transaction_id)
         return await self.get_transaction(transaction_id)
 
     async def accept_bill(self, transaction_id: str) -> dict:
@@ -245,6 +275,7 @@ class EWalletOrchestrator:
             return await self._confirm_cash_in_once(transaction_id)
 
     async def _confirm_cash_in_once(self, transaction_id: str) -> dict:
+        self._cancel_timeout(transaction_id)
         async with self._db_factory() as session:
             record = await session.get(EWalletTransactionRecord, transaction_id)
             self._require_cash_in(record)
@@ -272,20 +303,9 @@ class EWalletOrchestrator:
                 idempotency_key=f"ewallet:{transaction_id}:transfer",
             )
         except Exception as exc:
-            async with self._db_factory() as session:
-                record = await session.get(
-                    EWalletTransactionRecord, transaction_id
-                )
-                record.state = "CLAIM_REQUIRED"
-                record.claim_ticket_code = record.claim_ticket_code or _claim_ticket()
-                record.error_code = "DISBURSEMENT_FAILED"
-                record.error_message = str(exc)
-                await session.commit()
-                await self._broadcast(
-                    record, WSEventType.EWALLET_CLAIM_REQUIRED
-                )
-                await self._clear_active()
-            return await self.get_transaction(transaction_id)
+            return await self._mark_claim_required(
+                transaction_id, "DISBURSEMENT_FAILED", str(exc)
+            )
 
         async with self._db_factory() as session:
             record = await session.get(EWalletTransactionRecord, transaction_id)
@@ -297,37 +317,18 @@ class EWalletOrchestrator:
             await self._broadcast(record, WSEventType.EWALLET_GATEWAY_PENDING)
         return await self.get_transaction(transaction_id)
 
-    async def process_gateway_event(self, event: dict) -> dict:
+    async def process_gateway_event(
+        self, event: dict, persisted_event_id: str | None = None
+    ) -> dict:
         event_id = str(event["id"])
-        async with self._db_factory() as session:
-            existing_event = await session.get(GatewayEventRecord, event_id)
-            if existing_event:
-                logger.warning(f"Duplicate gateway event received: {event_id}")
-                return {"duplicate": True}
-            session.add(
-                GatewayEventRecord(
-                    id=event_id,
-                    event_type=str(event.get("type", "unknown")),
-                    resource_id=event.get("resource_id"),
-                    payload=event,
-                    processed=False,
-                )
-            )
-            try:
-                await session.commit()
-            except Exception as e:
-                logger.warning(f"Concurrent insert collision for event {event_id}: {e}")
+        if persisted_event_id is None:
+            accepted = await self.enqueue_gateway_event(event)
+            if accepted["duplicate"]:
                 return {"duplicate": True}
 
         resource_id = event.get("resource_id")
         if not resource_id:
-            logger.warning(f"Gateway event {event_id} missing resource_id")
-            async with self._db_factory() as session:
-                stored_event = await session.get(GatewayEventRecord, event_id)
-                if stored_event:
-                    stored_event.processed = True
-                    await session.commit()
-            return {"processed": False, "reason": "resource_id_missing"}
+            raise EWalletTransactionError("Gateway event resource_id is missing", "INVALID_EVENT")
 
         async with self._db_factory() as session:
             result = await session.execute(
@@ -342,11 +343,9 @@ class EWalletOrchestrator:
             )
             record = result.scalar_one_or_none()
             if record is None:
-                stored_event = await session.get(GatewayEventRecord, event_id)
-                if stored_event:
-                    stored_event.processed = True
-                    await session.commit()
-                return {"processed": False, "reason": "transaction_not_found"}
+                raise EWalletTransactionError(
+                    "Gateway transaction is not committed yet", "TRANSACTION_NOT_FOUND"
+                )
             status = str(event.get("status") or "").lower()
             record.gateway_status = status
             await session.commit()
@@ -367,47 +366,65 @@ class EWalletOrchestrator:
             ):
                 result_payload = await self._verify_and_complete_cash_in(record.id)
             elif status in {"failed", "cancelled", "expired", "returned"}:
-                async with self._db_factory() as session:
-                    record = await session.get(
-                        EWalletTransactionRecord, record.id
+                if record.direction == "cash-in":
+                    result_payload = await self._mark_claim_required(
+                        record.id,
+                        "GATEWAY_FAILED",
+                        f"PayMongo status: {status}",
                     )
-                    if record.direction == "cash-in":
-                        record.state = "CLAIM_REQUIRED"
-                        record.claim_ticket_code = (
-                            record.claim_ticket_code or _claim_ticket()
-                        )
-                    else:
+                    record = None
+                else:
+                    async with self._db_factory() as session:
+                        record = await session.get(EWalletTransactionRecord, record.id)
                         record.state = "FAILED"
-                    record.error_code = "GATEWAY_FAILED"
-                    record.error_message = f"PayMongo status: {status}"
-                    await session.commit()
-                    await self._broadcast(
-                        record,
-                        WSEventType.EWALLET_CLAIM_REQUIRED
-                        if record.claim_ticket_code
-                        else WSEventType.EWALLET_GATEWAY_FAILED,
-                    )
-                    await self._clear_active()
-                result_payload = await self.get_transaction(record.id)
+                        record.error_code = "GATEWAY_FAILED"
+                        record.error_message = f"PayMongo status: {status}"
+                        await session.commit()
+                        await self._broadcast(record, WSEventType.EWALLET_GATEWAY_FAILED)
+                        await self._clear_active()
+                    result_payload = await self.get_transaction(record.id)
             else:
                 result_payload = {"processed": True, "status": status}
         except Exception as exc:
             logger.error(f"Error processing gateway event {event_id}: {exc}", exc_info=True)
-            async with self._db_factory() as session:
-                stored_event = await session.get(GatewayEventRecord, event_id)
-                if stored_event:
-                    await session.delete(stored_event)
-                    await session.commit()
             raise
 
 
         async with self._db_factory() as session:
             stored_event = await session.get(GatewayEventRecord, event_id)
             stored_event.processed = True
+            stored_event.status = "PROCESSED"
             stored_event.processing_error = None
+            stored_event.lease_expires_at = None
             stored_event.processed_at = datetime.now(timezone.utc).replace(tzinfo=None)
             await session.commit()
         return result_payload
+
+    async def escalate_gateway_event(self, event: dict, error: str) -> None:
+        """Issue a durable provisional claim after fast retries are exhausted."""
+        event_type = str(event.get("type") or "")
+        if event_type not in {
+            "payment.paid",
+            "payment_intent.succeeded",
+            "transfer.outward.successful",
+            "transfer.outward.failed",
+        }:
+            return
+        resource_id = event.get("resource_id")
+        async with self._db_factory() as session:
+            record = (await session.execute(
+                select(EWalletTransactionRecord).where(or_(
+                    EWalletTransactionRecord.gateway_payment_intent_id == resource_id,
+                    EWalletTransactionRecord.gateway_transfer_id == resource_id,
+                ))
+            )).scalar_one_or_none()
+        if record is not None and record.state not in {"COMPLETE", "CLAIM_REQUIRED"}:
+            await self._mark_claim_required(
+                record.id,
+                "GATEWAY_RECONCILIATION_PENDING",
+                f"Gateway event remains unreconciled after fast retries: {error}",
+                provisional=True,
+            )
 
     async def _verify_and_complete_cash_in(
         self,
@@ -482,12 +499,18 @@ class EWalletOrchestrator:
             record = await session.get(EWalletTransactionRecord, transaction_id)
             if record is None:
                 raise EWalletTransactionError("Transaction not found")
+            if record.state not in {"CREATED", "WAITING_FOR_PAYMENT", "ACCEPTING_CASH"}:
+                raise EWalletTransactionError(
+                    f"Transaction is not cancellable in state {record.state}",
+                    "TRANSACTION_NOT_CANCELLABLE",
+                )
             if record.inserted_amount > 0 or record.gateway_status in {
                 "succeeded",
                 "paid",
             }:
                 raise EWalletTransactionError(
-                    "Transaction requires operator reconciliation"
+                    "CASH_ALREADY_ACCEPTED: transaction requires operator reconciliation",
+                    "CASH_ALREADY_ACCEPTED",
                 )
             if record.gateway_payment_intent_id:
                 try:
@@ -543,16 +566,33 @@ class EWalletOrchestrator:
             records = list(result.scalars())
             for record in records:
                 if record.state == "DISBURSEMENT_PENDING":
-                    pending_disbursements.append(record.transaction_id)
+                    pending_disbursements.append(record.id)
                 elif record.inserted_amount > 0 or record.gateway_status in {
                     "succeeded",
                     "paid",
                 }:
-                    record.state = "CLAIM_REQUIRED"
-                    record.claim_ticket_code = (
-                        record.claim_ticket_code or _claim_ticket()
-                    )
-                    record.error_code = "CRASH_RECOVERY"
+                    if self._claim_service:
+                        post_authorization = record.state in {"PAYMENT_CONFIRMED", "DISPENSING"}
+                        await self._claim_service.create(
+                            source_kind="EWALLET",
+                            transaction_id=record.id,
+                            claim_kind="OUTPUT_SHORTFALL" if post_authorization else "INPUT_REFUND",
+                            amount=(
+                                max(0, record.transfer_amount - record.dispensed_amount)
+                                if post_authorization else record.inserted_amount
+                            ),
+                            currency="PHP",
+                            reason_code="CRASH_RECOVERY",
+                            reason_message="Recovered interrupted e-wallet transaction during startup",
+                            confirmed_dispensed_amount=record.dispensed_amount,
+                            provisional=post_authorization,
+                            record=record,
+                            session=session,
+                        )
+                    else:
+                        record.state = "CLAIM_REQUIRED"
+                        record.claim_ticket_code = record.claim_ticket_code or _claim_ticket()
+                        record.error_code = "CRASH_RECOVERY"
             await session.commit()
 
         for tx_id in pending_disbursements:
@@ -577,20 +617,21 @@ class EWalletOrchestrator:
             if record.state in {"COMPLETE", "CLAIM_REQUIRED", "DISPENSING"}:
                 return self._serialize(record)
             if record.state == "CANCELLED":
-                record.state = "CLAIM_REQUIRED"
-                record.claim_ticket_code = record.claim_ticket_code or _claim_ticket()
-                record.error_code = "LATE_PAYMENT_ON_CANCELLED"
-                record.error_message = "Payment received after transaction was cancelled"
-                record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                await session.commit()
-                if self._receipt_service:
-                    await self._receipt_service.print_claim_ticket(
-                        record,
-                        claim_code=record.claim_ticket_code,
-                        shortfall=record.amount,
-                        error_reason=record.error_message
+                if self._claim_service:
+                    await self._claim_service.create(
+                        source_kind="EWALLET", transaction_id=record.id,
+                        claim_kind="OUTPUT_SHORTFALL", amount=record.transfer_amount,
+                        currency="PHP", reason_code="LATE_PAYMENT_ON_CANCELLED",
+                        reason_message="Payment received after transaction was cancelled",
+                        provisional=True, record=record, session=session,
                     )
-                await self._broadcast(record, WSEventType.EWALLET_CLAIM_REQUIRED)
+                else:
+                    record.state = "CLAIM_REQUIRED"
+                    record.claim_ticket_code = record.claim_ticket_code or _claim_ticket()
+                    record.error_code = "LATE_PAYMENT_ON_CANCELLED"
+                    record.error_message = "Payment received after transaction was cancelled"
+                    record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                    await session.commit()
                 await self._clear_active()
                 return self._serialize(record)
             snapshot = self._status.snapshot()
@@ -606,7 +647,7 @@ class EWalletOrchestrator:
             }
             await session.commit()
         result = await self._dispenser.execute_dispense(
-            plan, reference_id=transaction_id
+            plan, reference_id=transaction_id, source_kind="EWALLET"
         )
         async with self._db_factory() as session:
             record = await session.get(EWalletTransactionRecord, transaction_id)
@@ -616,19 +657,34 @@ class EWalletOrchestrator:
             if result.success:
                 record.state = "COMPLETE"
                 event_type = WSEventType.EWALLET_COMPLETE
+                await session.commit()
             else:
-                record.state = "CLAIM_REQUIRED"
-                record.claim_ticket_code = (
-                    result.claim_ticket_code or _claim_ticket()
-                )
-                record.error_code = "PARTIAL_DISPENSE"
-                record.error_message = result.error
                 event_type = WSEventType.EWALLET_CLAIM_REQUIRED
-            await session.commit()
+                if self._claim_service:
+                    await self._claim_service.create(
+                        source_kind="EWALLET",
+                        transaction_id=record.id,
+                        claim_kind="OUTPUT_SHORTFALL",
+                        amount=result.shortfall,
+                        currency="PHP",
+                        reason_code="AMBIGUOUS_DISPENSE" if result.ambiguous_amount else "PARTIAL_DISPENSE",
+                        reason_message=result.error,
+                        confirmed_dispensed_amount=result.total_dispensed,
+                        ambiguous_amount=result.ambiguous_amount,
+                        provisional=bool(result.ambiguous_amount),
+                        record=record,
+                        session=session,
+                    )
+                else:
+                    record.state = "CLAIM_REQUIRED"
+                    record.claim_ticket_code = result.claim_ticket_code or _claim_ticket()
+                    record.error_code = "PARTIAL_DISPENSE"
+                    record.error_message = result.error
+                    await session.commit()
             if self._receipt_service:
                 if result.success:
                     await self._receipt_service.print_receipt(record)
-                else:
+                elif not self._claim_service:
                     await self._receipt_service.print_claim_ticket(
                         record,
                         claim_code=record.claim_ticket_code,
@@ -642,6 +698,9 @@ class EWalletOrchestrator:
     async def _complete_cash_in(self, transaction_id: str) -> dict:
         async with self._db_factory() as session:
             record = await session.get(EWalletTransactionRecord, transaction_id)
+            if record.state == "CLAIM_REQUIRED":
+                await self._note_late_gateway_success(session, record)
+                return self._serialize(record)
             if record.state == "COMPLETE":
                 return self._serialize(record)
             record.state = "COMPLETE"
@@ -663,20 +722,21 @@ class EWalletOrchestrator:
                 EWalletTransactionRecord, transaction_id
             )
             if record.state == "CANCELLED":
-                record.state = "CLAIM_REQUIRED"
-                record.claim_ticket_code = record.claim_ticket_code or _claim_ticket()
-                record.error_code = "LATE_PAYMENT_ON_CANCELLED"
-                record.error_message = "Payment received after transaction was cancelled"
-                record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                await session.commit()
-                if self._receipt_service:
-                    await self._receipt_service.print_claim_ticket(
-                        record,
-                        claim_code=record.claim_ticket_code,
-                        shortfall=record.amount,
-                        error_reason=record.error_message
+                if self._claim_service:
+                    await self._claim_service.create(
+                        source_kind="EWALLET", transaction_id=record.id,
+                        claim_kind="OUTPUT_SHORTFALL", amount=record.transfer_amount,
+                        currency="PHP", reason_code="LATE_PAYMENT_ON_CANCELLED",
+                        reason_message="Payment received after transaction was cancelled",
+                        provisional=True, record=record, session=session,
                     )
-                await self._broadcast(record, WSEventType.EWALLET_CLAIM_REQUIRED)
+                else:
+                    record.state = "CLAIM_REQUIRED"
+                    record.claim_ticket_code = record.claim_ticket_code or _claim_ticket()
+                    record.error_code = "LATE_PAYMENT_ON_CANCELLED"
+                    record.error_message = "Payment received after transaction was cancelled"
+                    record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                    await session.commit()
                 await self._clear_active()
                 return self._serialize(record)
             intent_id = record.gateway_payment_intent_id
@@ -729,12 +789,21 @@ class EWalletOrchestrator:
             )
 
         async with self._db_factory() as session:
-            record = await session.get(
-                EWalletTransactionRecord, transaction_id
+            claimed = await session.execute(
+                update(EWalletTransactionRecord)
+                .where(
+                    EWalletTransactionRecord.id == transaction_id,
+                    EWalletTransactionRecord.state == "WAITING_FOR_PAYMENT",
+                )
+                .values(gateway_status="paid", state="PAYMENT_CONFIRMED")
             )
-            record.gateway_status = "paid"
-            record.state = "PAYMENT_CONFIRMED"
             await session.commit()
+            if claimed.rowcount != 1:
+                record = await session.get(EWalletTransactionRecord, transaction_id)
+                if record.state == "CLAIM_REQUIRED":
+                    await self._note_late_gateway_success(session, record)
+                return self._serialize(record)
+        self._cancel_timeout(transaction_id)
         return await self._dispense_paid_cash_out(transaction_id)
 
     async def _mark_claim_required(
@@ -742,26 +811,46 @@ class EWalletOrchestrator:
         transaction_id: str,
         error_code: str,
         error_message: str,
+        provisional: bool = False,
     ) -> dict:
         async with self._db_factory() as session:
             record = await session.get(
                 EWalletTransactionRecord, transaction_id
             )
-            record.state = "CLAIM_REQUIRED"
-            record.claim_ticket_code = (
-                record.claim_ticket_code or _claim_ticket()
-            )
-            record.error_code = error_code
-            record.error_message = error_message
-            record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
-            await session.commit()
-            if self._receipt_service:
-                await self._receipt_service.print_claim_ticket(
-                    record,
-                    claim_code=record.claim_ticket_code,
-                    shortfall=record.amount - record.dispensed_amount,
-                    error_reason=record.error_message
+            if record.direction == "cash-in":
+                amount = record.inserted_amount
+                claim_kind = "INPUT_REFUND"
+            else:
+                amount = max(0, record.transfer_amount - record.dispensed_amount)
+                claim_kind = "OUTPUT_SHORTFALL"
+            if self._claim_service:
+                await self._claim_service.create(
+                    source_kind="EWALLET",
+                    transaction_id=record.id,
+                    claim_kind=claim_kind,
+                    amount=amount,
+                    currency="PHP",
+                    reason_code=error_code,
+                    reason_message=error_message,
+                    confirmed_dispensed_amount=record.dispensed_amount,
+                    provisional=provisional or "VERIFICATION" in error_code,
+                    record=record,
+                    session=session,
                 )
+            else:
+                record.state = "CLAIM_REQUIRED"
+                record.claim_ticket_code = record.claim_ticket_code or _claim_ticket()
+                record.error_code = error_code
+                record.error_message = error_message
+                record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                await session.commit()
+                if self._receipt_service:
+                    await self._receipt_service.print_claim_ticket(
+                        record,
+                        claim_code=record.claim_ticket_code,
+                        shortfall=amount,
+                        error_reason=record.error_message
+                    )
             await self._broadcast(
                 record,
                 WSEventType.EWALLET_CLAIM_REQUIRED,
@@ -769,12 +858,72 @@ class EWalletOrchestrator:
             await self._clear_active()
             return self._serialize(record)
 
+    async def _note_late_gateway_success(self, session, record) -> None:
+        """Preserve an issued claim while flagging a late success for review."""
+        from app.models.db_models import ClaimRecord
+        claim = (await session.execute(
+            select(ClaimRecord).where(
+                ClaimRecord.source_kind == "EWALLET",
+                ClaimRecord.transaction_id == record.id,
+                ClaimRecord.status != "RESOLVED",
+            ).limit(1)
+        )).scalar_one_or_none()
+        record.gateway_status = "late_success"
+        record.error_code = "LATE_GATEWAY_SUCCESS"
+        record.error_message = "Gateway later reported success; operator review is required"
+        if claim:
+            claim.reason_code = "LATE_GATEWAY_SUCCESS"
+            claim.reason_message = record.error_message
+            claim.status = "PROVISIONAL"
+        await session.commit()
+
     async def _clear_active(self) -> None:
+        if self._active_transaction_id:
+            self._cancel_timeout(self._active_transaction_id)
         self._active_transaction_id = None
         if self._operation_mode and self._operation_owner:
             self._operation_mode.end_transaction(self._operation_owner)
             self._operation_owner = None
         await self._set_coin_acceptor_enabled(False)
+
+    def _reset_timeout(self, transaction_id: str) -> None:
+        self._cancel_timeout(transaction_id)
+        self._timeout_tasks[transaction_id] = asyncio.create_task(
+            self._timeout_transaction(transaction_id)
+        )
+
+    def _cancel_timeout(self, transaction_id: str) -> None:
+        task = self._timeout_tasks.pop(transaction_id, None)
+        if task and task is not asyncio.current_task() and not task.done():
+            task.cancel()
+
+    async def _timeout_transaction(self, transaction_id: str) -> None:
+        try:
+            await asyncio.sleep(60)
+            async with self._db_factory() as session:
+                record = await session.get(EWalletTransactionRecord, transaction_id)
+                if record is None or record.state not in {"ACCEPTING_CASH", "CASH_ACCEPTED", "WAITING_FOR_PAYMENT"}:
+                    return
+                has_cash = record.inserted_amount > 0
+            if has_cash:
+                await self._mark_claim_required(
+                    transaction_id,
+                    "TIMEOUT_AFTER_CASH",
+                    "Cash acceptance timed out after customer funds were accepted",
+                )
+            else:
+                async with self._db_factory() as session:
+                    record = await session.get(EWalletTransactionRecord, transaction_id)
+                    if record.state in {"ACCEPTING_CASH", "WAITING_FOR_PAYMENT"}:
+                        record.state = "CANCELLED"
+                        record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                        await session.commit()
+                        await self._broadcast(record, WSEventType.EWALLET_STATE_CHANGED)
+                await self._clear_active()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._timeout_tasks.pop(transaction_id, None)
 
     async def _set_coin_acceptor_enabled(self, enabled: bool, raise_on_error: bool = False) -> None:
         if self._coin_controller is None:

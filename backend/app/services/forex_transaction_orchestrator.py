@@ -24,9 +24,6 @@ from app.core.errors import ConnectivityError, ForexError, TransactionError
 from app.models.db_models import (
     TransactionRecord,
     TransactionState,
-    WALAction,
-    WALEntry,
-    WALStatus,
 )
 from app.models.events import WSEvent, WSEventType
 from app.models.forex import ForexQuote
@@ -64,6 +61,7 @@ class ForexTransactionOrchestrator:
         db_session_factory: async_sessionmaker,
         operation_mode: OperationModeManager | None = None,
         receipt_service: ReceiptService | None = None,
+        claim_service=None,
     ):
         self._bill_acceptor = bill_acceptor
         self._dispenser = dispense_orchestrator
@@ -78,6 +76,7 @@ class ForexTransactionOrchestrator:
         self._operation_owner: Optional[str] = None
         self._receipt_service = receipt_service
         self._confirm_lock = asyncio.Lock()
+        self._claim_service = claim_service
 
     @property
     def has_active_transaction(self) -> bool:
@@ -185,18 +184,6 @@ class ForexTransactionOrchestrator:
         )
         session.add(record)
 
-        # WAL: rate locked
-        wal_entry = WALEntry(
-            transaction_id=tx_id,
-            action=WALAction.FOREX_RATE_LOCKED.value,
-            data={
-                "rate": quote.rate,
-                "from": from_currency.value,
-                "to": to_currency.value,
-                "amount": selected_amount,
-            },
-        )
-        session.add(wal_entry)
         await session.commit()
 
         # 8. Create state machine
@@ -205,6 +192,7 @@ class ForexTransactionOrchestrator:
             transaction_type=tx_type,
             ws_manager=self._ws,
             db_session=session,
+            on_timeout=self._handle_timeout,
         )
 
         await self._active_tx.transition_to(TransactionState.WAITING_FOR_BILL)
@@ -262,7 +250,7 @@ class ForexTransactionOrchestrator:
                     TransactionState.ERROR,
                     {"error_code": "HARDWARE_FAULT", "error_message": result.error},
                 )
-                self._clear_active()
+                await self._cleanup()
                 return await self.get_transaction_state(tx.transaction_id)
 
             await tx.transition_to(
@@ -308,6 +296,7 @@ class ForexTransactionOrchestrator:
                 TransactionState.DISPENSING,
                 TransactionState.COMPLETE,
                 TransactionState.ERROR,
+                TransactionState.CLAIM_REQUIRED,
             }:
                 return await self.get_transaction_state(tx.transaction_id)
             return await self._confirm_transaction_once(tx)
@@ -361,7 +350,7 @@ class ForexTransactionOrchestrator:
         await tx.transition_to(TransactionState.DISPENSING)
 
         result = await self._dispenser.execute_dispense(
-            plan, reference_id=tx.transaction_id
+            plan, reference_id=tx.transaction_id, source_kind="FOREX"
         )
 
         db_record.dispensed_amount = result.total_dispensed
@@ -376,23 +365,36 @@ class ForexTransactionOrchestrator:
             if self._receipt_service:
                 await self._receipt_service.print_receipt(db_record)
         else:
-            await tx.transition_to(
-                TransactionState.ERROR,
-                {
+            if self._claim_service:
+                claim = await self._claim_service.create(
+                    source_kind="FOREX",
+                    transaction_id=db_record.id,
+                    claim_kind="OUTPUT_SHORTFALL",
+                    amount=result.shortfall,
+                    currency=db_record.to_currency or "PHP",
+                    reason_code="AMBIGUOUS_DISPENSE" if result.ambiguous_amount else "PARTIAL_DISPENSE",
+                    reason_message=result.error,
+                    confirmed_dispensed_amount=result.total_dispensed,
+                    ambiguous_amount=result.ambiguous_amount,
+                    provisional=bool(result.ambiguous_amount),
+                    record=db_record,
+                    session=session,
+                )
+                await tx.transition_to(TransactionState.CLAIM_REQUIRED, {
+                    "error_code": "PARTIAL_DISPENSE",
+                    "error_message": result.error,
+                    "dispensed_amount": result.total_dispensed,
+                    "shortfall": result.shortfall,
+                    "claim_ticket_code": claim.claim_ticket_code,
+                })
+            else:
+                await tx.transition_to(TransactionState.ERROR, {
                     "error_code": "PARTIAL_DISPENSE",
                     "error_message": result.error,
                     "dispensed_amount": result.total_dispensed,
                     "shortfall": result.shortfall,
                     "claim_ticket_code": result.claim_ticket_code,
-                },
-            )
-            if self._receipt_service:
-                await self._receipt_service.print_claim_ticket(
-                    db_record,
-                    claim_code=result.claim_ticket_code,
-                    shortfall=result.shortfall,
-                    error_reason=result.error
-                )
+                })
 
         state = await self.get_transaction_state(tx.transaction_id)
         await self._cleanup()
@@ -401,10 +403,39 @@ class ForexTransactionOrchestrator:
     async def cancel_transaction(self) -> dict:
         """Cancel the active forex transaction."""
         tx = self._require_active()
+        record = await self._get_db_record(self._active_session, tx.transaction_id)
+        if record and record.inserted_amount > 0:
+            raise TransactionError(
+                tx.transaction_id,
+                "CASH_ALREADY_ACCEPTED: transaction cannot be cancelled",
+            )
         await tx.cancel()
         state = await self.get_transaction_state(tx.transaction_id)
         await self._cleanup()
         return state
+
+    async def _handle_timeout(self, expected_state: TransactionState) -> None:
+        tx = self._require_active()
+        record = await self._get_db_record(self._active_session, tx.transaction_id)
+        if record and record.inserted_amount > 0 and self._claim_service:
+            claim = await self._claim_service.create(
+                source_kind="FOREX",
+                transaction_id=record.id,
+                claim_kind="INPUT_REFUND",
+                amount=record.inserted_amount,
+                currency=record.from_currency or "PHP",
+                reason_code="TIMEOUT_AFTER_CASH",
+                reason_message=f"Timeout in {expected_state.value}",
+                record=record,
+                session=self._active_session,
+            )
+            await tx.transition_to(
+                TransactionState.CLAIM_REQUIRED,
+                {"claim_ticket_code": claim.claim_ticket_code, "error_code": "TIMEOUT_AFTER_CASH"},
+            )
+        else:
+            await tx.transition_to(TransactionState.CANCELLED, {"error_code": "TIMEOUT"})
+        await self._cleanup()
 
     async def get_transaction_state(self, transaction_id: str) -> dict:
         """Get full state including forex-specific fields."""
@@ -475,53 +506,8 @@ class ForexTransactionOrchestrator:
         self._bill_acceptor.set_expected_currency("PHP")
 
     async def recover_pending_transactions(self) -> None:
-        """Recover from pending WAL entries for forex transactions on startup.
-
-        Called during app initialization to handle forex transactions that
-        were interrupted by power loss or crash.
-        """
+        """Close non-physical forex work interrupted by a backend crash."""
         async with self._db_factory() as session:
-            result = await session.execute(
-                select(WALEntry)
-                .join(TransactionRecord, WALEntry.transaction_id == TransactionRecord.id)
-                .where(
-                    WALEntry.status == WALStatus.PENDING.value,
-                    TransactionRecord.type.like("forex-%")
-                )
-            )
-            pending_entries = result.scalars().all()
-
-            for entry in pending_entries:
-                try:
-                    logger.info(
-                        f"Recovering forex WAL entry {entry.id}: "
-                        f"tx={entry.transaction_id} action={entry.action}"
-                    )
-                    # Find the transaction record
-                    result = await session.execute(
-                        select(TransactionRecord).where(
-                            TransactionRecord.id == entry.transaction_id
-                        )
-                    )
-                    record = result.scalar_one_or_none()
-
-                    if record:
-                        # Mark transaction as ERROR with recovery note
-                        record.state = TransactionState.ERROR.value
-                        record.error_code = "CRASH_RECOVERY"
-                        record.error_message = f"Recovered from pending action: {entry.action}"
-                        record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
-
-                    # Mark WAL entry as rolled back
-                    entry.status = WALStatus.ROLLED_BACK.value
-                    logger.info(f"Forex WAL entry {entry.id} recovered (rolled back)")
-                except Exception as e:
-                    logger.error(
-                        f"Failed to recover forex WAL entry {entry.id}: {e}",
-                        exc_info=True,
-                    )
-
-            # Also recover any forex transaction stuck in active/physical states
             stuck_result = await session.execute(
                 select(TransactionRecord).where(
                     TransactionRecord.state.in_(
@@ -539,12 +525,27 @@ class ForexTransactionOrchestrator:
                 logger.warning(
                     f"Recovering forex transaction {record.id} stuck in active state {record.state}"
                 )
-                record.state = TransactionState.ERROR.value
-                record.error_code = "CRASH_RECOVERY"
-                record.error_message = "Recovered from stuck active state during startup"
-                record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                if self._claim_service and record.inserted_amount > 0:
+                    dispensing = record.state == TransactionState.DISPENSING.value
+                    await self._claim_service.create(
+                        source_kind="FOREX",
+                        transaction_id=record.id,
+                        claim_kind="OUTPUT_SHORTFALL" if dispensing else "INPUT_REFUND",
+                        amount=(record.converted_amount or 0) if dispensing else record.inserted_amount,
+                        currency=(record.to_currency if dispensing else record.from_currency) or "PHP",
+                        reason_code="CRASH_RECOVERY",
+                        reason_message="Recovered interrupted forex transaction during startup",
+                        provisional=dispensing,
+                        record=record,
+                        session=session,
+                    )
+                else:
+                    record.state = TransactionState.ERROR.value
+                    record.error_code = "CRASH_RECOVERY"
+                    record.error_message = "Recovered from stuck active state during startup"
+                    record.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
-            if pending_entries or stuck_records:
+            if stuck_records:
                 await session.commit()
             else:
-                logger.info("No pending forex WAL entries or stuck transactions to recover")
+                logger.info("No stuck forex transactions to recover")

@@ -7,7 +7,7 @@ states with validation, timeout handling, and WebSocket event emission.
 import asyncio
 import logging
 from datetime import datetime
-from typing import Dict, Optional, Set
+from typing import Awaitable, Callable, Dict, Optional, Set
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,9 +17,6 @@ from app.core.errors import InvalidTransitionError
 from app.models.db_models import (
     TransactionRecord,
     TransactionState,
-    WALAction,
-    WALEntry,
-    WALStatus,
 )
 from app.models.events import WSEvent, WSEventType
 
@@ -36,6 +33,7 @@ VALID_TRANSITIONS: Dict[TransactionState, Set[TransactionState]] = {
         TransactionState.WAITING_FOR_CONFIRMATION,
         TransactionState.CANCELLED,
         TransactionState.ERROR,
+        TransactionState.CLAIM_REQUIRED,
     },
     TransactionState.AUTHENTICATING: {
         TransactionState.SORTING,
@@ -49,14 +47,17 @@ VALID_TRANSITIONS: Dict[TransactionState, Set[TransactionState]] = {
     TransactionState.WAITING_FOR_CONFIRMATION: {
         TransactionState.DISPENSING,
         TransactionState.CANCELLED,
+        TransactionState.CLAIM_REQUIRED,
     },
     TransactionState.DISPENSING: {
         TransactionState.COMPLETE,
         TransactionState.ERROR,
+        TransactionState.CLAIM_REQUIRED,
     },
     TransactionState.COMPLETE: {TransactionState.IDLE},
     TransactionState.CANCELLED: {TransactionState.IDLE},
     TransactionState.ERROR: {TransactionState.IDLE},
+    TransactionState.CLAIM_REQUIRED: {TransactionState.IDLE},
 }
 
 # States that can be cancelled by user
@@ -72,7 +73,6 @@ STATE_TIMEOUTS: Dict[TransactionState, Optional[float]] = {
     TransactionState.AUTHENTICATING: 60.0,
     TransactionState.SORTING: 30.0,
     TransactionState.WAITING_FOR_CONFIRMATION: 60.0,
-    TransactionState.DISPENSING: 45.0,
 }
 
 
@@ -85,6 +85,7 @@ class TransactionStateMachine:
         transaction_type: str,
         ws_manager: ConnectionManager,
         db_session: AsyncSession,
+        on_timeout: Optional[Callable[[TransactionState], Awaitable[None]]] = None,
     ):
         self._id = transaction_id
         self._type = transaction_type
@@ -93,6 +94,7 @@ class TransactionStateMachine:
         self._db = db_session
         self._timeout_task: Optional[asyncio.Task] = None
         self._data: dict = {}
+        self._on_timeout = on_timeout
 
     @property
     def state(self) -> TransactionState:
@@ -131,15 +133,6 @@ class TransactionStateMachine:
         # Cancel existing timeout
         self._cancel_timeout()
 
-        # Write WAL entry for state transition
-        wal_entry = WALEntry(
-            transaction_id=self._id,
-            action=f"STATE_{old_state.value}_TO_{new_state.value}",
-            data=data or {},
-            status=WALStatus.PENDING.value,
-        )
-        self._db.add(wal_entry)
-
         # Update state
         self._state = new_state
         if data:
@@ -176,10 +169,10 @@ class TransactionStateMachine:
                 TransactionState.COMPLETE,
                 TransactionState.CANCELLED,
                 TransactionState.ERROR,
+                TransactionState.CLAIM_REQUIRED,
             ):
                 record.completed_at = datetime.utcnow()
 
-        wal_entry.status = WALStatus.COMPLETED.value
         await self._db.commit()
 
         # Start timeout for new state if applicable
@@ -209,16 +202,8 @@ class TransactionStateMachine:
         """Cancel the transaction from any cancellable state."""
         if self._state in CANCELLABLE_STATES:
             await self.transition_to(TransactionState.CANCELLED)
-        elif self._state not in (
-            TransactionState.COMPLETE,
-            TransactionState.CANCELLED,
-            TransactionState.ERROR,
-        ):
-            # Force cancel for non-terminal states
-            await self.transition_to(TransactionState.ERROR, {
-                "error_code": "CANCELLED",
-                "error_message": "Transaction cancelled by user",
-            })
+        else:
+            raise InvalidTransitionError(self._state.value, TransactionState.CANCELLED.value)
 
     def _start_timeout(self, state: TransactionState, timeout: float) -> None:
         """Start an async timeout task for the current state."""
@@ -238,7 +223,9 @@ class TransactionStateMachine:
                     f"Transaction {self._id}: timeout in state {expected_state.value} "
                     f"after {timeout}s"
                 )
-                if expected_state in CANCELLABLE_STATES:
+                if self._on_timeout is not None:
+                    await self._on_timeout(expected_state)
+                elif expected_state in CANCELLABLE_STATES:
                     await self.transition_to(
                         TransactionState.CANCELLED,
                         {"error_code": "TIMEOUT", "error_message": f"Timeout in {expected_state.value}"},
@@ -253,7 +240,11 @@ class TransactionStateMachine:
 
     def _cancel_timeout(self) -> None:
         """Cancel any running timeout task."""
-        if self._timeout_task and not self._timeout_task.done():
+        if (
+            self._timeout_task
+            and not self._timeout_task.done()
+            and self._timeout_task is not asyncio.current_task()
+        ):
             self._timeout_task.cancel()
             self._timeout_task = None
 
@@ -271,5 +262,6 @@ class TransactionStateMachine:
             TransactionState.COMPLETE: WSEventType.TRANSACTION_COMPLETE,
             TransactionState.CANCELLED: WSEventType.TRANSACTION_CANCELLED,
             TransactionState.ERROR: WSEventType.TRANSACTION_ERROR,
+            TransactionState.CLAIM_REQUIRED: WSEventType.CLAIM_TICKET,
         }
         return mapping.get(state, WSEventType.TRANSACTION_STATE_CHANGED)

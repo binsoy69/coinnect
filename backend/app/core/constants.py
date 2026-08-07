@@ -45,6 +45,10 @@ class ErrorCode(str, Enum):
     TIMEOUT = "TIMEOUT"
     MOTOR_FAULT = "MOTOR_FAULT"
     LOCKED_OUT = "LOCKED_OUT"
+    RECOVERY_REQUIRED = "RECOVERY_REQUIRED"
+    AMBIGUOUS = "AMBIGUOUS"
+    NOT_FOUND = "NOT_FOUND"
+    BUSY = "BUSY"
 
 
 class ControllerType(str, Enum):

@@ -8,6 +8,7 @@ from app.drivers.serial_manager import SerialManager
 from app.models.serial_messages import (
     DispenseResponse,
     DispenseStatusResponse,
+    OperationStatusResponse,
     ErrorResponse,
     HomeResponse,
     PingResponse,
@@ -49,16 +50,27 @@ class BillController:
         raw = await self._serial.send_bill_command({"cmd": "SORT_STATUS"})
         return self._parse_or_raise(raw, SortStatusResponse)
 
-    async def dispense(self, denom: BillDenom, count: int) -> DispenseResponse:
+    async def dispense(self, denom: BillDenom, count: int, operation_id: str) -> DispenseResponse:
         """Dispense `count` bills of the given denomination.
         Duration: ~600-700ms per bill plus mechanical verification.
         """
         timeout = max(15.0, count * 3.0 + 10.0)
         raw = await self._serial.send_bill_command(
-            {"cmd": "DISPENSE", "denom": denom.value, "count": count},
+            {"cmd": "DISPENSE", "denom": denom.value, "count": count, "operation_id": operation_id},
             timeout=timeout,
         )
         return self._parse_or_raise(raw, DispenseResponse)
+
+    async def operation_status(self, operation_id: str) -> OperationStatusResponse:
+        raw = await self._serial.send_bill_command(
+            {"cmd": "DISPENSE_OPERATION_STATUS", "operation_id": operation_id}
+        )
+        return self._parse_or_raise(raw, OperationStatusResponse)
+
+    async def acknowledge_operation(self, operation_id: str) -> dict:
+        return await self._serial.send_bill_command(
+            {"cmd": "DISPENSE_OPERATION_ACK", "operation_id": operation_id}
+        )
 
     async def dispense_status(self, denom: BillDenom) -> DispenseStatusResponse:
         """Check if the dispenser for a denomination is ready."""

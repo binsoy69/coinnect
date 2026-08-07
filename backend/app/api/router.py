@@ -52,7 +52,13 @@ async def _handle_ws_action(
     orchestrator = websocket.app.state.transaction_orchestrator
     settings = websocket.app.state.settings
 
-    if action == "SIMULATE_BILL_INSERT" and settings.use_mock_hardware:
+    simulation_enabled = (
+        settings.environment.lower() != "production"
+        and settings.use_mock_hardware
+        and settings.use_mock_serial
+    )
+
+    if action == "SIMULATE_BILL_INSERT" and simulation_enabled:
         denom = data.get("denom")
         if denom and orchestrator.has_active_transaction:
             try:
@@ -74,7 +80,7 @@ async def _handle_ws_action(
             except Exception as e:
                 logger.error(f"WS SIMULATE_BILL_INSERT error: {e}")
 
-    elif action == "SIMULATE_COIN_INSERT" and settings.use_mock_hardware:
+    elif action == "SIMULATE_COIN_INSERT" and simulation_enabled:
         denom = data.get("denom", 0)
         if denom and orchestrator.has_active_transaction:
             try:
@@ -82,7 +88,7 @@ async def _handle_ws_action(
             except Exception as e:
                 logger.error(f"WS SIMULATE_COIN_INSERT error: {e}")
 
-    elif action == "SIMULATE_FOREX_BILL_INSERT" and settings.use_mock_hardware:
+    elif action == "SIMULATE_FOREX_BILL_INSERT" and simulation_enabled:
         denom = data.get("denom")
         currency = data.get("currency", "PHP")
         forex_orchestrator = websocket.app.state.forex_transaction_orchestrator

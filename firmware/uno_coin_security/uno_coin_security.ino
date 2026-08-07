@@ -4,11 +4,12 @@
 #include <SPI.h>
 #include <MFRC522.h>
 #include <PinChangeInterrupt.h>
+#include <EEPROM.h>
 
 // Coinnect Uno firmware: coin accept/dispense + security + RFID.
 // Serial protocol: newline-delimited JSON at 115200 baud.
 
-static const char *FIRMWARE_VERSION = "2.2.0-uno";
+static const char *FIRMWARE_VERSION = "3.0.0-uno";
 static const char *CONTROLLER_ID = "COIN_SECURITY";
 
 // MFRC522 RFID reader pins.
@@ -117,6 +118,112 @@ enum DispenseStep {
 static DispenseStep dispenseStep = DISPENSE_STEP_IDLE;
 static unsigned long dispenseStepStartMs = 0;
 static const char *dispenseCommandContext = "DISPENSE";
+static long dispenseCommandId = -1;
+static char dispenseOperationId[37] = "";
+
+// Checksummed, wear-levelled dispense journal. State values are
+// 0=ACKNOWLEDGED, 1=STARTED, 2=COMPLETED, 3=FAILED, 4=AMBIGUOUS.
+struct __attribute__((packed)) OperationJournalRecord {
+  uint32_t magic;
+  uint32_t sequence;
+  char operationId[37];
+  uint8_t state;
+  int16_t dispensed;
+  uint16_t crc;
+};
+static const uint32_t JOURNAL_MAGIC = 0x434E4A32UL;
+static OperationJournalRecord journalRecord = {};
+static int journalSlot = -1;
+
+uint16_t journalCrc(const OperationJournalRecord &record) {
+  const uint8_t *bytes = reinterpret_cast<const uint8_t *>(&record);
+  uint16_t crc = 0xFFFF;
+  for (size_t i = 0; i < sizeof(OperationJournalRecord) - sizeof(record.crc); i++) {
+    crc ^= bytes[i];
+    for (uint8_t bit = 0; bit < 8; bit++) {
+      crc = (crc & 1) ? (crc >> 1) ^ 0xA001 : crc >> 1;
+    }
+  }
+  return crc;
+}
+
+void loadOperationJournal() {
+  bool corrupt = false;
+  const int slots = EEPROM.length() / sizeof(OperationJournalRecord);
+  for (int slot = 0; slot < slots; slot++) {
+    OperationJournalRecord candidate;
+    EEPROM.get(slot * sizeof(OperationJournalRecord), candidate);
+    if (candidate.magic != JOURNAL_MAGIC) continue;
+    if (candidate.crc != journalCrc(candidate)) {
+      corrupt = true;
+      continue;
+    }
+    if (journalSlot < 0 || candidate.sequence > journalRecord.sequence) {
+      journalRecord = candidate;
+      journalSlot = slot;
+    }
+  }
+  if (corrupt) {
+    journalRecord = {};
+    journalRecord.state = 4;
+  }
+}
+
+void persistOperation(uint8_t state, const char *operationId, int dispensed) {
+  OperationJournalRecord next = {};
+  next.magic = JOURNAL_MAGIC;
+  next.sequence = journalRecord.sequence + 1;
+  strncpy(next.operationId, operationId ? operationId : "", 36);
+  next.operationId[36] = '\0';
+  next.state = state;
+  next.dispensed = dispensed;
+  next.crc = journalCrc(next);
+  const int slots = EEPROM.length() / sizeof(OperationJournalRecord);
+  journalSlot = (journalSlot + 1) % slots;
+  EEPROM.put(journalSlot * sizeof(OperationJournalRecord), next);
+  journalRecord = next;
+}
+
+bool isValidOperationId(const char *value) {
+  if (!value || strlen(value) != 36) return false;
+  for (uint8_t i = 0; i < 36; i++) {
+    if (i == 8 || i == 13 || i == 18 || i == 23) {
+      if (value[i] != '-') return false;
+    } else if (!isxdigit(value[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool findOperation(const char *operationId, OperationJournalRecord &found) {
+  bool matched = false;
+  const int slots = EEPROM.length() / sizeof(OperationJournalRecord);
+  for (int slot = 0; slot < slots; slot++) {
+    OperationJournalRecord candidate;
+    EEPROM.get(slot * sizeof(OperationJournalRecord), candidate);
+    if (candidate.magic == JOURNAL_MAGIC &&
+        candidate.crc == journalCrc(candidate) &&
+        strcmp(candidate.operationId, operationId) == 0 &&
+        (!matched || candidate.sequence > found.sequence)) {
+      found = candidate;
+      matched = true;
+    }
+  }
+  return matched;
+}
+
+void clearCorruptJournalSlots() {
+  const int slots = EEPROM.length() / sizeof(OperationJournalRecord);
+  for (int slot = 0; slot < slots; slot++) {
+    OperationJournalRecord candidate;
+    EEPROM.get(slot * sizeof(OperationJournalRecord), candidate);
+    if (candidate.magic == JOURNAL_MAGIC && candidate.crc != journalCrc(candidate)) {
+      uint32_t cleared = 0;
+      EEPROM.put(slot * sizeof(OperationJournalRecord), cleared);
+    }
+  }
+}
 
 static int changeC20 = 0;
 static int changeC10 = 0;
@@ -166,12 +273,15 @@ void sendCoinInEvent(int denom) {
   sendDocument(doc);
 }
 
-void sendError(const char *code, int dispensed = -1) {
+void sendError(const char *code, int dispensed = -1, const char *operationId = NULL) {
   StaticJsonDocument<128> doc;
   doc["status"] = "ERROR";
   doc["code"] = code;
   if (dispensed >= 0) {
     doc["dispensed"] = dispensed;
+  }
+  if (operationId && operationId[0]) {
+    doc["operation_id"] = operationId;
   }
   sendDocument(doc);
 }
@@ -421,7 +531,14 @@ void serviceDispense() {
   }
 
   if (tamperLatched) {
-    sendError("LOCKED_OUT", dispenseActualCount);
+    if (strcmp(dispenseCommandContext, "DISPENSE") == 0) {
+      persistOperation(3, dispenseOperationId, dispenseActualCount);
+      currentCommandId = dispenseCommandId;
+      sendError("LOCKED_OUT", dispenseActualCount, dispenseOperationId);
+      currentCommandId = -1;
+    } else {
+      sendError("LOCKED_OUT", dispenseActualCount);
+    }
     dispenseActive = false;
     return;
   }
@@ -465,10 +582,14 @@ void serviceDispense() {
             dispenseActive = false;
           }
         } else {
-          StaticJsonDocument<96> doc;
+          persistOperation(2, dispenseOperationId, dispenseActualCount);
+          currentCommandId = dispenseCommandId;
+          StaticJsonDocument<160> doc;
           doc["status"] = "OK";
           doc["dispensed"] = dispenseActualCount;
+          doc["operation_id"] = dispenseOperationId;
           sendDocument(doc);
+          currentCommandId = -1;
           dispenseActive = false;
         }
         return;
@@ -550,6 +671,9 @@ void handleReset() {
   setCoinSorterPosition("CENTER");
   lockDoor(true);
 
+  if (dispenseActive && strcmp(dispenseCommandContext, "DISPENSE") == 0) {
+    persistOperation(4, dispenseOperationId, dispenseActualCount);
+  }
   dispenseActive = false; // Abort any active coin dispensing
 
   StaticJsonDocument<64> doc;
@@ -564,6 +688,29 @@ void handleCoinDispense(JsonDocument &cmdDoc) {
   }
   const int denom = cmdDoc["denom"] | 0;
   const int count = cmdDoc["count"] | 0;
+  const char *operationId = cmdDoc["operation_id"] | "";
+  if (!isValidOperationId(operationId)) {
+    sendError("INVALID_PARAM", -1, operationId);
+    return;
+  }
+
+  OperationJournalRecord prior = {};
+  if (findOperation(operationId, prior)) {
+    if (prior.state == 2) {
+      StaticJsonDocument<160> doc;
+      doc["status"] = "OK";
+      doc["dispensed"] = prior.dispensed;
+      doc["operation_id"] = operationId;
+      sendDocument(doc);
+    } else {
+      sendError("RECOVERY_REQUIRED", prior.dispensed, operationId);
+    }
+    return;
+  }
+  if (journalRecord.state == 1 || journalRecord.state == 4) {
+    sendError("RECOVERY_REQUIRED", journalRecord.dispensed, operationId);
+    return;
+  }
 
   if (!isValidCoinDenom(denom)) {
     sendError("INVALID_DENOM");
@@ -584,12 +731,59 @@ void handleCoinDispense(JsonDocument &cmdDoc) {
     return;
   }
 
+  persistOperation(1, operationId, 0);
+  strncpy(dispenseOperationId, operationId, 36);
+  dispenseOperationId[36] = '\0';
+  dispenseCommandId = currentCommandId;
   dispenseActive = true;
   dispenseDenom = denom;
   dispenseTargetCount = count;
   dispenseActualCount = 0;
   dispenseCommandContext = "DISPENSE";
   dispenseStep = DISPENSE_STEP_IDLE;
+}
+
+void handleOperationStatus(JsonDocument &cmdDoc) {
+  const char *operationId = cmdDoc["operation_id"] | "";
+  if (!isValidOperationId(operationId)) {
+    sendError("INVALID_PARAM", -1, operationId);
+    return;
+  }
+
+  StaticJsonDocument<192> doc;
+  doc["status"] = "OK";
+  doc["operation_id"] = operationId;
+  OperationJournalRecord prior = {};
+  if (journalRecord.state == 4 && journalRecord.operationId[0] == '\0') {
+    doc["operation_status"] = "AMBIGUOUS";
+  } else if (!findOperation(operationId, prior)) {
+    doc["operation_status"] = "NOT_FOUND";
+  } else {
+    doc["operation_status"] =
+        prior.state == 1 ? "STARTED" :
+        prior.state == 2 ? "COMPLETED" :
+        prior.state == 3 ? "FAILED" : "AMBIGUOUS";
+    doc["dispensed"] = prior.dispensed;
+  }
+  sendDocument(doc);
+}
+
+void handleOperationAck(JsonDocument &cmdDoc) {
+  const char *operationId = cmdDoc["operation_id"] | "";
+  if (!isValidOperationId(operationId)) {
+    sendError("INVALID_PARAM", -1, operationId);
+    return;
+  }
+  if (journalRecord.state != 4 && strcmp(operationId, journalRecord.operationId) != 0) {
+    sendError("NOT_FOUND", -1, operationId);
+    return;
+  }
+  clearCorruptJournalSlots();
+  persistOperation(0, "", 0);
+  StaticJsonDocument<128> doc;
+  doc["status"] = "OK";
+  doc["operation_id"] = operationId;
+  sendDocument(doc);
 }
 
 void handleCoinChange(JsonDocument &cmdDoc) {
@@ -764,6 +958,10 @@ void dispatchCommand(const String &line) {
     handleReset();
   } else if (strcmp(cmd, "COIN_DISPENSE") == 0) {
     handleCoinDispense(cmdDoc);
+  } else if (strcmp(cmd, "DISPENSE_OPERATION_STATUS") == 0) {
+    handleOperationStatus(cmdDoc);
+  } else if (strcmp(cmd, "DISPENSE_OPERATION_ACK") == 0) {
+    handleOperationAck(cmdDoc);
   } else if (strcmp(cmd, "COIN_CHANGE") == 0) {
     handleCoinChange(cmdDoc);
   } else if (strcmp(cmd, "COIN_RESET") == 0) {
@@ -783,6 +981,8 @@ void dispatchCommand(const String &line) {
   } else {
     sendError("UNKNOWN_CMD");
   }
+
+  currentCommandId = -1;
 }
 
 void handleSerialInput() {
@@ -837,6 +1037,7 @@ void setup() {
   setCoinAcceptorEnabled(false);
   setupCoinServos();
   setupSecurityPins();
+  loadOperationJournal();
 
   SPI.begin();
   mfrc522.PCD_Init();
@@ -885,4 +1086,3 @@ void loop() {
   serviceRFID();
   handleSerialInput();
 }
-

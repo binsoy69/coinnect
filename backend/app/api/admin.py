@@ -79,11 +79,24 @@ async def get_claims(
     session_factory = request.app.state.db_session_factory
     
     from sqlalchemy import select
-    from app.models.db_models import TransactionRecord, EWalletTransactionRecord
+    from app.models.db_models import ClaimRecord, TransactionRecord, EWalletTransactionRecord
     
     claims = []
     
     async with session_factory() as session:
+        unified = (
+            await session.execute(
+                select(ClaimRecord).where(ClaimRecord.status != "RESOLVED")
+            )
+        ).scalars().all()
+        if unified:
+            return {
+                "claims": sorted(
+                    [request.app.state.claim_service.serialize(claim) for claim in unified],
+                    key=lambda item: item["created_at"],
+                    reverse=True,
+                )
+            }
         # Query standard transaction claims (unresolved errors with claim tickets)
         stmt_std = select(TransactionRecord).where(
             TransactionRecord.state == "ERROR",
@@ -152,9 +165,25 @@ async def resolve_claim(
     
     from datetime import datetime
     from sqlalchemy import select
-    from app.models.db_models import TransactionRecord, EWalletTransactionRecord
+    from app.models.db_models import ClaimRecord, TransactionRecord, EWalletTransactionRecord
     
     async with session_factory() as session:
+        claim = (
+            await session.execute(
+                select(ClaimRecord).where(
+                    ClaimRecord.claim_ticket_code == claim_ticket_code
+                )
+            )
+        ).scalar_one_or_none()
+        if claim:
+            if claim.resolved_at is not None:
+                raise HTTPException(status_code=400, detail="Claim has already been resolved")
+            claim.status = "RESOLVED"
+            claim.resolved_at = datetime.utcnow()
+            claim.resolution_notes = body.resolution_notes
+            claim.resolved_by = admin.session_id
+            await session.commit()
+            return {"status": "success", "message": f"Claim {claim_ticket_code} resolved successfully"}
         # 1. Look in TransactionRecord
         stmt_std = select(TransactionRecord).where(
             TransactionRecord.claim_ticket_code == claim_ticket_code
@@ -199,6 +228,107 @@ async def resolve_claim(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Claim ticket code {claim_ticket_code} not found"
         )
+
+
+class ReconcilePhysicalOperationRequest(BaseModel):
+    actual_dispensed_count: int = Field(ge=0, le=50)
+    resolution_notes: str = Field(min_length=1, max_length=1000)
+
+
+@router.post("/physical-operations/{operation_id}/reconcile")
+async def reconcile_physical_operation(
+    operation_id: str,
+    body: ReconcilePhysicalOperationRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+):
+    admin = require_admin_session(request, authorization)
+    from datetime import datetime
+    from sqlalchemy import select
+    from app.models.db_models import (
+        ClaimRecord,
+        DispenseExecution,
+        PhysicalOperation,
+        PhysicalOperationState,
+    )
+
+    factory = request.app.state.db_session_factory
+    async with factory() as session:
+        operation = await session.get(PhysicalOperation, operation_id)
+        if operation is None:
+            raise HTTPException(status_code=404, detail="Physical operation not found")
+        if operation.state not in {"AMBIGUOUS", "STARTED"}:
+            raise HTTPException(status_code=409, detail="Operation is not ambiguous")
+        if body.actual_dispensed_count > operation.requested_count:
+            raise HTTPException(status_code=422, detail="Actual count exceeds requested count")
+        restore_count = operation.requested_count - body.actual_dispensed_count
+        operation.confirmed_count = body.actual_dispensed_count
+        operation.state = PhysicalOperationState.RECONCILED.value
+        operation.inventory_reconciled = True
+        operation.completed_at = datetime.utcnow()
+        operation.reconciliation_notes = body.resolution_notes
+        operation.reconciled_by = admin.session_id
+        execution = await session.get(DispenseExecution, operation.execution_id)
+        operations = (
+            await session.execute(
+                select(PhysicalOperation).where(
+                    PhysicalOperation.execution_id == operation.execution_id
+                )
+            )
+        ).scalars().all()
+        confirmed = sum(op.confirmed_count * op.denomination_value for op in operations)
+        ambiguous = sum(
+            op.requested_count * op.denomination_value
+            for op in operations if op.state in {"AMBIGUOUS", "STARTED"}
+        )
+        execution.confirmed_amount = confirmed
+        execution.ambiguous_amount = ambiguous
+        execution.state = (
+            "AMBIGUOUS" if ambiguous
+            else "COMPLETE" if confirmed == execution.requested_amount
+            else "FAILED"
+        )
+        claim = (
+            await session.execute(
+                select(ClaimRecord).where(
+                    ClaimRecord.transaction_id == operation.transaction_id,
+                    ClaimRecord.status != "RESOLVED",
+                ).limit(1)
+            )
+        ).scalar_one_or_none()
+        if claim:
+            claim.confirmed_dispensed_amount = confirmed
+            claim.ambiguous_amount = ambiguous
+            claim.amount = max(0, execution.requested_amount - confirmed)
+            if claim.amount == 0 and not ambiguous:
+                claim.status = "RESOLVED"
+                claim.resolved_at = datetime.utcnow()
+                claim.resolved_by = admin.session_id
+            else:
+                claim.status = "PROVISIONAL" if ambiguous else "OPEN"
+            claim.resolution_notes = body.resolution_notes
+        if restore_count:
+            location = "BILL_DISPENSER" if operation.controller == "BILL" else "COIN_DISPENSER"
+            await request.app.state.inventory_service.restore_in_session(
+                session,
+                {(location, operation.denomination): restore_count},
+                reference_id=operation.transaction_id,
+            )
+        await session.commit()
+
+    await request.app.state.inventory_service._refresh_runtime()
+    controller = (
+        request.app.state.bill_controller
+        if operation.controller == "BILL"
+        else request.app.state.coin_controller
+    )
+    await controller.acknowledge_operation(operation.id)
+    return {
+        "operation_id": operation.id,
+        "state": "RECONCILED",
+        "actual_dispensed_count": body.actual_dispensed_count,
+        "restored_count": restore_count,
+    }
 
 
 class UpdateFeesRequest(BaseModel):
@@ -268,4 +398,3 @@ async def update_fees(
             settings.forex_fee_php_to_eur = float(body.forex_fees["php-to-eur"])
 
     return await get_fees(request)
-

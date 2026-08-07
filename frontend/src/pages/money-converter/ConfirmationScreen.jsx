@@ -15,37 +15,24 @@ const QuestionIcon = () => (
   </div>
 );
 
-function calculateAutoBreakdown(amount, preferredBillDenoms = []) {
+function calculateAutoBreakdown(amount, preferredDenoms = [], dispenseType = "bill") {
   if (!amount || amount <= 0) return { bills: {}, coins: {}, coinSum: 0 };
 
   // Available bill denoms to try: use preferred if provided, otherwise standard [500, 100, 50, 20]
   // Strictly respects user preferred bill choices without introducing unselected bills (e.g. 200)
-  const availableBillDenoms = preferredBillDenoms.length > 0
-    ? [...preferredBillDenoms].sort((a, b) => b - a)
-    : [500, 100, 50, 20];
-
-  const coinDenoms = [20, 10, 5, 1];
+  const availableDenoms = preferredDenoms.length > 0
+    ? [...preferredDenoms].sort((a, b) => b - a)
+    : (dispenseType === "coin" ? [20, 10, 5, 1] : [1000, 500, 200, 100, 50, 20]);
   let rem = amount;
   const bills = {};
   const coins = {};
 
-  // Phase 1: Bills
-  for (const d of availableBillDenoms) {
+  for (const d of availableDenoms) {
     if (rem >= d) {
       const count = Math.floor(rem / d);
-      bills[d] = count;
+      if (dispenseType === "coin") coins[d] = count;
+      else bills[d] = count;
       rem %= d;
-    }
-  }
-
-  // Phase 2: Coins for remainder (e.g., 15, 35, 5)
-  if (rem > 0) {
-    for (const c of coinDenoms) {
-      if (rem >= c) {
-        const count = Math.floor(rem / c);
-        coins[c] = count;
-        rem %= c;
-      }
     }
   }
 
@@ -62,8 +49,7 @@ export default function ConfirmationScreen() {
   const [isStarting, setIsStarting] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
 
-  // Net amount to dispense: if fee not included, deduct fee from payout
-  const netPayoutAmount = transaction.includeFee
+  const netPayoutAmount = type === "coin-to-bill"
     ? (transaction.selectedAmount || 0)
     : Math.max(0, (transaction.selectedAmount || 0) - (transaction.fee || 0));
 
@@ -75,7 +61,11 @@ export default function ConfirmationScreen() {
 
   const breakdownObj = userAllocatedSum === netPayoutAmount && userAllocatedSum > 0
     ? { bills: userCounts, coins: {}, coinSum: 0 }
-    : calculateAutoBreakdown(netPayoutAmount, transaction.selectedDispenseDenominations || []);
+    : calculateAutoBreakdown(
+        netPayoutAmount,
+        transaction.selectedDispenseDenominations || [],
+        type === "bill-to-coin" ? "coin" : "bill"
+      );
 
   // Merge bills and coins dictionary for backend transaction start
   const effectiveDispenseCounts = {
@@ -102,7 +92,6 @@ export default function ConfirmationScreen() {
       await startBackendTransaction(
         type,
         transaction.selectedAmount,
-        transaction.fee,
         transaction.selectedDispenseDenominations,
         effectiveDispenseCounts
       );
