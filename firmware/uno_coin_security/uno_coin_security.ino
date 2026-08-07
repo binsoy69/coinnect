@@ -18,7 +18,7 @@
 // Coinnect Uno firmware: coin accept/dispense + security + RFID.
 // Serial protocol: newline-delimited JSON at 115200 baud.
 
-static const char *FIRMWARE_VERSION = "3.0.3-uno";
+static const char *FIRMWARE_VERSION = "3.0.4-uno";
 static const char *CONTROLLER_ID = "COIN_SECURITY";
 
 // MFRC522 RFID reader pins.
@@ -93,6 +93,10 @@ static const size_t SERIAL_INPUT_CAPACITY = 192;
 static char inputLine[SERIAL_INPUT_CAPACITY];
 static size_t inputLength = 0;
 static bool inputOverflow = false;
+static unsigned long lastSerialActivityMs = 0;
+static unsigned long lastRfidPollMs = 0;
+static const unsigned long SERIAL_ACTIVITY_GUARD_MS = 100;
+static const unsigned long RFID_POLL_INTERVAL_MS = 50;
 static bool doorLocked = true;
 static bool tamperLatched = false;
 static bool securityArmed = false; // Starts disarmed/not listening on boot
@@ -318,6 +322,15 @@ void sendCommandError(JsonDocument &doc, const char *code, int dispensed = -1,
   if (operationId && operationId[0]) {
     doc["operation_id"] = operationId;
   }
+  sendDocument(doc);
+}
+
+void sendParseError(const char *detail, size_t receivedBytes) {
+  StaticJsonDocument<128> doc;
+  doc["status"] = "ERROR";
+  doc["code"] = "PARSE_ERROR";
+  doc["detail"] = detail;
+  doc["received_bytes"] = receivedBytes;
   sendDocument(doc);
 }
 
@@ -1010,7 +1023,7 @@ void dispatchCommand(char *line) {
   DeserializationError err = deserializeJson(cmdDoc, line);
   if (err) {
     currentCommandId = -1;
-    sendCommandError(cmdDoc, "PARSE_ERROR");
+    sendParseError(err.c_str(), strlen(line));
     return;
   }
 
@@ -1055,10 +1068,11 @@ void dispatchCommand(char *line) {
 void handleSerialInput() {
   while (Serial.available() > 0) {
     char c = (char)Serial.read();
+    lastSerialActivityMs = millis();
     if (c == '\n') {
       if (inputOverflow) {
         currentCommandId = -1;
-        sendError("PARSE_ERROR");
+        sendParseError("INPUT_OVERFLOW", inputLength);
       } else if (inputLength > 0) {
         inputLine[inputLength] = '\0';
         dispatchCommand(inputLine);
@@ -1147,13 +1161,28 @@ void serviceRFID() {
   mfrc522.PCD_StopCrypto1();
 }
 
+void serviceRFIDWhenSerialIdle() {
+  const unsigned long now = millis();
+  if (Serial.available() > 0 ||
+      now - lastSerialActivityMs < SERIAL_ACTIVITY_GUARD_MS ||
+      now - lastRfidPollMs < RFID_POLL_INTERVAL_MS) {
+    return;
+  }
+  lastRfidPollMs = now;
+  serviceRFID();
+}
+
 void loop() {
+  // Drain serial before any SPI operation. MFRC522 polling can block long
+  // enough to overflow the Uno's 64-byte hardware UART receive ring.
+  handleSerialInput();
   serviceTamperEvents();
   serviceTamperBlink();
   serviceSorter();
   serviceCoinHold();
   serviceCoinPulseTrain();
   serviceDispense();
-  serviceRFID();
+  handleSerialInput();
+  serviceRFIDWhenSerialIdle();
   handleSerialInput();
 }

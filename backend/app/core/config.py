@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     baud_rate: int = 115200
     serial_timeout: int = 5
     serial_ready_timeout: float = 8.0
+    coin_serial_write_chunk_size: int = Field(default=16, ge=1, le=64)
+    coin_serial_write_chunk_delay: float = Field(default=0.02, ge=0.0, le=1.0)
+    coin_serial_resync_delay: float = Field(default=0.05, ge=0.0, le=1.0)
 
     # Mock serial
     use_mock_serial: bool = False

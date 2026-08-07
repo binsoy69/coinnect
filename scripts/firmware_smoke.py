@@ -68,8 +68,22 @@ class FirmwarePort:
     def command(self, payload: dict[str, Any]) -> dict[str, Any]:
         line = json.dumps(payload, separators=(",", ":")) + "\n"
         print(f"[{self.name}] tx: {line.strip()}")
-        self.serial.write(line.encode("utf-8"))
-        self.serial.flush()
+        encoded = line.encode("utf-8")
+        if self.name == "coin":
+            # Match the backend's Uno-safe transport: terminate any stale
+            # fragment, then keep the 64-byte UART ring below capacity while
+            # MFRC522 polling may briefly block the firmware loop.
+            self.serial.write(b"\n")
+            self.serial.flush()
+            time.sleep(0.05)
+            for offset in range(0, len(encoded), 16):
+                self.serial.write(encoded[offset:offset + 16])
+                self.serial.flush()
+                if offset + 16 < len(encoded):
+                    time.sleep(0.02)
+        else:
+            self.serial.write(encoded)
+            self.serial.flush()
 
         deadline = time.monotonic() + self.timeout
         while time.monotonic() < deadline:

@@ -26,6 +26,12 @@ JSON documents and can exhaust the Uno's 2 KB SRAM, causing valid commands to
 produce empty `{}` serial responses. The sketch includes a compile-time guard
 against building the Uno firmware with ArduinoJson 7.
 
+The Uno also has a 64-byte hardware serial receive ring while operation-ID
+commands can exceed 100 bytes. The backend therefore resynchronizes and paces
+coin-controller writes, and firmware 3.0.4 prioritizes serial draining over
+potentially blocking MFRC522 polls. Keep both protections enabled to avoid
+truncated commands and `PARSE_ERROR` responses.
+
 ## Compile
 
 ```bash

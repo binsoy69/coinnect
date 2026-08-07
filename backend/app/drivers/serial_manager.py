@@ -33,6 +33,9 @@ class SerialConnection:
         ready_timeout: float = 8.0,
         use_mock: bool = False,
         mock_delay: float = 0.0,
+        write_chunk_size: int | None = None,
+        write_chunk_delay: float = 0.0,
+        resync_delay: float = 0.0,
     ):
         self._port_path = port
         self._baud_rate = baud_rate
@@ -42,6 +45,9 @@ class SerialConnection:
         self._ready_timeout = ready_timeout
         self._use_mock = use_mock
         self._mock_delay = mock_delay
+        self._write_chunk_size = write_chunk_size
+        self._write_chunk_delay = write_chunk_delay
+        self._resync_delay = resync_delay
 
         self._serial = None
         self._reader_thread: Optional[threading.Thread] = None
@@ -139,6 +145,22 @@ class SerialConnection:
 
         timeout = timeout or self._timeout
         async with self._async_lock:
+            # The Uno coin controller polls an MFRC522 over SPI. That library
+            # can block long enough for a UUID-bearing command to overflow the
+            # AVR's 64-byte UART receive ring. Terminate any stale fragment,
+            # then pace the command in chunks the firmware can drain safely.
+            if not self._use_mock and self._write_chunk_size:
+                with self._send_lock:
+                    try:
+                        self._serial.write(b"\n")
+                    except Exception as e:
+                        raise SerialError(
+                            f"Serial resynchronization failed on {self._port_path}: {e}",
+                            port=self._port_path,
+                        )
+                if self._resync_delay > 0:
+                    await asyncio.sleep(self._resync_delay)
+
             # Assign and inject a unique sequential command ID
             cmd_id = self._next_command_id
             self._next_command_id = (self._next_command_id + 1) if self._next_command_id < 1000000 else 1
@@ -148,19 +170,32 @@ class SerialConnection:
             self._pending_responses[cmd_id] = future
 
             # Send command (thread-safe)
-            cmd_line = json.dumps(command) + "\n"
-            with self._send_lock:
-                try:
-                    self._serial.write(cmd_line.encode("utf-8"))
-                    logger.debug(
-                        f"[{self._controller_type.value}] TX: {json.dumps(command)}"
-                    )
-                except Exception as e:
-                    self._pending_responses.pop(cmd_id, None)
-                    raise SerialError(
-                        f"Write failed on {self._port_path}: {e}",
-                        port=self._port_path,
-                    )
+            serialized_command = json.dumps(command, separators=(",", ":"))
+            cmd_line = serialized_command + "\n"
+            payload = cmd_line.encode("utf-8")
+            chunk_size = (
+                self._write_chunk_size
+                if not self._use_mock and self._write_chunk_size
+                else len(payload)
+            )
+            try:
+                for offset in range(0, len(payload), chunk_size):
+                    with self._send_lock:
+                        self._serial.write(payload[offset:offset + chunk_size])
+                    if (
+                        self._write_chunk_delay > 0
+                        and offset + chunk_size < len(payload)
+                    ):
+                        await asyncio.sleep(self._write_chunk_delay)
+                logger.debug(
+                    f"[{self._controller_type.value}] TX: {serialized_command}"
+                )
+            except Exception as e:
+                self._pending_responses.pop(cmd_id, None)
+                raise SerialError(
+                    f"Write failed on {self._port_path}: {e}",
+                    port=self._port_path,
+                )
 
             # Wait for response
             try:
@@ -308,6 +343,9 @@ class SerialManager:
             ready_timeout=self._settings.serial_ready_timeout,
             use_mock=self._settings.use_mock_serial,
             mock_delay=self._settings.mock_delay,
+            write_chunk_size=self._settings.coin_serial_write_chunk_size,
+            write_chunk_delay=self._settings.coin_serial_write_chunk_delay,
+            resync_delay=self._settings.coin_serial_resync_delay,
         )
 
         try:
