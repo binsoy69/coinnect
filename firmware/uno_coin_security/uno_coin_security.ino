@@ -18,7 +18,7 @@
 // Coinnect Uno firmware: coin accept/dispense + security + RFID.
 // Serial protocol: newline-delimited JSON at 115200 baud.
 
-static const char *FIRMWARE_VERSION = "3.0.4-uno";
+static const char *FIRMWARE_VERSION = "3.0.5-uno";
 static const char *CONTROLLER_ID = "COIN_SECURITY";
 
 // MFRC522 RFID reader pins.
@@ -87,9 +87,9 @@ static CoinDispenser coinDispensers[] = {
 static const uint8_t COIN_DISPENSER_COUNT =
     sizeof(coinDispensers) / sizeof(coinDispensers[0]);
 
-// The largest backend command is currently 122 bytes including its newline.
-// Keep bounded headroom without reserving scarce Uno SRAM for impossible input.
-static const size_t SERIAL_INPUT_CAPACITY = 192;
+// The largest supported command is 122 bytes including its newline. A
+// 128-byte buffer preserves bounded headroom without wasting scarce Uno SRAM.
+static const size_t SERIAL_INPUT_CAPACITY = 128;
 static char inputLine[SERIAL_INPUT_CAPACITY];
 static size_t inputLength = 0;
 static bool inputOverflow = false;
@@ -132,7 +132,7 @@ static bool dispenseActive = false;
 static int dispenseDenom = 0;
 static int dispenseTargetCount = 0;
 static int dispenseActualCount = 0;
-static uint8_t dispenseDispenserIndex = 0;
+static int8_t dispenseDispenserIndex = 0;
 
 enum DispenseStep {
   DISPENSE_STEP_IDLE,
@@ -273,6 +273,7 @@ void sendReadyEvent() {
   doc["event"] = "READY";
   doc["version"] = FIRMWARE_VERSION;
   doc["controller"] = CONTROLLER_ID;
+  doc["reset_cause"] = MCUSR;
   sendDocument(doc);
 }
 
@@ -349,8 +350,37 @@ int findCoinDispenser(int denom) {
 
 void setDispenserRestPosition(uint8_t index) {
   CoinDispenser &dispenser = coinDispensers[index];
+  if (!dispenser.servo->attached()) {
+    dispenser.servo->attach(
+        index == 0 ? SERVO_PHP_1_PIN :
+        index == 1 ? SERVO_PHP_5_PIN :
+        index == 2 ? SERVO_PHP_10_PIN : SERVO_PHP_20_PIN);
+  }
   dispenser.servo->write(dispenser.pushToResetFirst ? SERVO_PUSH_DEG
                                                      : SERVO_RESET_DEG);
+}
+
+void attachCoinSorterIfNeeded() {
+  if (!coinSorterServo.attached()) {
+    coinSorterServo.attach(COIN_SORTER_SERVO_PIN);
+  }
+}
+
+void attachDispenserIfNeeded(uint8_t index) {
+  CoinDispenser &dispenser = coinDispensers[index];
+  if (!dispenser.servo->attached()) {
+    dispenser.servo->attach(
+        index == 0 ? SERVO_PHP_1_PIN :
+        index == 1 ? SERVO_PHP_5_PIN :
+        index == 2 ? SERVO_PHP_10_PIN : SERVO_PHP_20_PIN);
+  }
+}
+
+void detachActiveDispenser() {
+  if (dispenseDispenserIndex >= 0 &&
+      dispenseDispenserIndex < (int8_t)COIN_DISPENSER_COUNT) {
+    coinDispensers[(uint8_t)dispenseDispenserIndex].servo->detach();
+  }
 }
 
 uint8_t sorterAngleForPosition(const char *position) {
@@ -386,6 +416,7 @@ void setCoinSorterPosition(const char *position) {
   } else {
     coinSorterPosition = "CENTER";
   }
+  attachCoinSorterIfNeeded();
   coinSorterServo.write(sorterAngleForPosition(position));
   sorterMoving = true;
   sorterMoveStartMs = millis();
@@ -535,6 +566,7 @@ void serviceSorter() {
           setCoinAcceptorEnabled(true);
         }
       }
+      coinSorterServo.detach();
     }
   }
 }
@@ -543,10 +575,7 @@ void serviceCoinHold() {
   if (coinHoldActive && !sorterMoving) {
     if (millis() - coinHoldStartMs >= COIN_SORTER_HOLD_MS) {
       coinHoldActive = false;
-      coinSorterPosition = "CENTER";
-      coinSorterServo.write(sorterAngleForPosition("CENTER"));
-      sorterMoving = true;
-      sorterMoveStartMs = millis();
+      setCoinSorterPosition("CENTER");
     }
   }
 }
@@ -587,10 +616,7 @@ void serviceCoinPulseTrain() {
 
   // Move sorter to denomination position non-blockingly
   const char *targetPos = sorterPositionForDenom(denom);
-  coinSorterPosition = targetPos;
-  coinSorterServo.write(sorterAngleForPosition(targetPos));
-  sorterMoving = true;
-  sorterMoveStartMs = now;
+  setCoinSorterPosition(targetPos);
 
   sendCoinInEvent(denom);
 
@@ -612,6 +638,7 @@ void serviceDispense() {
     } else {
       sendError("LOCKED_OUT", dispenseActualCount);
     }
+    detachActiveDispenser();
     dispenseActive = false;
     return;
   }
@@ -630,6 +657,7 @@ void serviceDispense() {
           else if (changeState == 3) { nextDenom = 1; nextCount = changeC1; }
           
           if (nextDenom != -1 && nextCount > 0) {
+            detachActiveDispenser();
             dispenseDenom = nextDenom;
             dispenseTargetCount = nextCount;
             dispenseActualCount = 0;
@@ -642,6 +670,7 @@ void serviceDispense() {
             dispenseStep = DISPENSE_STEP_SWEEP_OUT;
             dispenseStepStartMs = now;
             CoinDispenser &disp = coinDispensers[dispenseDispenserIndex];
+            attachDispenserIfNeeded(dispenseDispenserIndex);
             disp.servo->write(disp.pushToResetFirst ? SERVO_RESET_DEG : SERVO_PUSH_DEG);
           } else if (changeState >= 4 || nextDenom == -1) {
             StaticJsonDocument<160> doc;
@@ -652,6 +681,7 @@ void serviceDispense() {
             if (changeC5 > 0) breakdown["5"] = changeC5;
             if (changeC1 > 0) breakdown["1"] = changeC1;
             sendDocument(doc);
+            detachActiveDispenser();
             dispenseActive = false;
           }
         } else {
@@ -663,6 +693,7 @@ void serviceDispense() {
           doc["operation_id"] = dispenseOperationId;
           sendDocument(doc);
           currentCommandId = -1;
+          detachActiveDispenser();
           dispenseActive = false;
         }
         return;
@@ -671,6 +702,7 @@ void serviceDispense() {
       dispenseStep = DISPENSE_STEP_SWEEP_OUT;
       dispenseStepStartMs = now;
       CoinDispenser &disp = coinDispensers[dispenseDispenserIndex];
+      attachDispenserIfNeeded(dispenseDispenserIndex);
       disp.servo->write(disp.pushToResetFirst ? SERVO_RESET_DEG : SERVO_PUSH_DEG);
       break;
     }
@@ -680,6 +712,7 @@ void serviceDispense() {
         dispenseStep = DISPENSE_STEP_SWEEP_IN;
         dispenseStepStartMs = now;
         CoinDispenser &disp = coinDispensers[dispenseDispenserIndex];
+        attachDispenserIfNeeded(dispenseDispenserIndex);
         disp.servo->write(disp.pushToResetFirst ? SERVO_PUSH_DEG : SERVO_RESET_DEG);
       }
       break;
@@ -748,6 +781,7 @@ void handleReset(JsonDocument &doc) {
   if (dispenseActive && strcmp(dispenseCommandContext, "DISPENSE") == 0) {
     persistOperation(4, dispenseOperationId, dispenseActualCount);
   }
+  detachActiveDispenser();
   dispenseActive = false; // Abort any active coin dispensing
 
   doc.clear();
@@ -911,6 +945,7 @@ void handleCoinChange(JsonDocument &cmdDoc) {
     dispenseDispenserIndex = findCoinDispenser(firstDenom);
     if (dispenseDispenserIndex < 0) {
       sendCommandError(cmdDoc, "INVALID_DENOM");
+      detachActiveDispenser();
       dispenseActive = false;
       return;
     }
@@ -934,6 +969,7 @@ void handleCoinReset(JsonDocument &doc) {
   setCoinSorterPosition("CENTER");
 
   dispenseActive = false; // Abort any active coin dispensing
+  detachActiveDispenser();
 
   doc.clear();
   doc["status"] = "OK";
@@ -1101,6 +1137,10 @@ void setupCoinServos() {
     setDispenserRestPosition(i);
   }
   delay(300);
+  coinSorterServo.detach();
+  for (uint8_t i = 0; i < COIN_DISPENSER_COUNT; i++) {
+    coinDispensers[i].servo->detach();
+  }
 }
 
 void setupSecurityPins() {
@@ -1145,12 +1185,16 @@ void serviceRFID() {
     return;
   }
 
-  String uidStr = "";
+  static const char HEX_DIGITS[] = "0123456789ABCDEF";
+  char uidStr[21] = "";
+  size_t offset = 0;
   for (byte i = 0; i < mfrc522.uid.size; i++) {
-    if (mfrc522.uid.uidByte[i] < 0x10) uidStr += "0";
-    uidStr += String(mfrc522.uid.uidByte[i], HEX);
+    if (offset + 2 >= sizeof(uidStr)) break;
+    const byte value = mfrc522.uid.uidByte[i];
+    uidStr[offset++] = HEX_DIGITS[value >> 4];
+    uidStr[offset++] = HEX_DIGITS[value & 0x0F];
   }
-  uidStr.toUpperCase();
+  uidStr[offset] = '\0';
 
   StaticJsonDocument<128> doc;
   doc["event"] = "RFID";

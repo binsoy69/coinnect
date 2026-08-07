@@ -58,10 +58,12 @@ class SerialConnection:
         self._next_command_id = 1
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._ready_future: Optional[asyncio.Future] = None
+        self._ready_received = False
 
     async def connect(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._ready_future = self._loop.create_future()
+        self._ready_received = False
 
         if self._use_mock:
             from app.drivers.mock_serial import MockSerial
@@ -225,9 +227,16 @@ class SerialConnection:
                 if not line:
                     continue
 
-                line_str = line.decode("utf-8").strip()
+                line_str = line.decode("utf-8", errors="replace").strip()
                 if not line_str:
                     continue
+
+                if "\ufffd" in line_str:
+                    logger.warning(
+                        "[%s] Corrupted serial bytes received: %s",
+                        self._controller_type.value,
+                        line.hex()[:256],
+                    )
 
                 try:
                     data = json.loads(line_str)
@@ -282,15 +291,40 @@ class SerialConnection:
     def _push_event(self, data: dict) -> None:
         """Push an unsolicited event to the shared asyncio queue."""
         data["_controller"] = self._controller_type.value
-        if data.get("event") == "READY" and self._ready_future is not None:
-            self._loop.call_soon_threadsafe(self._resolve_ready, data)
+        if data.get("event") == "READY":
+            if self._ready_received:
+                logger.error(
+                    "[%s] Controller restarted unexpectedly (version=%s, reset_cause=%s)",
+                    self._controller_type.value,
+                    data.get("version", "UNKNOWN"),
+                    data.get("reset_cause", "UNKNOWN"),
+                )
+                self._loop.call_soon_threadsafe(
+                    self._handle_controller_reset_in_loop, data
+                )
+            elif self._ready_future is not None:
+                self._loop.call_soon_threadsafe(self._resolve_ready, data)
         self._loop.call_soon_threadsafe(
             self._event_queue.put_nowait, data
         )
 
     def _resolve_ready(self, data: dict) -> None:
         if self._ready_future is not None and not self._ready_future.done():
+            self._ready_received = True
             self._ready_future.set_result(data)
+
+    def _handle_controller_reset_in_loop(self, data: dict) -> None:
+        error = SerialError(
+            "Controller restarted while a command may have been in progress "
+            f"(controller={self._controller_type.value}, "
+            f"reset_cause={data.get('reset_cause', 'UNKNOWN')})",
+            port=self._port_path,
+        )
+        pending = list(self._pending_responses.values())
+        self._pending_responses.clear()
+        for future in pending:
+            if not future.done():
+                future.set_exception(error)
 
     @property
     def is_connected(self) -> bool:

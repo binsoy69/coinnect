@@ -4,6 +4,7 @@ import json
 import pytest
 
 from app.core.constants import ControllerType
+from app.core.errors import SerialError
 from app.drivers.serial_manager import SerialConnection
 
 
@@ -62,3 +63,31 @@ async def test_coin_command_is_resynchronized_and_written_in_bounded_chunks():
     payload = b"".join(serial.writes[1:])
     assert payload.endswith(b"\n")
     assert json.loads(payload)["operation_id"] == operation_id
+
+
+@pytest.mark.asyncio
+async def test_unexpected_ready_fails_pending_command_as_controller_reset():
+    connection = SerialConnection(
+        port="COIN",
+        baud_rate=115200,
+        controller_type=ControllerType.COIN_SECURITY,
+        event_queue=asyncio.Queue(),
+    )
+    connection._loop = asyncio.get_running_loop()
+    connection._ready_received = True
+    pending = connection._loop.create_future()
+    connection._pending_responses[7] = pending
+
+    connection._push_event(
+        {
+            "event": "READY",
+            "version": "3.0.5-uno",
+            "controller": "COIN_SECURITY",
+            "reset_cause": 2,
+        }
+    )
+    await asyncio.sleep(0)
+
+    with pytest.raises(SerialError, match="Controller restarted"):
+        await pending
+    assert connection._pending_responses == {}

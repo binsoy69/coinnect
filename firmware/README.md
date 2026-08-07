@@ -28,9 +28,10 @@ against building the Uno firmware with ArduinoJson 7.
 
 The Uno also has a 64-byte hardware serial receive ring while operation-ID
 commands can exceed 100 bytes. The backend therefore resynchronizes and paces
-coin-controller writes, and firmware 3.0.4 prioritizes serial draining over
-potentially blocking MFRC522 polls. Keep both protections enabled to avoid
-truncated commands and `PARSE_ERROR` responses.
+coin-controller writes, and firmware 3.0.5 prioritizes serial draining over
+potentially blocking MFRC522 polls, avoids heap-allocating RFID strings, and
+detaches idle servos to reduce reset-inducing current draw. Keep both transport
+protections enabled to avoid truncated commands and `PARSE_ERROR` responses.
 
 ## Compile
 
