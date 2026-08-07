@@ -24,6 +24,7 @@ from app.api.router import api_router
 from app.api.ws import ConnectionManager
 from app.core.config import get_settings
 from app.core.database import close_db, get_session_factory, init_db
+from app.core.errors import SerialError
 from app.core.logging import setup_logging
 from app.drivers.bill_controller import BillController
 from app.drivers.coin_security_controller import CoinSecurityController
@@ -45,6 +46,30 @@ from app.services.claim_service import ClaimService
 from app.services.gateway_inbox import GatewayInboxWorker
 
 logger = logging.getLogger(__name__)
+
+
+async def _recover_physical_operations_for_startup(
+    app: FastAPI,
+    dispense_orchestrator: DispenseOrchestrator,
+    claim_service: ClaimService,
+) -> None:
+    """Recover dispense state without taking the maintenance API offline.
+
+    ``recover_started_operations`` marks inventory inconsistent before raising
+    when a controller cannot acknowledge recovery.  Keep that fail-closed
+    state, but allow the application to start so an operator can inspect and
+    reconcile the affected operations through the admin API.
+    """
+    app.state.startup_recovery_error = None
+    try:
+        await dispense_orchestrator.recover_started_operations(claim_service)
+    except SerialError as exc:
+        app.state.startup_recovery_error = str(exc)
+        logger.critical(
+            "Physical operation recovery is incomplete; dispensing remains "
+            "disabled pending operator reconciliation: %s",
+            exc,
+        )
 
 
 @asynccontextmanager
@@ -296,7 +321,9 @@ async def lifespan(app: FastAPI):
     # Recover any transactions interrupted by crash/power loss
     # Physical send intents are the recovery authority and must be resolved
     # before gateway events can authorize any further payout.
-    await dispense_orchestrator.recover_started_operations(claim_service)
+    await _recover_physical_operations_for_startup(
+        app, dispense_orchestrator, claim_service
+    )
     await transaction_orchestrator.recover_pending_transactions()
     await ewallet_orchestrator.recover_pending_transactions()
     await forex_transaction_orchestrator.recover_pending_transactions()

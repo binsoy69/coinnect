@@ -91,6 +91,18 @@ class DispenseOrchestrator:
         Returns:
             DispenseResult with actual dispensed amounts.
         """
+        if not self._status.snapshot().consumables.inventory_consistent:
+            error = "Inventory reconciliation is required; dispensing is disabled"
+            logger.error(
+                "Dispense blocked reference_id=%s: %s", reference_id, error
+            )
+            return DispenseResult(
+                success=False,
+                shortfall=plan.total_amount,
+                error=error,
+                claim_ticket_code=_generate_claim_ticket(),
+            )
+
         dispensed_bills: Dict[str, int] = {}
         dispensed_coins: Dict[str, int] = {}
         total_dispensed = 0

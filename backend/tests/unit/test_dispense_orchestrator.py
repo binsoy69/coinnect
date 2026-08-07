@@ -122,6 +122,25 @@ def _coin_plan(items_dict):
     return DispensePlan(items=items, total_amount=total, is_exact=True)
 
 
+@pytest.mark.asyncio
+async def test_dispense_is_blocked_when_inventory_requires_reconciliation(
+    orchestrator, bill_controller, coin_controller, machine_status
+):
+    machine_status.set_inventory_consistent(False)
+
+    result = await orchestrator.execute_dispense(
+        _bill_plan({"PHP_100": (1, 100)}), reference_id="paid-cash-out"
+    )
+
+    assert result.success is False
+    assert result.total_dispensed == 0
+    assert result.shortfall == 100
+    assert result.claim_ticket_code is not None
+    assert "reconciliation is required" in result.error.lower()
+    bill_controller.dispense.assert_not_awaited()
+    coin_controller.coin_dispense.assert_not_awaited()
+
+
 def _mixed_plan(bill_dict, coin_dict):
     """Build a DispensePlan with both bill and coin items."""
     items = []
