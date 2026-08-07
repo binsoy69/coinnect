@@ -902,6 +902,8 @@ class TestGetTransactionState:
             "inserted_denominations",
             "dispense_plan",
             "dispense_result",
+            "claim_ticket_code",
+            "shortfall",
             "selected_dispense_denoms",
             "selected_dispense_counts",
             "error_code",

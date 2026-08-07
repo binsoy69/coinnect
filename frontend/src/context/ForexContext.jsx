@@ -30,6 +30,9 @@ const ForexContext = createContext(null);
 export function ForexProvider({ children }) {
   const [forex, setForex] = useState(DEFAULT_FOREX_STATE);
   const [backendRates, setBackendRates] = useState(null);
+  const [backendTransactionId, setBackendTransactionId] = useState(null);
+  const [backendState, setBackendState] = useState(null);
+  const [dispenseProgress, setDispenseProgress] = useState(null);
 
   // Update rates from backend (called by useForexTransaction hook)
   const updateRatesFromBackend = useCallback((rates) => {
@@ -67,6 +70,9 @@ export function ForexProvider({ children }) {
       exchangeRate,
       feePercentage,
     });
+    setBackendTransactionId(null);
+    setBackendState(null);
+    setDispenseProgress(null);
   }, [backendRates]);
 
   // Set selected amount and calculate conversion
@@ -218,6 +224,9 @@ export function ForexProvider({ children }) {
   // Reset forex transaction to initial state
   const resetForexTransaction = useCallback(() => {
     setForex(DEFAULT_FOREX_STATE);
+    setBackendTransactionId(null);
+    setBackendState(null);
+    setDispenseProgress(null);
   }, []);
 
   // Get current forex service config
@@ -265,6 +274,12 @@ export function ForexProvider({ children }) {
     getActualDispenseAmount,
     updateRatesFromBackend,
     backendRates,
+    backendTransactionId,
+    setBackendTransactionId,
+    backendState,
+    setBackendState,
+    dispenseProgress,
+    setDispenseProgress,
   };
 
   return (

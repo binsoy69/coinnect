@@ -230,6 +230,7 @@ temp/
 
 # Hardware test recordings (camera captures, etc.)
 captures/
+data_gather/captures/
 recordings/
 test_images/
 test_videos/

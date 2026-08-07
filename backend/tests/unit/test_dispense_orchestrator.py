@@ -263,7 +263,7 @@ class TestPartialDispense:
         assert result.shortfall == 200  # 2*100 missing
         assert result.claim_ticket_code is not None
         assert len(result.claim_ticket_code) == 8
-        assert result.error is not None
+        assert "JAM" in result.error
 
     async def test_partial_coin_dispense_generates_claim_ticket(
         self, orchestrator, coin_controller, ws_manager

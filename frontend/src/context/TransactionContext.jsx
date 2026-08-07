@@ -9,6 +9,8 @@ const TransactionContext = createContext(null);
 export function TransactionProvider({ children }) {
   const [transaction, setTransaction] = useState(DEFAULT_TRANSACTION_STATE);
   const [backendTransactionId, setBackendTransactionId] = useState(null);
+  const [backendState, setBackendState] = useState(null);
+  const [dispenseProgress, setDispenseProgress] = useState(null);
   const [machineFees, setMachineFees] = useState(null);
 
   // Fetch machine fee configuration from backend
@@ -45,6 +47,9 @@ export function TransactionProvider({ children }) {
       serviceType,
       fee,
     });
+    setBackendTransactionId(null);
+    setBackendState(null);
+    setDispenseProgress(null);
   }, [getFeeForService]);
 
   // Set selected amount
@@ -174,6 +179,8 @@ export function TransactionProvider({ children }) {
   const resetTransaction = useCallback(() => {
     setTransaction(DEFAULT_TRANSACTION_STATE);
     setBackendTransactionId(null);
+    setBackendState(null);
+    setDispenseProgress(null);
   }, []);
 
   // Get current service config
@@ -195,6 +202,10 @@ export function TransactionProvider({ children }) {
     transaction,
     backendTransactionId,
     setBackendTransactionId,
+    backendState,
+    setBackendState,
+    dispenseProgress,
+    setDispenseProgress,
     startTransaction,
     setSelectedAmount,
     setIncludeFee,

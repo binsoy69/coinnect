@@ -185,6 +185,41 @@ class TestStartTransaction:
         mock_forex_orchestrator.start_transaction.assert_called_once()
 
 
+class TestRecoveryContract:
+    def test_partial_dispense_fields_are_returned_and_retry_is_idempotent(
+        self, client, mock_forex_orchestrator
+    ):
+        state = dict(mock_forex_orchestrator.start_transaction.return_value)
+        state.update(
+            {
+                "state": "ERROR",
+                "dispensed_amount": 100,
+                "dispense_result": {
+                    "shortfall": 50,
+                    "claim_ticket_code": "FXCLAIM1",
+                },
+                "error_code": "PARTIAL_DISPENSE",
+                "error_message": "JAM: partial foreign exchange dispense",
+                "claim_ticket_code": "FXCLAIM1",
+                "shortfall": 50,
+            }
+        )
+        mock_forex_orchestrator.active_transaction_id = None
+        mock_forex_orchestrator.get_transaction_state = AsyncMock(
+            return_value=state
+        )
+        mock_forex_orchestrator.confirm_transaction = AsyncMock()
+
+        response = client.post(
+            "/api/v1/forex/transaction/test-forex-tx-1/confirm"
+        )
+
+        assert response.status_code == 200
+        assert response.json()["claim_ticket_code"] == "FXCLAIM1"
+        assert response.json()["shortfall"] == 50
+        mock_forex_orchestrator.confirm_transaction.assert_not_awaited()
+
+
 # ---------------------------------------------------------------------------
 # 4. DELETE /forex/transaction/{id}
 # ---------------------------------------------------------------------------

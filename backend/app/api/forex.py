@@ -54,6 +54,8 @@ class ForexTransactionResponse(BaseModel):
     selected_dispense_denoms: list = []
     error_code: Optional[str] = None
     error_message: Optional[str] = None
+    claim_ticket_code: Optional[str] = None
+    shortfall: Optional[int] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     completed_at: Optional[str] = None
@@ -170,7 +172,17 @@ async def confirm_forex_transaction(transaction_id: str, request: Request):
     orchestrator = request.app.state.forex_transaction_orchestrator
     try:
         if orchestrator.active_transaction_id != transaction_id:
-            raise HTTPException(status_code=404, detail="Transaction not active")
+            try:
+                state = await orchestrator.get_transaction_state(transaction_id)
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=404, detail="Transaction not found"
+                ) from exc
+            if state["state"] not in {"COMPLETE", "ERROR"}:
+                raise HTTPException(
+                    status_code=409, detail="Transaction is not confirmable"
+                )
+            return ForexTransactionResponse(**_map_state(state))
         state = await orchestrator.confirm_transaction()
         return ForexTransactionResponse(**_map_state(state))
     except HTTPException:

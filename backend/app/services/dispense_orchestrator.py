@@ -82,6 +82,13 @@ class DispenseOrchestrator:
         total_items = len(plan.bill_items) + len(plan.coin_items)
         completed_items = 0
 
+        logger.info(
+            "Dispense started reference_id=%s total_amount=%s items=%s",
+            reference_id,
+            plan.total_amount,
+            [item.model_dump() for item in plan.items],
+        )
+
         try:
             # Phase 1: Reserve inventory
             await self._reserve_inventory(plan, reference_id)
@@ -96,7 +103,9 @@ class DispenseOrchestrator:
             # Phase 2: Dispense bills
             for item in plan.bill_items:
                 try:
-                    actual = await self._dispense_bill_denom(item)
+                    actual, hardware_error = await self._dispense_bill_denom(
+                        item, reference_id
+                    )
                     dispensed_bills[item.denom] = actual
                     total_dispensed += actual * item.value
                     completed_items += 1
@@ -108,20 +117,32 @@ class DispenseOrchestrator:
                     raise
 
                 await self._broadcast_progress(
-                    completed_items, total_items, dispensed_bills, dispensed_coins, total_dispensed
+                    completed_items,
+                    total_items,
+                    dispensed_bills,
+                    dispensed_coins,
+                    total_dispensed,
+                    reference_id,
                 )
 
                 if actual < item.count:
-                    # Partial dispense - hardware error occurred
-                    error_msg = f"Partial bill dispense: {item.denom} ({actual}/{item.count})"
-                    logger.error(error_msg)
+                    cause = f" ({hardware_error})" if hardware_error else ""
+                    error_msg = (
+                        f"Partial bill dispense: {item.denom} "
+                        f"({actual}/{item.count}){cause}"
+                    )
+                    logger.error(
+                        "%s reference_id=%s", error_msg, reference_id
+                    )
                     break
 
             # Phase 3: Dispense coins (only if bills succeeded)
             if error_msg is None:
                 for item in plan.coin_items:
                     try:
-                        actual = await self._dispense_coin_denom(item)
+                        actual, hardware_error = await self._dispense_coin_denom(
+                            item, reference_id
+                        )
                         dispensed_coins[item.denom] = actual
                         total_dispensed += actual * item.value
                         completed_items += 1
@@ -133,17 +154,33 @@ class DispenseOrchestrator:
                         raise
 
                     await self._broadcast_progress(
-                        completed_items, total_items, dispensed_bills, dispensed_coins, total_dispensed
+                        completed_items,
+                        total_items,
+                        dispensed_bills,
+                        dispensed_coins,
+                        total_dispensed,
+                        reference_id,
                     )
 
                     if actual < item.count:
-                        error_msg = f"Partial coin dispense: {item.denom} ({actual}/{item.count})"
-                        logger.error(error_msg)
+                        cause = f" ({hardware_error})" if hardware_error else ""
+                        error_msg = (
+                            f"Partial coin dispense: {item.denom} "
+                            f"({actual}/{item.count}){cause}"
+                        )
+                        logger.error(
+                            "%s reference_id=%s", error_msg, reference_id
+                        )
                         break
 
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"Dispense error: {e}", exc_info=True)
+            logger.error(
+                "Dispense error reference_id=%s: %s",
+                reference_id,
+                e,
+                exc_info=True,
+            )
 
 
         # Phase 4: Reconcile
@@ -169,8 +206,14 @@ class DispenseOrchestrator:
         if shortfall > 0:
             claim_ticket = _generate_claim_ticket()
             logger.warning(
-                f"Partial dispense: {total_dispensed}/{plan.total_amount}, "
-                f"shortfall={shortfall}, claim_ticket={claim_ticket}"
+                "Partial dispense reference_id=%s dispensed=%s planned=%s "
+                "shortfall=%s claim_ticket=%s error=%s",
+                reference_id,
+                total_dispensed,
+                plan.total_amount,
+                shortfall,
+                claim_ticket,
+                error_msg,
             )
 
         result = DispenseResult(
@@ -194,43 +237,84 @@ class DispenseOrchestrator:
                 "dispensed_bills": dispensed_bills,
                 "dispensed_coins": dispensed_coins,
                 "claim_ticket_code": claim_ticket,
+                "transaction_id": reference_id,
+                "error": error_msg,
             },
         )
         await self._ws.broadcast(event)
 
+        logger.info(
+            "Dispense finished reference_id=%s success=%s dispensed=%s "
+            "shortfall=%s claim_ticket=%s",
+            reference_id,
+            success,
+            total_dispensed,
+            shortfall,
+            claim_ticket,
+        )
         return result
 
-    async def _dispense_bill_denom(self, item: DispensePlanItem) -> int:
-        """Dispense bills for a single denomination. Returns actual count dispensed."""
+    async def _dispense_bill_denom(
+        self, item: DispensePlanItem, reference_id: str | None
+    ) -> tuple[int, str | None]:
+        """Dispense one bill denomination and retain any controller error."""
         from app.core.constants import BillDenom
 
         try:
             denom = BillDenom(item.denom)
             response = await self._bill.dispense(denom, item.count)
-            return response.dispensed
+            logger.info(
+                "Bill dispense result reference_id=%s denom=%s requested=%s actual=%s",
+                reference_id,
+                item.denom,
+                item.count,
+                response.dispensed,
+            )
+            return response.dispensed, None
         except HardwareError as e:
             # Partial dispense - some bills may have been dispensed
             actual = e.dispensed or 0
             logger.error(
-                f"Bill dispense error for {item.denom}: {e.code} "
-                f"(dispensed {actual}/{item.count})"
+                "Bill dispense hardware error reference_id=%s denom=%s "
+                "code=%s requested=%s actual=%s message=%s",
+                reference_id,
+                item.denom,
+                e.code,
+                item.count,
+                actual,
+                str(e),
             )
-            return actual
+            return actual, f"{e.code}: {e}"
 
-    async def _dispense_coin_denom(self, item: DispensePlanItem) -> int:
-        """Dispense coins for a single denomination. Returns actual count dispensed."""
+    async def _dispense_coin_denom(
+        self, item: DispensePlanItem, reference_id: str | None
+    ) -> tuple[int, str | None]:
+        """Dispense one coin denomination and retain any controller error."""
         try:
             # Extract integer value from denom string (e.g., "PHP_5" -> 5)
             denom_value = int(item.denom.split("_")[1])
             response = await self._coin.coin_dispense(denom_value, item.count)
-            return response.dispensed
+            logger.info(
+                "Coin dispense result reference_id=%s denom=%s requested=%s actual=%s",
+                reference_id,
+                item.denom,
+                item.count,
+                response.dispensed,
+            )
+            return response.dispensed, None
         except HardwareError as e:
             actual = e.dispensed or 0
             logger.error(
-                f"Coin dispense error for {item.denom}: {e.code} "
-                f"(dispensed {actual}/{item.count})"
+                "Coin dispense hardware error reference_id=%s denom=%s "
+                "code=%s requested=%s actual=%s message=%s",
+                reference_id,
+                item.denom,
+                e.code,
+                item.count,
+                actual,
+                str(e),
             )
-            return actual
+            return actual, f"{e.code}: {e}"
 
     async def _reserve_inventory(
         self, plan: DispensePlan, reference_id: str | None
@@ -314,6 +398,7 @@ class DispenseOrchestrator:
         bills: Dict[str, int],
         coins: Dict[str, int],
         amount: int,
+        reference_id: str | None,
     ) -> None:
         """Broadcast dispense progress via WebSocket."""
         event = WSEvent(
@@ -324,6 +409,7 @@ class DispenseOrchestrator:
                 "dispensed_bills": bills,
                 "dispensed_coins": coins,
                 "dispensed_amount": amount,
+                "transaction_id": reference_id,
             },
         )
         await self._ws.broadcast(event)

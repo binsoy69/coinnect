@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 import string
@@ -61,6 +62,7 @@ class EWalletOrchestrator:
         self._operation_mode = operation_mode
         self._operation_owner: str | None = None
         self._receipt_service = receipt_service
+        self._confirm_lock = asyncio.Lock()
 
     @property
     def has_active_transaction(self) -> bool:
@@ -239,10 +241,19 @@ class EWalletOrchestrator:
             await self.record_cash_insert(transaction_id, denomination)
 
     async def confirm_cash_in(self, transaction_id: str) -> dict:
+        async with self._confirm_lock:
+            return await self._confirm_cash_in_once(transaction_id)
+
+    async def _confirm_cash_in_once(self, transaction_id: str) -> dict:
         async with self._db_factory() as session:
             record = await session.get(EWalletTransactionRecord, transaction_id)
             self._require_cash_in(record)
-            if record.state == "DISBURSEMENT_PENDING":
+            if record.state in {
+                "DISBURSEMENT_PENDING",
+                "COMPLETE",
+                "CLAIM_REQUIRED",
+                "FAILED",
+            }:
                 return self._serialize(record)
             if record.state != "CASH_ACCEPTED":
                 raise EWalletTransactionError("Required cash has not been accepted")
@@ -827,6 +838,11 @@ class EWalletOrchestrator:
             "qr_image_url": record.qr_image_url,
             "test_url": record.test_url,
             "claim_ticket_code": record.claim_ticket_code,
+            "shortfall": (
+                (record.dispense_result or {}).get("shortfall")
+                if record.dispense_result
+                else None
+            ),
             "error_code": record.error_code,
             "error_message": record.error_message,
             "created_at": record.created_at.isoformat(),

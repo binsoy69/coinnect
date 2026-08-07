@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import WarningIcon from '../../components/feedback/WarningIcon';
@@ -9,12 +10,54 @@ import { useForexTransaction } from '../../hooks/useForexTransaction';
 export default function ForexWarningScreen() {
   const navigate = useNavigate();
   const { forex } = useForex();
-  const { cancelForexTransaction, transactionId, backendState } = useForexTransaction();
+  const {
+    cancelForexTransaction,
+    refreshForexTransaction,
+    transactionId,
+    backendState,
+  } = useForexTransaction();
+  const [isChecking, setIsChecking] = useState(Boolean(transactionId));
+  const [statusError, setStatusError] = useState(
+    transactionId ? null : "Missing transaction reference"
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!transactionId) {
+      return undefined;
+    }
+    refreshForexTransaction()
+      .then((data) => {
+        if (!cancelled && data?.state === "COMPLETE") {
+          navigate(
+            getForexRoute(ROUTES.FOREX_SUCCESS, forex.serviceType),
+            { replace: true }
+          );
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setStatusError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setIsChecking(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    forex.serviceType,
+    navigate,
+    refreshForexTransaction,
+    transactionId,
+  ]);
 
   const claimTicket = backendState?.claim_ticket_code;
   const shortfall = backendState?.shortfall;
   const isDispenseError =
     backendState?.state === "ERROR" || Boolean(claimTicket) || shortfall != null;
+  const isNonTerminal =
+    backendState?.state === "DISPENSING" ||
+    backendState?.state === "WAITING_FOR_CONFIRMATION";
 
   const handleChooseDifferent = async () => {
     if (transactionId) {
@@ -34,6 +77,39 @@ export default function ForexWarningScreen() {
   const handleReturnHome = () => {
     navigate(ROUTES.HOME);
   };
+
+  if (isChecking || isNonTerminal) {
+    return (
+      <div className="min-h-screen bg-coinnect-forex flex items-center justify-center p-8">
+        <p className="text-white text-2xl font-semibold text-center">
+          Checking the final transaction status. Please wait…
+        </p>
+      </div>
+    );
+  }
+
+  if (statusError) {
+    return (
+      <div className="min-h-screen bg-coinnect-forex flex flex-col items-center justify-center p-8 text-center text-white">
+        <WarningIcon size={140} />
+        <h1 className="text-3xl font-bold mt-6 mb-3">
+          Transaction Status Unavailable
+        </h1>
+        <p className="text-white/80 max-w-xl mb-8">
+          We could not verify the final transaction status. Please keep any
+          printed ticket and contact the kiosk administrator.
+        </p>
+        <Button
+          variant="outline"
+          size="xl"
+          onClick={handleReturnHome}
+          className="bg-white text-coinnect-forex hover:bg-gray-100 px-12"
+        >
+          Return to Home
+        </Button>
+      </div>
+    );
+  }
 
   if (isDispenseError) {
     return (

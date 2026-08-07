@@ -60,6 +60,12 @@ export default function EWalletSummaryScreen() {
             Claim ticket:{" "}
             <strong>{ewallet.backendState?.claim_ticket_code}</strong>
           </p>
+          {ewallet.backendState?.shortfall != null && (
+            <p className="text-amber-800 mt-2">
+              Shortfall owed:{" "}
+              <strong>₱{ewallet.backendState.shortfall}</strong>
+            </p>
+          )}
           <p className="text-sm text-amber-700 mt-2">
             Keep this reference and contact the kiosk operator.
           </p>

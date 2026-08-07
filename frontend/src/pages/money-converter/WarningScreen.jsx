@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Button from '../../components/common/Button';
@@ -11,18 +11,46 @@ import { formatPeso } from '../../constants/denominations';
 export default function WarningScreen() {
   const navigate = useNavigate();
   const { type } = useParams();
-  const { backendState, cancelBackendTransaction, transactionId } = useBackendTransaction();
+  const {
+    backendState,
+    cancelBackendTransaction,
+    refreshBackendTransaction,
+    transactionId,
+  } = useBackendTransaction();
+  const [isChecking, setIsChecking] = useState(Boolean(transactionId));
+  const [statusError, setStatusError] = useState(
+    transactionId ? null : "Missing transaction reference"
+  );
 
   useEffect(() => {
-    if (backendState?.state === "COMPLETE") {
-      navigate(getServiceRoute(ROUTES.SUCCESS, type));
+    let cancelled = false;
+    if (!transactionId) {
+      return undefined;
     }
-  }, [backendState, navigate, type]);
+    refreshBackendTransaction()
+      .then((data) => {
+        if (!cancelled && data?.state === "COMPLETE") {
+          navigate(getServiceRoute(ROUTES.SUCCESS, type), { replace: true });
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setStatusError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setIsChecking(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate, refreshBackendTransaction, transactionId, type]);
 
   const claimTicket = backendState?.claim_ticket_code;
   const shortfall = backendState?.shortfall;
   const isDispenseError =
     backendState?.state === "ERROR" || Boolean(claimTicket) || shortfall != null;
+  const isNonTerminal =
+    backendState?.state === "DISPENSING" ||
+    backendState?.state === "WAITING_FOR_CONFIRMATION";
 
   const handleChooseDifferent = async () => {
     if (transactionId) {
@@ -42,6 +70,38 @@ export default function WarningScreen() {
   const handleReturnHome = () => {
     navigate(ROUTES.HOME);
   };
+
+  if (isChecking || isNonTerminal) {
+    return (
+      <PageTransition>
+        <div className="min-h-screen bg-coinnect-primary flex items-center justify-center p-8">
+          <p className="text-white text-2xl font-semibold text-center">
+            Checking the final transaction status. Please wait…
+          </p>
+        </div>
+      </PageTransition>
+    );
+  }
+
+  if (statusError) {
+    return (
+      <PageTransition>
+        <div className="min-h-screen bg-coinnect-primary flex flex-col items-center justify-center p-8 text-center text-white">
+          <WarningIcon size={140} />
+          <h1 className="text-3xl font-bold mt-6 mb-3">
+            Transaction Status Unavailable
+          </h1>
+          <p className="text-white/80 max-w-xl mb-8">
+            We could not verify the final transaction status. Please keep any
+            printed ticket and contact the kiosk administrator.
+          </p>
+          <Button variant="white" size="xl" onClick={handleReturnHome}>
+            Return to Home
+          </Button>
+        </div>
+      </PageTransition>
+    );
+  }
 
   if (isDispenseError) {
     return (

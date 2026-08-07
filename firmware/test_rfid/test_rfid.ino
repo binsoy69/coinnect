@@ -6,7 +6,7 @@
 // The MFRC522 RFID module operates strictly at 3.3V VCC.
 // Do NOT connect to 5V VCC as it will destroy the RFID chip.
 
-static const uint8_t MFRC522_RST_PIN = 7;  // D15 on Uno
+static const uint8_t MFRC522_RST_PIN = A1;  // D15 on Uno
 static const uint8_t MFRC522_SS_PIN = 10;   // Hardware SS pin on Uno
 
 MFRC522 mfrc522(MFRC522_SS_PIN, MFRC522_RST_PIN);

@@ -4,6 +4,7 @@ This is the central coordinator connecting the bill acceptor, change
 calculator, dispense orchestrator, and transaction state machine.
 """
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -62,6 +63,7 @@ class TransactionOrchestrator:
         self._operation_mode = operation_mode
         self._operation_owner: Optional[str] = None
         self._receipt_service = receipt_service
+        self._confirm_lock = asyncio.Lock()
 
     @property
     def has_active_transaction(self) -> bool:
@@ -312,13 +314,25 @@ class TransactionOrchestrator:
         return await self.get_transaction_state(tx.transaction_id)
 
     async def confirm_transaction(self) -> dict:
+        """Confirm once and return current state for duplicate requests."""
+        tx = self._require_active_transaction()
+        async with self._confirm_lock:
+            if tx.state in {
+                TransactionState.DISPENSING,
+                TransactionState.COMPLETE,
+                TransactionState.ERROR,
+            }:
+                return await self.get_transaction_state(tx.transaction_id)
+            return await self._confirm_transaction_once(tx)
+
+    async def _confirm_transaction_once(
+        self, tx: TransactionStateMachine
+    ) -> dict:
         """User confirms transaction. Triggers dispensing.
 
         Returns:
             Final transaction state dict.
         """
-        tx = self._require_active_transaction()
-
         if not tx.is_in_state(TransactionState.WAITING_FOR_CONFIRMATION):
             raise TransactionError(
                 tx.transaction_id,
@@ -446,6 +460,12 @@ class TransactionOrchestrator:
                 "selected_dispense_counts": db_record.selected_dispense_counts or {},
                 "error_code": db_record.error_code,
                 "error_message": db_record.error_message,
+                "claim_ticket_code": db_record.claim_ticket_code,
+                "shortfall": (
+                    (db_record.dispense_result or {}).get("shortfall")
+                    if db_record.dispense_result
+                    else None
+                ),
                 "created_at": db_record.created_at.isoformat() if db_record.created_at else None,
                 "updated_at": db_record.updated_at.isoformat() if db_record.updated_at else None,
                 "completed_at": db_record.completed_at.isoformat() if db_record.completed_at else None,

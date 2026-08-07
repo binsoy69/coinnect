@@ -14,11 +14,17 @@ import { useTransaction } from "../context/TransactionContext";
  */
 export function useBackendTransaction() {
   const { subscribe, unsubscribe } = useWebSocket();
-  const { addInsertedMoney, backendTransactionId, setBackendTransactionId } = useTransaction();
-  const [backendState, setBackendState] = useState(null);
+  const {
+    addInsertedMoney,
+    backendTransactionId,
+    setBackendTransactionId,
+    backendState,
+    setBackendState,
+    dispenseProgress,
+    setDispenseProgress,
+  } = useTransaction();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [dispenseProgress, setDispenseProgress] = useState(null);
   const txIdRef = useRef(null);
 
   // Keep ref in sync with shared context value
@@ -80,7 +86,13 @@ export function useBackendTransaction() {
       unsubscribe("COIN_INSERTED", handleCoinInserted);
       unsubscribe("DISPENSE_PROGRESS", handleDispenseProgress);
     };
-  }, [subscribe, unsubscribe, addInsertedMoney]);
+  }, [
+    subscribe,
+    unsubscribe,
+    addInsertedMoney,
+    setBackendState,
+    setDispenseProgress,
+  ]);
 
   const startBackendTransaction = useCallback(
     async (type, amount, fee, dispenseDenoms = [], dispenseCounts = null) => {
@@ -113,7 +125,7 @@ export function useBackendTransaction() {
         setIsLoading(false);
       }
     },
-    [setBackendTransactionId]
+    [setBackendState, setBackendTransactionId]
   );
 
   const confirmBackendTransaction = useCallback(async () => {
@@ -138,7 +150,30 @@ export function useBackendTransaction() {
     } finally {
       setIsLoading(false);
     }
-  }, [backendTransactionId]);
+  }, [backendTransactionId, setBackendState]);
+
+  const refreshBackendTransaction = useCallback(async () => {
+    if (!backendTransactionId) return null;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const resp = await fetch(
+        `${API_BASE}/transaction/${backendTransactionId}`
+      );
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        throw new Error(errData.detail || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      setBackendState(data);
+      return data;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [backendTransactionId, setBackendState]);
 
   const cancelBackendTransaction = useCallback(async () => {
     if (!backendTransactionId) return null;
@@ -162,7 +197,11 @@ export function useBackendTransaction() {
       setIsLoading(false);
       setBackendTransactionId(null);
     }
-  }, [backendTransactionId, setBackendTransactionId]);
+  }, [
+    backendTransactionId,
+    setBackendState,
+    setBackendTransactionId,
+  ]);
 
   const simulateInsert = useCallback(async (denom, insertType = "bill") => {
     if (!backendTransactionId) return null;
@@ -191,7 +230,11 @@ export function useBackendTransaction() {
     setBackendState(null);
     setError(null);
     setDispenseProgress(null);
-  }, [setBackendTransactionId]);
+  }, [
+    setBackendState,
+    setBackendTransactionId,
+    setDispenseProgress,
+  ]);
 
   return {
     transactionId: backendTransactionId,
@@ -201,6 +244,7 @@ export function useBackendTransaction() {
     dispenseProgress,
     startBackendTransaction,
     confirmBackendTransaction,
+    refreshBackendTransaction,
     cancelBackendTransaction,
     simulateInsert,
     resetBackendTransaction,

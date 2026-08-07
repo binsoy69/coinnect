@@ -86,6 +86,7 @@ async def test_start_cashout_returns_paymongo_qr(ewallet_client):
     assert response.json()["qr_image_url"].startswith("data:image/png")
     assert response.json()["fee"] == 15
     assert response.json()["transfer_amount"] == 90
+    assert response.json()["shortfall"] is None
 
 
 @pytest.mark.asyncio

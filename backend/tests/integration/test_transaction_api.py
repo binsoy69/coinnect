@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.api.router import api_router
 from app.api.ws import ConnectionManager
 from app.core.config import Settings
+from app.core.errors import HardwareError
 from app.drivers.bill_controller import BillController
 from app.drivers.coin_security_controller import CoinSecurityController
 from app.drivers.mock_camera_controller import MockCameraController
@@ -417,6 +418,52 @@ class TestConfirmTransaction:
         resp = await client.post(f"/api/v1/transaction/{tx_id}/confirm")
         body = resp.json()
         assert body["completed_at"] is not None
+
+    async def test_repeat_confirm_returns_persisted_result_without_redispense(
+        self, client, test_app
+    ):
+        start = (await _start_transaction(client)).json()
+        tx_id = start["transaction_id"]
+        await _simulate_bill_insert(client, tx_id, denom=100)
+        await _simulate_bill_insert(client, tx_id, denom=100)
+
+        first = await client.post(f"/api/v1/transaction/{tx_id}/confirm")
+        second = await client.post(f"/api/v1/transaction/{tx_id}/confirm")
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert second.json()["state"] == "COMPLETE"
+        assert (
+            test_app.state.dispense_orchestrator._bill.dispense.await_count
+            == 1
+        )
+
+    async def test_partial_dispense_contract_survives_reload(
+        self, client, test_app
+    ):
+        start = (await _start_transaction(client)).json()
+        tx_id = start["transaction_id"]
+        await _simulate_bill_insert(client, tx_id, denom=100)
+        await _simulate_bill_insert(client, tx_id, denom=100)
+        test_app.state.dispense_orchestrator._bill.dispense.side_effect = (
+            HardwareError(code="JAM", message="Paper jam", dispensed=1)
+        )
+
+        confirm = await client.post(f"/api/v1/transaction/{tx_id}/confirm")
+        reloaded = await client.get(f"/api/v1/transaction/{tx_id}")
+
+        assert confirm.status_code == 200
+        assert confirm.json()["state"] == "ERROR"
+        assert confirm.json()["dispensed_amount"] == 100
+        assert confirm.json()["shortfall"] == 100
+        assert confirm.json()["claim_ticket_code"]
+        assert "JAM" in confirm.json()["error_message"]
+        assert reloaded.status_code == 200
+        assert reloaded.json()["shortfall"] == 100
+        assert (
+            reloaded.json()["claim_ticket_code"]
+            == confirm.json()["claim_ticket_code"]
+        )
 
 
 # ---------------------------------------------------------------------------

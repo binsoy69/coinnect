@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import LoadingDots from "../../components/common/LoadingDots";
 import PageTransition from "../../components/layout/PageTransition";
@@ -13,13 +13,19 @@ export default function ProcessingScreen() {
   const navigate = useNavigate();
   const { type } = useParams();
   const { subscribe, unsubscribe, isConnected } = useWebSocket();
-  const { confirmBackendTransaction } = useBackendTransaction();
+  const {
+    confirmBackendTransaction,
+    refreshBackendTransaction,
+    transactionId,
+  } = useBackendTransaction();
   const [progressText, setProgressText] = useState("Please wait...");
   const [isDone, setIsDone] = useState(false);
+  const isDoneRef = useRef(false);
 
   const handleComplete = useCallback(
     (success) => {
-      if (isDone) return;
+      if (isDoneRef.current) return;
+      isDoneRef.current = true;
       setIsDone(true);
       if (success) {
         navigate(getServiceRoute(ROUTES.SUCCESS, type));
@@ -27,30 +33,56 @@ export default function ProcessingScreen() {
         navigate(getServiceRoute(ROUTES.WARNING, type));
       }
     },
-    [navigate, type, isDone]
+    [navigate, type]
+  );
+
+  const handleState = useCallback(
+    (data) => {
+      if (data?.state === "COMPLETE") {
+        handleComplete(true);
+        return true;
+      }
+      if (
+        data?.state === "ERROR" ||
+        Boolean(data?.claim_ticket_code) ||
+        data?.shortfall != null
+      ) {
+        handleComplete(false);
+        return true;
+      }
+      return false;
+    },
+    [handleComplete]
   );
 
   // Trigger transaction confirmation on mount
   useEffect(() => {
+    if (!transactionId) {
+      isDoneRef.current = true;
+      navigate(getServiceRoute(ROUTES.WARNING, type));
+      return;
+    }
+
     confirmBackendTransaction()
       .then((data) => {
-        if (data) {
-          if (data.state === "COMPLETE") {
-            handleComplete(true);
-          } else if (
-            data.state === "ERROR" ||
-            Boolean(data.claim_ticket_code) ||
-            data.shortfall != null
-          ) {
-            handleComplete(false);
-          }
-        }
+        handleState(data);
       })
-      .catch((err) => {
+      .catch(async (err) => {
         console.error("Error confirming transaction on processing mount:", err);
-        handleComplete(false);
+        const recovered = await refreshBackendTransaction().catch(() => null);
+        if (!handleState(recovered)) {
+          handleComplete(false);
+        }
       });
-  }, [confirmBackendTransaction, handleComplete]);
+  }, [
+    confirmBackendTransaction,
+    handleComplete,
+    handleState,
+    refreshBackendTransaction,
+    transactionId,
+    navigate,
+    type,
+  ]);
 
   // Subscribe to dispense events
   useEffect(() => {
@@ -92,14 +124,21 @@ export default function ProcessingScreen() {
   // Safety timeout: if no WS events received, navigate after 30s
   // Also handles case when WS is not connected (offline/demo mode)
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (!isDone) {
-        handleComplete(true);
+    if (isDone) return undefined;
+
+    const timer = setTimeout(async () => {
+      const recovered = await refreshBackendTransaction().catch(() => null);
+      if (!handleState(recovered) && !isDoneRef.current) {
+        setProgressText(
+          isConnected
+            ? "Still processing. Verifying transaction status..."
+            : "Connection interrupted. Verifying transaction status..."
+        );
       }
     }, isConnected ? SAFETY_TIMEOUT : 2500);
 
     return () => clearTimeout(timer);
-  }, [isDone, isConnected, handleComplete]);
+  }, [isDone, isConnected, handleState, refreshBackendTransaction]);
 
   return (
     <PageTransition>

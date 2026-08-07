@@ -24,14 +24,20 @@ import { useForex } from "../context/ForexContext";
 
 export function useForexTransaction() {
   const { subscribe, unsubscribe } = useWebSocket();
-  const { addInsertedMoney, lockRate } = useForex();
-  const [transactionId, setTransactionId] = useState(null);
-  const [backendState, setBackendState] = useState(null);
+  const {
+    addInsertedMoney,
+    lockRate,
+    backendTransactionId: transactionId,
+    setBackendTransactionId: setTransactionId,
+    backendState,
+    setBackendState,
+    dispenseProgress,
+    setDispenseProgress,
+  } = useForex();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [forexRates, setForexRates] = useState({});
   const [isOnline, setIsOnline] = useState(false);
-  const [dispenseProgress, setDispenseProgress] = useState(null);
   const txIdRef = useRef(null);
 
   useEffect(() => {
@@ -115,7 +121,14 @@ export function useForexTransaction() {
       unsubscribe("BILL_STORED", handleBillStored);
       unsubscribe("DISPENSE_PROGRESS", handleDispenseProgress);
     };
-  }, [subscribe, unsubscribe, addInsertedMoney, lockRate]);
+  }, [
+    subscribe,
+    unsubscribe,
+    addInsertedMoney,
+    lockRate,
+    setBackendState,
+    setDispenseProgress,
+  ]);
 
   const startForexBackendTransaction = useCallback(
     async (serviceType, amount, dispenseDenoms = []) => {
@@ -146,7 +159,7 @@ export function useForexTransaction() {
         setIsLoading(false);
       }
     },
-    []
+    [setBackendState, setTransactionId]
   );
 
   const confirmForexTransaction = useCallback(async () => {
@@ -171,7 +184,30 @@ export function useForexTransaction() {
     } finally {
       setIsLoading(false);
     }
-  }, [transactionId]);
+  }, [setBackendState, transactionId]);
+
+  const refreshForexTransaction = useCallback(async () => {
+    if (!transactionId) return null;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const resp = await fetch(
+        `${API_BASE}/forex/transaction/${transactionId}`
+      );
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        throw new Error(errData.detail || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      setBackendState(data);
+      return data;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [transactionId, setBackendState]);
 
   const cancelForexTransaction = useCallback(async () => {
     if (!transactionId) return null;
@@ -195,7 +231,7 @@ export function useForexTransaction() {
       setIsLoading(false);
       setTransactionId(null);
     }
-  }, [transactionId]);
+  }, [setBackendState, setTransactionId, transactionId]);
 
   const simulateForexInsert = useCallback(
     async (denom, currency = "USD") => {
@@ -227,7 +263,11 @@ export function useForexTransaction() {
     setBackendState(null);
     setError(null);
     setDispenseProgress(null);
-  }, []);
+  }, [
+    setBackendState,
+    setDispenseProgress,
+    setTransactionId,
+  ]);
 
   const checkConnectivity = useCallback(async () => {
     try {
@@ -253,6 +293,7 @@ export function useForexTransaction() {
     dispenseProgress,
     startForexBackendTransaction,
     confirmForexTransaction,
+    refreshForexTransaction,
     cancelForexTransaction,
     simulateForexInsert,
     resetForexTransaction,
