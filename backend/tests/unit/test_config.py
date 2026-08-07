@@ -14,6 +14,7 @@ class TestSettings:
         assert s.port == 8000
         assert s.host == "0.0.0.0"
         assert s.serial_timeout == 5
+        assert s.serial_ready_timeout == 8.0
         assert s.low_bill_threshold == 10
         assert s.low_coin_threshold == 50
         assert s.session_timeout == 180

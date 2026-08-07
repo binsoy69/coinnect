@@ -37,6 +37,18 @@ class TestCoinDispense:
             await controller.coin_dispense(denom=7, count=1, operation_id=self.operation_id)
         assert exc_info.value.code == "INVALID_DENOM"
 
+    async def test_operation_acknowledgement_error_is_not_ignored(
+        self, controller, mock_serial_manager
+    ):
+        mock_serial_manager.send_coin_command.return_value = {
+            "status": "ERROR", "code": "PARSE_ERROR"
+        }
+
+        with pytest.raises(HardwareError) as exc_info:
+            await controller.acknowledge_operation(self.operation_id)
+
+        assert exc_info.value.code == "PARSE_ERROR"
+
 
 class TestCoinChange:
     async def test_coin_change(self, controller, mock_serial_manager):

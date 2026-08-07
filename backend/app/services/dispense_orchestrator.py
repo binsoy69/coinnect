@@ -17,7 +17,7 @@ from app.core.config import get_settings
 from pydantic import BaseModel
 
 from app.api.ws import ConnectionManager
-from app.core.errors import HardwareError, TimeoutError as CommandTimeoutError
+from app.core.errors import HardwareError, SerialError, TimeoutError as CommandTimeoutError
 from sqlalchemy import or_, select
 from app.drivers.bill_controller import BillController
 from app.drivers.coin_security_controller import CoinSecurityController
@@ -788,11 +788,21 @@ class DispenseOrchestrator:
 
         for execution_id in affected:
             await self._finalize_recovered_execution(execution_id, claim_service)
+        acknowledgement_failures: list[str] = []
         for controller, operation_id in acknowledgements:
             try:
                 await controller.acknowledge_operation(operation_id)
             except Exception as exc:
                 logger.warning("Operation acknowledgement failed for %s: %s", operation_id, exc)
+                acknowledgement_failures.append(f"{operation_id}: {exc}")
+
+        if acknowledgement_failures:
+            self._status.set_inventory_consistent(False)
+            raise SerialError(
+                "Controller recovery acknowledgement failed; physical dispensing "
+                "is disabled until the controller and durable operation state are "
+                f"reconciled ({'; '.join(acknowledgement_failures)})"
+            )
 
     async def _finalize_recovered_execution(self, execution_id, claim_service):
         async with self._db_factory() as session:

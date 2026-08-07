@@ -30,6 +30,7 @@ class SerialConnection:
         controller_type: ControllerType,
         event_queue: asyncio.Queue,
         timeout: float = 5.0,
+        ready_timeout: float = 8.0,
         use_mock: bool = False,
         mock_delay: float = 0.0,
     ):
@@ -38,6 +39,7 @@ class SerialConnection:
         self._controller_type = controller_type
         self._event_queue = event_queue
         self._timeout = timeout
+        self._ready_timeout = ready_timeout
         self._use_mock = use_mock
         self._mock_delay = mock_delay
 
@@ -49,9 +51,11 @@ class SerialConnection:
         self._pending_responses: dict[int, asyncio.Future] = {}
         self._next_command_id = 1
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._ready_future: Optional[asyncio.Future] = None
 
     async def connect(self) -> None:
         self._loop = asyncio.get_running_loop()
+        self._ready_future = self._loop.create_future()
 
         if self._use_mock:
             from app.drivers.mock_serial import MockSerial
@@ -90,6 +94,34 @@ class SerialConnection:
             daemon=True,
         )
         self._reader_thread.start()
+
+        if not self._use_mock:
+            try:
+                ready = await asyncio.wait_for(
+                    asyncio.shield(self._ready_future),
+                    timeout=self._ready_timeout,
+                )
+            except asyncio.TimeoutError as exc:
+                await self.disconnect()
+                raise SerialError(
+                    f"Timed out waiting for READY from {self._port_path}",
+                    port=self._port_path,
+                ) from exc
+
+            actual_controller = ready.get("controller")
+            if actual_controller != self._controller_type.value:
+                await self.disconnect()
+                raise SerialError(
+                    f"Controller mismatch on {self._port_path}: expected "
+                    f"{self._controller_type.value}, got {actual_controller or 'UNKNOWN'}",
+                    port=self._port_path,
+                )
+            logger.info(
+                "Controller ready: %s (controller=%s, version=%s)",
+                self._port_path,
+                actual_controller,
+                ready.get("version", "UNKNOWN"),
+            )
 
     async def disconnect(self) -> None:
         self._running = False
@@ -215,9 +247,15 @@ class SerialConnection:
     def _push_event(self, data: dict) -> None:
         """Push an unsolicited event to the shared asyncio queue."""
         data["_controller"] = self._controller_type.value
+        if data.get("event") == "READY" and self._ready_future is not None:
+            self._loop.call_soon_threadsafe(self._resolve_ready, data)
         self._loop.call_soon_threadsafe(
             self._event_queue.put_nowait, data
         )
+
+    def _resolve_ready(self, data: dict) -> None:
+        if self._ready_future is not None and not self._ready_future.done():
+            self._ready_future.set_result(data)
 
     @property
     def is_connected(self) -> bool:
@@ -257,6 +295,7 @@ class SerialManager:
             controller_type=ControllerType.BILL,
             event_queue=self.event_queue,
             timeout=self._settings.serial_timeout,
+            ready_timeout=self._settings.serial_ready_timeout,
             use_mock=self._settings.use_mock_serial,
             mock_delay=self._settings.mock_delay,
         )
@@ -266,12 +305,17 @@ class SerialManager:
             controller_type=ControllerType.COIN_SECURITY,
             event_queue=self.event_queue,
             timeout=self._settings.serial_timeout,
+            ready_timeout=self._settings.serial_ready_timeout,
             use_mock=self._settings.use_mock_serial,
             mock_delay=self._settings.mock_delay,
         )
 
-        await self.bill_connection.connect()
-        await self.coin_connection.connect()
+        try:
+            await self.bill_connection.connect()
+            await self.coin_connection.connect()
+        except Exception:
+            await self.shutdown()
+            raise
         logger.info("SerialManager started (both connections active)")
 
     async def shutdown(self) -> None:

@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import Settings
-from app.core.errors import HardwareError, TimeoutError as CommandTimeoutError
+from app.core.errors import HardwareError, SerialError, TimeoutError as CommandTimeoutError
 from app.models.events import WSEventType
 from app.models.db_models import Base, DispenseExecution, PhysicalOperation, TransactionRecord
 from app.services.change_calculator import DispensePlan, DispensePlanItem
@@ -461,3 +461,46 @@ async def test_serial_timeout_queries_status_without_replaying_motion(
         operation = (await session.execute(select(PhysicalOperation))).scalar_one()
         assert operation.state == "COMPLETED"
         assert operation.confirmed_count == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_recovery_acknowledgement_blocks_dispensing(
+    persistent_orchestrator, coin_controller, machine_status
+):
+    orchestrator, factory = persistent_orchestrator
+    transaction_id = str(uuid.uuid4())
+    execution_id = str(uuid.uuid4())
+    operation_id = str(uuid.uuid4())
+    async with factory() as session:
+        session.add(DispenseExecution(
+            id=execution_id,
+            source_kind="STANDARD",
+            transaction_id=transaction_id,
+            state="RUNNING",
+            plan={"items": []},
+            requested_amount=5,
+        ))
+        session.add(PhysicalOperation(
+            id=operation_id,
+            execution_id=execution_id,
+            transaction_id=transaction_id,
+            sequence=0,
+            controller="COIN",
+            denomination="PHP_5",
+            requested_count=1,
+            denomination_value=5,
+            state="STARTED",
+        ))
+        await session.commit()
+
+    coin_controller.operation_status.return_value = MagicMock(
+        operation_status="STARTED", dispensed=0, code=None
+    )
+    coin_controller.acknowledge_operation.side_effect = CommandTimeoutError(
+        "DISPENSE_OPERATION_ACK", 5
+    )
+
+    with pytest.raises(SerialError, match="recovery acknowledgement failed"):
+        await orchestrator.recover_started_operations()
+
+    assert machine_status.snapshot().consumables.inventory_consistent is False

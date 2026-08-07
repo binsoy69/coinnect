@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     serial_port_coin: str = "/dev/coinnect_coin"
     baud_rate: int = 115200
     serial_timeout: int = 5
+    serial_ready_timeout: float = 8.0
 
     # Mock serial
     use_mock_serial: bool = False

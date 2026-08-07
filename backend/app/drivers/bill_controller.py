@@ -68,9 +68,15 @@ class BillController:
         return self._parse_or_raise(raw, OperationStatusResponse)
 
     async def acknowledge_operation(self, operation_id: str) -> dict:
-        return await self._serial.send_bill_command(
+        raw = await self._serial.send_bill_command(
             {"cmd": "DISPENSE_OPERATION_ACK", "operation_id": operation_id}
         )
+        if raw.get("status") == "ERROR":
+            err = ErrorResponse(**raw)
+            raise HardwareError(code=err.code.value, dispensed=err.dispensed)
+        if raw.get("status") != "OK":
+            raise HardwareError(code="INVALID_RESPONSE")
+        return raw
 
     async def dispense_status(self, denom: BillDenom) -> DispenseStatusResponse:
         """Check if the dispenser for a denomination is ready."""

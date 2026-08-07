@@ -237,6 +237,7 @@ async def lifespan(app: FastAPI):
         await serial_manager.startup()
     except Exception as exc:
         logger.error(f"Failed to start serial manager: {exc}")
+        raise
     
     # Update global constants map with environment settings
     from app.core.constants import update_slot_positions
