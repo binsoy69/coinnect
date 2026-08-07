@@ -25,8 +25,8 @@ reversed, swap `SERIAL_PORT_BILL` and `SERIAL_PORT_COIN` or use stable udev
 aliases such as `/dev/coinnect_bill` and `/dev/coinnect_coin`.
 
 The coin/security diagnostics include `COIN_STATUS`, active-HIGH coin acceptor
-enable checks on Mega #2 `D24`, and sorter servo movement checks on `D7` for
-`CENTER=81`, `LEFT=45`, and `RIGHT=120`. Run the enable and sorter checks only
+enable checks on Uno `D4`, and sorter servo movement checks on `D7` for
+`CENTER=81`, `LEFT=45`, and `RIGHT=110`. Run the enable and sorter checks only
 after confirming the sorter linkage and acceptor enable wiring are safe.
 
 The Paperang P1 printer check prints a small sample receipt. Before using it on

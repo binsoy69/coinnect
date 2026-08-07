@@ -18,7 +18,7 @@
 // Coinnect Uno firmware: coin accept/dispense + security + RFID.
 // Serial protocol: newline-delimited JSON at 115200 baud.
 
-static const char *FIRMWARE_VERSION = "3.0.2-uno";
+static const char *FIRMWARE_VERSION = "3.0.3-uno";
 static const char *CONTROLLER_ID = "COIN_SECURITY";
 
 // MFRC522 RFID reader pins.
@@ -108,6 +108,13 @@ static volatile bool shockAFlag = false;
 static volatile bool shockBFlag = false;
 static volatile unsigned long lastShockAMs = 0;
 static volatile unsigned long lastShockBMs = 0;
+
+// Tamper indication must never block the serial or dispense state machines.
+static bool tamperBlinkActive = false;
+static uint8_t tamperBlinkTransitions = 0;
+static unsigned long tamperBlinkLastMs = 0;
+static const uint8_t TAMPER_BLINK_TRANSITIONS = 12;
+static const unsigned long TAMPER_BLINK_INTERVAL_MS = 80;
 
 // Non-blocking sorter and acceptance state variables
 static bool sorterMoving = false;
@@ -407,22 +414,37 @@ void unlockDoor(bool emitEvent) {
   }
 }
 
-void blinkTamperLed() {
-  for (uint8_t i = 0; i < 6; i++) {
-    digitalWrite(LED_RED_PIN, LOW);
-    delay(80);
+void startTamperBlink() {
+  tamperBlinkActive = true;
+  tamperBlinkTransitions = 0;
+  tamperBlinkLastMs = millis();
+}
+
+void serviceTamperBlink() {
+  if (!tamperBlinkActive ||
+      millis() - tamperBlinkLastMs < TAMPER_BLINK_INTERVAL_MS) {
+    return;
+  }
+
+  tamperBlinkLastMs = millis();
+  tamperBlinkTransitions++;
+  digitalWrite(LED_RED_PIN, tamperBlinkTransitions % 2 ? LOW : HIGH);
+  if (tamperBlinkTransitions >= TAMPER_BLINK_TRANSITIONS) {
+    tamperBlinkActive = false;
     digitalWrite(LED_RED_PIN, HIGH);
-    delay(80);
   }
 }
 
 void handleTamper(const char *sensor) {
+  if (tamperLatched) {
+    return;
+  }
   tamperLatched = true;
   coinAcceptorShouldBeEnabled = false;
   setCoinAcceptorEnabled(false);
   setCoinSorterPosition("CENTER");
   lockDoor(true);
-  blinkTamperLed();
+  startTamperBlink();
   sendTamperEvent(sensor);
 }
 
@@ -479,10 +501,14 @@ void serviceTamperEvents() {
   }
   interrupts();
 
+  if (tamperLatched) {
+    return;
+  }
+
   if (a) {
     handleTamper("A");
   }
-  if (b) {
+  if (b && !tamperLatched) {
     handleTamper("B");
   }
 }
@@ -699,6 +725,7 @@ void handleReset(JsonDocument &doc) {
 
   coinSessionTotal = 0;
   tamperLatched = false;
+  tamperBlinkActive = false;
   securityArmed = true; // Armed during initialization/reconciliation
   coinAcceptorShouldBeEnabled = false;
   setCoinAcceptorEnabled(false);
@@ -1122,6 +1149,7 @@ void serviceRFID() {
 
 void loop() {
   serviceTamperEvents();
+  serviceTamperBlink();
   serviceSorter();
   serviceCoinHold();
   serviceCoinPulseTrain();

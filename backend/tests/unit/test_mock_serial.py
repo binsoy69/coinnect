@@ -134,7 +134,7 @@ class TestMockSerialSimpleMode:
         )
         assert resp["status"] == "OK"
         assert resp["sorter_position"] == "RIGHT"
-        assert resp["sorter_angle"] == 120
+        assert resp["sorter_angle"] == 110
 
     def test_coin_sorter_position_invalid_param(self, coin_mock):
         resp = self._send_and_read(

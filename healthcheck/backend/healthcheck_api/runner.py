@@ -359,7 +359,12 @@ class DiagnosticsRunner:
 
     def _bill_dispense_handler(self, denom: BillDenom) -> TestHandler:
         async def handler() -> dict:
-            return (await self._hardware.bill_controller.dispense(denom, 1)).model_dump()
+            operation_id = str(uuid.uuid4())
+            return (
+                await self._hardware.bill_controller.dispense(
+                    denom, 1, operation_id
+                )
+            ).model_dump()
 
         return handler
 
@@ -398,8 +403,11 @@ class DiagnosticsRunner:
 
     def _coin_dispense_handler(self, denom: int) -> TestHandler:
         async def handler() -> dict:
+            operation_id = str(uuid.uuid4())
             return (
-                await self._hardware.coin_controller.coin_dispense(denom, 1)
+                await self._hardware.coin_controller.coin_dispense(
+                    denom, 1, operation_id
+                )
             ).model_dump()
 
         return handler

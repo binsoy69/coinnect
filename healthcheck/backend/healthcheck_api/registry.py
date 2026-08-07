@@ -34,7 +34,10 @@ def build_component_groups() -> list[ComponentGroup]:
         ComponentGroup(
             id="connectivity",
             label="Controller Connectivity",
-            description="Serial protocol checks for both Arduino Mega controllers.",
+            description=(
+                "Serial protocol checks for the Arduino Mega bill controller "
+                "and Arduino Uno coin/security controller."
+            ),
             tests=[
                 TestDefinition(
                     id="connectivity_bill_ping",
@@ -53,14 +56,14 @@ def build_component_groups() -> list[ComponentGroup]:
                 TestDefinition(
                     id="connectivity_coin_ping",
                     label="Coin/Security Ping",
-                    component="Arduino Mega #2",
+                    component="Arduino Uno",
                     kind="connectivity",
                     description="Send PING to the coin/security controller.",
                 ),
                 TestDefinition(
                     id="connectivity_coin_version",
                     label="Coin/Security Version",
-                    component="Arduino Mega #2",
+                    component="Arduino Uno",
                     kind="connectivity",
                     description="Read firmware version from the coin/security controller.",
                 ),
@@ -330,7 +333,7 @@ def build_component_groups() -> list[ComponentGroup]:
                 TestDefinition(
                     id="coin_acceptor_enable_on",
                     label="Enable Coin Acceptor",
-                    component="Coin acceptor enable pin D24",
+                    component="Coin acceptor enable pin D4",
                     kind="actuator",
                     description="Drive the active-HIGH coin acceptor enable pin on.",
                     caution="Allows the coin acceptor to accept inserted coins.",
@@ -338,7 +341,7 @@ def build_component_groups() -> list[ComponentGroup]:
                 TestDefinition(
                     id="coin_acceptor_enable_off",
                     label="Disable Coin Acceptor",
-                    component="Coin acceptor enable pin D24",
+                    component="Coin acceptor enable pin D4",
                     kind="actuator",
                     description="Drive the active-HIGH coin acceptor enable pin off.",
                 ),
@@ -363,7 +366,7 @@ def build_component_groups() -> list[ComponentGroup]:
                     label="Sorter Right",
                     component="Coin sorter servo D7",
                     kind="actuator",
-                    description="Move the coin sorter servo to RIGHT at 120 degrees.",
+                    description="Move the coin sorter servo to RIGHT at 110 degrees.",
                     caution="Moves the coin sorter servo.",
                 ),
                 *[

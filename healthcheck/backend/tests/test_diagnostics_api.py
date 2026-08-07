@@ -129,7 +129,7 @@ async def test_mock_serial_coin_sorter_and_acceptor_commands_pass(authed_client)
     right_resp = await client.post("/api/v1/tests/coin_sorter_right/run")
     assert right_resp.status_code == 200
     assert right_resp.json()["status"] == "passed"
-    assert right_resp.json()["response"]["sorter_angle"] == 120
+    assert right_resp.json()["response"]["sorter_angle"] == 110
 
     disable_resp = await client.post("/api/v1/tests/coin_acceptor_enable_off/run")
     assert disable_resp.status_code == 200

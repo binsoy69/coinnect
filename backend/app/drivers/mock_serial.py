@@ -22,7 +22,7 @@ from app.core.constants import (
 COIN_SORTER_ANGLES = {
     "CENTER": 81,
     "LEFT": 45,
-    "RIGHT": 120,
+    "RIGHT": 110,
 }
 
 
