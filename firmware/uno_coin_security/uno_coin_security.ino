@@ -18,7 +18,7 @@
 // Coinnect Uno firmware: coin accept/dispense + security + RFID.
 // Serial protocol: newline-delimited JSON at 115200 baud.
 
-static const char *FIRMWARE_VERSION = "3.0.1-uno";
+static const char *FIRMWARE_VERSION = "3.0.2-uno";
 static const char *CONTROLLER_ID = "COIN_SECURITY";
 
 // MFRC522 RFID reader pins.
@@ -87,7 +87,12 @@ static CoinDispenser coinDispensers[] = {
 static const uint8_t COIN_DISPENSER_COUNT =
     sizeof(coinDispensers) / sizeof(coinDispensers[0]);
 
-static String inputLine;
+// The largest backend command is currently 122 bytes including its newline.
+// Keep bounded headroom without reserving scarce Uno SRAM for impossible input.
+static const size_t SERIAL_INPUT_CAPACITY = 192;
+static char inputLine[SERIAL_INPUT_CAPACITY];
+static size_t inputLength = 0;
+static bool inputOverflow = false;
 static bool doorLocked = true;
 static bool tamperLatched = false;
 static bool securityArmed = false; // Starts disarmed/not listening on boot
@@ -295,6 +300,20 @@ void sendError(const char *code, int dispensed = -1, const char *operationId = N
   sendDocument(doc);
 }
 
+void sendCommandError(JsonDocument &doc, const char *code, int dispensed = -1,
+                      const char *operationId = NULL) {
+  doc.clear();
+  doc["status"] = "ERROR";
+  doc["code"] = code;
+  if (dispensed >= 0) {
+    doc["dispensed"] = dispensed;
+  }
+  if (operationId && operationId[0]) {
+    doc["operation_id"] = operationId;
+  }
+  sendDocument(doc);
+}
+
 bool isValidCoinDenom(int denom) {
   return denom == 1 || denom == 5 || denom == 10 || denom == 20;
 }
@@ -340,7 +359,13 @@ const char *sorterPositionForDenom(int denom) {
 }
 
 void setCoinSorterPosition(const char *position) {
-  coinSorterPosition = position;
+  if (strcmp(position, "LEFT") == 0) {
+    coinSorterPosition = "LEFT";
+  } else if (strcmp(position, "RIGHT") == 0) {
+    coinSorterPosition = "RIGHT";
+  } else {
+    coinSorterPosition = "CENTER";
+  }
   coinSorterServo.write(sorterAngleForPosition(position));
   sorterMoving = true;
   sorterMoveStartMs = millis();
@@ -650,22 +675,22 @@ void calculateCoinBreakdown(int amount, int &c20, int &c10, int &c5, int &c1) {
   c1 = amount;
 }
 
-void handlePing() {
-  StaticJsonDocument<128> doc;
+void handlePing(JsonDocument &doc) {
+  doc.clear();
   doc["status"] = "OK";
   doc["message"] = "PONG";
   sendDocument(doc);
 }
 
-void handleVersion() {
-  StaticJsonDocument<128> doc;
+void handleVersion(JsonDocument &doc) {
+  doc.clear();
   doc["status"] = "OK";
   doc["version"] = FIRMWARE_VERSION;
   doc["controller"] = CONTROLLER_ID;
   sendDocument(doc);
 }
 
-void handleReset() {
+void handleReset(JsonDocument &doc) {
   noInterrupts();
   coinPulseCount = 0;
   shockAFlag = false;
@@ -685,58 +710,58 @@ void handleReset() {
   }
   dispenseActive = false; // Abort any active coin dispensing
 
-  StaticJsonDocument<64> doc;
+  doc.clear();
   doc["status"] = "OK";
   sendDocument(doc);
 }
 
 void handleCoinDispense(JsonDocument &cmdDoc) {
   if (dispenseActive) {
-    sendError("BUSY");
+    sendCommandError(cmdDoc, "BUSY");
     return;
   }
   const int denom = cmdDoc["denom"] | 0;
   const int count = cmdDoc["count"] | 0;
   const char *operationId = cmdDoc["operation_id"] | "";
   if (!isValidOperationId(operationId)) {
-    sendError("INVALID_PARAM", -1, operationId);
+    sendCommandError(cmdDoc, "INVALID_PARAM", -1, operationId);
     return;
   }
 
   OperationJournalRecord prior = {};
   if (findOperation(operationId, prior)) {
     if (prior.state == 2) {
-      StaticJsonDocument<160> doc;
-      doc["status"] = "OK";
-      doc["dispensed"] = prior.dispensed;
-      doc["operation_id"] = operationId;
-      sendDocument(doc);
+      cmdDoc.clear();
+      cmdDoc["status"] = "OK";
+      cmdDoc["dispensed"] = prior.dispensed;
+      cmdDoc["operation_id"] = operationId;
+      sendDocument(cmdDoc);
     } else {
-      sendError("RECOVERY_REQUIRED", prior.dispensed, operationId);
+      sendCommandError(cmdDoc, "RECOVERY_REQUIRED", prior.dispensed, operationId);
     }
     return;
   }
   if (journalRecord.state == 1 || journalRecord.state == 4) {
-    sendError("RECOVERY_REQUIRED", journalRecord.dispensed, operationId);
+    sendCommandError(cmdDoc, "RECOVERY_REQUIRED", journalRecord.dispensed, operationId);
     return;
   }
 
   if (!isValidCoinDenom(denom)) {
-    sendError("INVALID_DENOM");
+    sendCommandError(cmdDoc, "INVALID_DENOM");
     return;
   }
   if (count < 1 || count > 50) {
-    sendError("INVALID_COUNT");
+    sendCommandError(cmdDoc, "INVALID_COUNT");
     return;
   }
   if (tamperLatched) {
-    sendError("LOCKED_OUT", 0);
+    sendCommandError(cmdDoc, "LOCKED_OUT", 0);
     return;
   }
 
   dispenseDispenserIndex = findCoinDispenser(denom);
   if (dispenseDispenserIndex < 0) {
-    sendError("INVALID_DENOM");
+    sendCommandError(cmdDoc, "INVALID_DENOM");
     return;
   }
 
@@ -755,58 +780,61 @@ void handleCoinDispense(JsonDocument &cmdDoc) {
 void handleOperationStatus(JsonDocument &cmdDoc) {
   const char *operationId = cmdDoc["operation_id"] | "";
   if (!isValidOperationId(operationId)) {
-    sendError("INVALID_PARAM", -1, operationId);
+    sendCommandError(cmdDoc, "INVALID_PARAM", -1, operationId);
     return;
   }
 
-  StaticJsonDocument<192> doc;
-  doc["status"] = "OK";
-  doc["operation_id"] = operationId;
   OperationJournalRecord prior = {};
-  if (journalRecord.state == 4 && journalRecord.operationId[0] == '\0') {
-    doc["operation_status"] = "AMBIGUOUS";
-  } else if (!findOperation(operationId, prior)) {
-    doc["operation_status"] = "NOT_FOUND";
+  const bool journalIsAmbiguous =
+      journalRecord.state == 4 && journalRecord.operationId[0] == '\0';
+  const bool operationFound = findOperation(operationId, prior);
+  cmdDoc.clear();
+  cmdDoc["status"] = "OK";
+  cmdDoc["operation_id"] = operationId;
+  if (journalIsAmbiguous) {
+    cmdDoc["operation_status"] = "AMBIGUOUS";
+  } else if (!operationFound) {
+    cmdDoc["operation_status"] = "NOT_FOUND";
   } else {
-    doc["operation_status"] =
+    cmdDoc["operation_status"] =
         prior.state == 1 ? "STARTED" :
         prior.state == 2 ? "COMPLETED" :
         prior.state == 3 ? "FAILED" : "AMBIGUOUS";
-    doc["dispensed"] = prior.dispensed;
+    cmdDoc["dispensed"] = prior.dispensed;
   }
-  sendDocument(doc);
+  sendDocument(cmdDoc);
 }
 
 void handleOperationAck(JsonDocument &cmdDoc) {
   const char *operationId = cmdDoc["operation_id"] | "";
   if (!isValidOperationId(operationId)) {
-    sendError("INVALID_PARAM", -1, operationId);
+    sendCommandError(cmdDoc, "INVALID_PARAM", -1, operationId);
     return;
   }
   if (journalRecord.state != 4 && strcmp(operationId, journalRecord.operationId) != 0) {
-    sendError("NOT_FOUND", -1, operationId);
+    sendCommandError(cmdDoc, "NOT_FOUND", -1, operationId);
     return;
   }
   clearCorruptJournalSlots();
   persistOperation(0, "", 0);
-  StaticJsonDocument<128> doc;
-  doc["status"] = "OK";
-  doc["operation_id"] = operationId;
-  sendDocument(doc);
+  cmdDoc.clear();
+  cmdDoc["status"] = "OK";
+  cmdDoc["operation_id"] = operationId;
+  sendDocument(cmdDoc);
 }
 
 void handleCoinChange(JsonDocument &cmdDoc) {
   if (dispenseActive) {
-    sendError("BUSY");
+    sendCommandError(cmdDoc, "BUSY");
     return;
   }
   const int amount = cmdDoc["amount"] | 0;
   if (amount < 1) {
-    sendError("INVALID_COUNT");
+    sendCommandError(cmdDoc, "INVALID_COUNT");
     return;
   }
   if (tamperLatched) {
-    sendError("LOCKED_OUT", 0);
+    sendCommandError(cmdDoc, "LOCKED_OUT", 0);
     return;
   }
 
@@ -842,22 +870,22 @@ void handleCoinChange(JsonDocument &cmdDoc) {
     dispenseActualCount = 0;
     dispenseDispenserIndex = findCoinDispenser(firstDenom);
     if (dispenseDispenserIndex < 0) {
-      sendError("INVALID_DENOM");
+      sendCommandError(cmdDoc, "INVALID_DENOM");
       dispenseActive = false;
       return;
     }
     dispenseStep = DISPENSE_STEP_IDLE;
   } else {
     // Nothing to dispense
-    StaticJsonDocument<160> doc;
-    doc["status"] = "OK";
-    JsonObject breakdown = doc.createNestedObject("breakdown");
-    sendDocument(doc);
+    cmdDoc.clear();
+    cmdDoc["status"] = "OK";
+    cmdDoc.createNestedObject("breakdown");
+    sendDocument(cmdDoc);
     dispenseActive = false;
   }
 }
 
-void handleCoinReset() {
+void handleCoinReset(JsonDocument &doc) {
   const int previousTotal = coinSessionTotal;
   coinSessionTotal = 0;
 
@@ -867,7 +895,7 @@ void handleCoinReset() {
 
   dispenseActive = false; // Abort any active coin dispensing
 
-  StaticJsonDocument<96> doc;
+  doc.clear();
   doc["status"] = "OK";
   doc["previous_total"] = previousTotal;
   sendDocument(doc);
@@ -875,13 +903,13 @@ void handleCoinReset() {
 
 void handleCoinAcceptorEnable(JsonDocument &cmdDoc) {
   if (!cmdDoc["enabled"].is<bool>()) {
-    sendError("INVALID_PARAM");
+    sendCommandError(cmdDoc, "INVALID_PARAM");
     return;
   }
 
   const bool enabled = cmdDoc["enabled"];
   if (enabled && tamperLatched) {
-    sendError("LOCKED_OUT");
+    sendCommandError(cmdDoc, "LOCKED_OUT");
     return;
   }
 
@@ -896,8 +924,8 @@ void handleCoinAcceptorEnable(JsonDocument &cmdDoc) {
 }
 
 
-void handleCoinStatus() {
-  StaticJsonDocument<160> doc;
+void handleCoinStatus(JsonDocument &doc) {
+  doc.clear();
   doc["status"] = "OK";
   doc["acceptor_enabled"] = (bool)coinAcceptorEnabled;
   doc["sorter_position"] = coinSorterPosition;
@@ -909,51 +937,53 @@ void handleCoinStatus() {
 void handleCoinSorterPosition(JsonDocument &cmdDoc) {
   const char *position = cmdDoc["position"] | "";
   if (!isValidSorterPosition(position)) {
-    sendError("INVALID_PARAM");
+    sendCommandError(cmdDoc, "INVALID_PARAM");
     return;
   }
 
   setCoinSorterPosition(position);
 
-  StaticJsonDocument<128> doc;
-  doc["status"] = "OK";
-  doc["sorter_position"] = coinSorterPosition;
-  doc["sorter_angle"] = sorterAngleForPosition(coinSorterPosition);
-  sendDocument(doc);
+  cmdDoc.clear();
+  cmdDoc["status"] = "OK";
+  cmdDoc["sorter_position"] = coinSorterPosition;
+  cmdDoc["sorter_angle"] = sorterAngleForPosition(coinSorterPosition);
+  sendDocument(cmdDoc);
 }
 
-void handleSecurityLock() {
+void handleSecurityLock(JsonDocument &doc) {
   securityArmed = true; // Armed/listening
   lockDoor(true);
-  StaticJsonDocument<96> doc;
+  doc.clear();
   doc["status"] = "OK";
   doc["locked"] = true;
   sendDocument(doc);
 }
 
-void handleSecurityUnlock() {
+void handleSecurityUnlock(JsonDocument &doc) {
   securityArmed = false; // Disarmed/not listening
   unlockDoor(true);
-  StaticJsonDocument<96> doc;
+  doc.clear();
   doc["status"] = "OK";
   doc["locked"] = false;
   sendDocument(doc);
 }
 
-void handleSecurityStatus() {
-  StaticJsonDocument<128> doc;
+void handleSecurityStatus(JsonDocument &doc) {
+  doc.clear();
   doc["status"] = "OK";
   doc["locked"] = doorLocked;
   doc["tamper_a"] = tamperLatched;
   sendDocument(doc);
 }
 
-void dispatchCommand(const String &line) {
-  StaticJsonDocument<384> cmdDoc;
+void dispatchCommand(char *line) {
+  // Parsing from a mutable buffer lets ArduinoJson keep string values in the
+  // input buffer instead of duplicating them in the document's memory pool.
+  StaticJsonDocument<160> cmdDoc;
   DeserializationError err = deserializeJson(cmdDoc, line);
   if (err) {
     currentCommandId = -1;
-    sendError("PARSE_ERROR");
+    sendCommandError(cmdDoc, "PARSE_ERROR");
     return;
   }
 
@@ -961,11 +991,11 @@ void dispatchCommand(const String &line) {
 
   const char *cmd = cmdDoc["cmd"] | "";
   if (strcmp(cmd, "PING") == 0) {
-    handlePing();
+    handlePing(cmdDoc);
   } else if (strcmp(cmd, "VERSION") == 0) {
-    handleVersion();
+    handleVersion(cmdDoc);
   } else if (strcmp(cmd, "RESET") == 0) {
-    handleReset();
+    handleReset(cmdDoc);
   } else if (strcmp(cmd, "COIN_DISPENSE") == 0) {
     handleCoinDispense(cmdDoc);
   } else if (strcmp(cmd, "DISPENSE_OPERATION_STATUS") == 0) {
@@ -975,21 +1005,21 @@ void dispatchCommand(const String &line) {
   } else if (strcmp(cmd, "COIN_CHANGE") == 0) {
     handleCoinChange(cmdDoc);
   } else if (strcmp(cmd, "COIN_RESET") == 0) {
-    handleCoinReset();
+    handleCoinReset(cmdDoc);
   } else if (strcmp(cmd, "COIN_ACCEPTOR_ENABLE") == 0) {
     handleCoinAcceptorEnable(cmdDoc);
   } else if (strcmp(cmd, "COIN_STATUS") == 0) {
-    handleCoinStatus();
+    handleCoinStatus(cmdDoc);
   } else if (strcmp(cmd, "COIN_SORTER_POSITION") == 0) {
     handleCoinSorterPosition(cmdDoc);
   } else if (strcmp(cmd, "SECURITY_LOCK") == 0) {
-    handleSecurityLock();
+    handleSecurityLock(cmdDoc);
   } else if (strcmp(cmd, "SECURITY_UNLOCK") == 0) {
-    handleSecurityUnlock();
+    handleSecurityUnlock(cmdDoc);
   } else if (strcmp(cmd, "SECURITY_STATUS") == 0) {
-    handleSecurityStatus();
+    handleSecurityStatus(cmdDoc);
   } else {
-    sendError("UNKNOWN_CMD");
+    sendCommandError(cmdDoc, "UNKNOWN_CMD");
   }
 
   currentCommandId = -1;
@@ -999,16 +1029,20 @@ void handleSerialInput() {
   while (Serial.available() > 0) {
     char c = (char)Serial.read();
     if (c == '\n') {
-      inputLine.trim();
-      if (inputLine.length() > 0) {
+      if (inputOverflow) {
+        currentCommandId = -1;
+        sendError("PARSE_ERROR");
+      } else if (inputLength > 0) {
+        inputLine[inputLength] = '\0';
         dispatchCommand(inputLine);
       }
-      inputLine = "";
-    } else if (c != '\r') {
-      inputLine += c;
-      if (inputLine.length() > 512) {
-        inputLine = "";
-        sendError("PARSE_ERROR");
+      inputLength = 0;
+      inputOverflow = false;
+    } else if (c != '\r' && !inputOverflow) {
+      if (inputLength < SERIAL_INPUT_CAPACITY - 1) {
+        inputLine[inputLength++] = c;
+      } else {
+        inputOverflow = true;
       }
     }
   }
@@ -1040,7 +1074,6 @@ void setupSecurityPins() {
 
 void setup() {
   Serial.begin(115200);
-  inputLine.reserve(256);
 
   pinMode(COIN_PULSE_PIN, INPUT_PULLUP);
   pinMode(COIN_ACCEPTOR_ENABLE_PIN, OUTPUT);
