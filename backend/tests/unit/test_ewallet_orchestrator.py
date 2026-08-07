@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.api.ws import ConnectionManager
 from app.core.config import EWalletFeeTier, Settings
+from app.core.errors import EWalletTransactionError
 from app.models.db_models import Base, EWalletTransactionRecord, GatewayEventRecord
 from app.services.ewallet_orchestrator import EWalletOrchestrator
 from app.services.paymongo_client import DisbursementResult, QRPaymentResult
@@ -87,6 +88,34 @@ async def test_cashout_creates_qr_but_does_not_dispense(ewallet_dependencies):
         )
         assert record.mobile_number == ""
         assert record.account_name == ""
+
+
+@pytest.mark.asyncio
+async def test_inventory_reconciliation_is_advisory_for_ewallet_by_default(
+    ewallet_dependencies,
+):
+    orchestrator, _, _, _ = ewallet_dependencies
+    orchestrator._status.set_inventory_consistent(False)
+
+    tx = await orchestrator.start_transaction(
+        provider="maya", direction="cash-out", amount=105
+    )
+
+    assert tx["state"] == "WAITING_FOR_PAYMENT"
+
+
+@pytest.mark.asyncio
+async def test_strict_inventory_reconciliation_blocks_ewallet(
+    ewallet_dependencies,
+):
+    orchestrator, _, _, _ = ewallet_dependencies
+    orchestrator._settings.block_dispensing_on_inventory_inconsistency = True
+    orchestrator._status.set_inventory_consistent(False)
+
+    with pytest.raises(EWalletTransactionError, match="reconciliation is required"):
+        await orchestrator.start_transaction(
+            provider="maya", direction="cash-out", amount=105
+        )
 
 
 def test_ewallet_model_does_not_require_new_payment_id_column():

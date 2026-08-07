@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     coin_dispense_timeout_factor: float = 0.8
     coin_dispense_timeout_base: float = 5.0
     dispense_ui_delay: float = 1.0
+    block_dispensing_on_inventory_inconsistency: bool = False
 
     # Consumables thresholds
     low_bill_threshold: int = 10

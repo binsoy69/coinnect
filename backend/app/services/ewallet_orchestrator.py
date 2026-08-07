@@ -138,7 +138,7 @@ class EWalletOrchestrator:
             raise EWalletTransactionError("Amount must be greater than the fee")
         transfer_amount = amount - fee
         snapshot = self._status.snapshot()
-        if not snapshot.consumables.inventory_consistent:
+        if self._status.should_block_dispensing_for_inventory_reconciliation():
             raise EWalletTransactionError(
                 "Inventory reconciliation is required"
             )

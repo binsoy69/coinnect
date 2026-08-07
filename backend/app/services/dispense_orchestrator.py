@@ -91,7 +91,7 @@ class DispenseOrchestrator:
         Returns:
             DispenseResult with actual dispensed amounts.
         """
-        if not self._status.snapshot().consumables.inventory_consistent:
+        if self._status.should_block_dispensing_for_inventory_reconciliation():
             error = "Inventory reconciliation is required; dispensing is disabled"
             logger.error(
                 "Dispense blocked reference_id=%s: %s", reference_id, error
@@ -811,9 +811,9 @@ class DispenseOrchestrator:
         if acknowledgement_failures:
             self._status.set_inventory_consistent(False)
             raise SerialError(
-                "Controller recovery acknowledgement failed; physical dispensing "
-                "is disabled until the controller and durable operation state are "
-                f"reconciled ({'; '.join(acknowledgement_failures)})"
+                "Controller recovery acknowledgement failed; the controller and "
+                "durable operation state require reconciliation "
+                f"({'; '.join(acknowledgement_failures)})"
             )
 
     async def _finalize_recovered_execution(self, execution_id, claim_service):

@@ -56,20 +56,29 @@ async def _recover_physical_operations_for_startup(
     """Recover dispense state without taking the maintenance API offline.
 
     ``recover_started_operations`` marks inventory inconsistent before raising
-    when a controller cannot acknowledge recovery.  Keep that fail-closed
-    state, but allow the application to start so an operator can inspect and
-    reconcile the affected operations through the admin API.
+    when a controller cannot acknowledge recovery. Allow the application to
+    start so an operator can inspect and reconcile the affected operations.
     """
     app.state.startup_recovery_error = None
     try:
         await dispense_orchestrator.recover_started_operations(claim_service)
     except SerialError as exc:
         app.state.startup_recovery_error = str(exc)
-        logger.critical(
-            "Physical operation recovery is incomplete; dispensing remains "
-            "disabled pending operator reconciliation: %s",
-            exc,
-        )
+        if (
+            app.state.machine_status
+            .should_block_dispensing_for_inventory_reconciliation()
+        ):
+            logger.critical(
+                "Physical operation recovery is incomplete; dispensing remains "
+                "disabled pending operator reconciliation: %s",
+                exc,
+            )
+        else:
+            logger.warning(
+                "Physical operation recovery is incomplete and was recorded; "
+                "dispensing remains enabled by reconciliation policy: %s",
+                exc,
+            )
 
 
 @asynccontextmanager

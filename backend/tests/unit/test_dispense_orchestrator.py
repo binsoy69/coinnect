@@ -123,10 +123,36 @@ def _coin_plan(items_dict):
 
 
 @pytest.mark.asyncio
-async def test_dispense_is_blocked_when_inventory_requires_reconciliation(
+async def test_dispense_continues_when_reconciliation_is_advisory(
     orchestrator, bill_controller, coin_controller, machine_status
 ):
     machine_status.set_inventory_consistent(False)
+    bill_controller.dispense.return_value = MagicMock(dispensed=1)
+
+    result = await orchestrator.execute_dispense(
+        _bill_plan({"PHP_100": (1, 100)}), reference_id="paid-cash-out"
+    )
+
+    assert result.success is True
+    assert result.total_dispensed == 100
+    bill_controller.dispense.assert_awaited_once()
+    coin_controller.coin_dispense.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_dispense_is_blocked_when_strict_reconciliation_is_enabled(
+    bill_controller, coin_controller, ws_manager
+):
+    status = MachineStatus(
+        Settings(block_dispensing_on_inventory_inconsistency=True)
+    )
+    status.set_inventory_consistent(False)
+    orchestrator = DispenseOrchestrator(
+        bill_controller=bill_controller,
+        coin_controller=coin_controller,
+        machine_status=status,
+        ws_manager=ws_manager,
+    )
 
     result = await orchestrator.execute_dispense(
         _bill_plan({"PHP_100": (1, 100)}), reference_id="paid-cash-out"
@@ -135,10 +161,8 @@ async def test_dispense_is_blocked_when_inventory_requires_reconciliation(
     assert result.success is False
     assert result.total_dispensed == 0
     assert result.shortfall == 100
-    assert result.claim_ticket_code is not None
     assert "reconciliation is required" in result.error.lower()
     bill_controller.dispense.assert_not_awaited()
-    coin_controller.coin_dispense.assert_not_awaited()
 
 
 def _mixed_plan(bill_dict, coin_dict):
@@ -483,7 +507,7 @@ async def test_serial_timeout_queries_status_without_replaying_motion(
 
 
 @pytest.mark.asyncio
-async def test_failed_recovery_acknowledgement_blocks_dispensing(
+async def test_failed_recovery_acknowledgement_records_inconsistency(
     persistent_orchestrator, coin_controller, machine_status
 ):
     orchestrator, factory = persistent_orchestrator

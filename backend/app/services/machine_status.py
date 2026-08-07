@@ -235,6 +235,14 @@ class MachineStatus:
                 self._consumables.alerts.append(message)
         self._notify_change()
 
+    def should_block_dispensing_for_inventory_reconciliation(self) -> bool:
+        """Return whether the configured policy blocks payout attempts."""
+        with self._lock:
+            return (
+                self._settings.block_dispensing_on_inventory_inconsistency
+                and not self._consumables.inventory_consistent
+            )
+
     def get_alerts(self) -> List[str]:
         with self._lock:
             return list(self._consumables.alerts)

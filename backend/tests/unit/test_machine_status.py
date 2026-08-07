@@ -108,6 +108,23 @@ class TestConsumables:
         snap = status.snapshot()
         assert snap.consumables.coin_counts["PHP_5"] == 15
 
+    def test_inventory_inconsistency_is_advisory_by_default(self, status):
+        status.set_inventory_consistent(False)
+
+        assert status.snapshot().consumables.inventory_consistent is False
+        assert (
+            status.should_block_dispensing_for_inventory_reconciliation()
+            is False
+        )
+
+    def test_inventory_inconsistency_blocks_when_policy_is_enabled(self):
+        status = MachineStatus(
+            Settings(block_dispensing_on_inventory_inconsistency=True)
+        )
+        status.set_inventory_consistent(False)
+
+        assert status.should_block_dispensing_for_inventory_reconciliation() is True
+
 
 class TestAlerts:
     def test_low_bill_alert(self, status):

@@ -105,6 +105,7 @@ def mock_machine_status():
         "PHP_20": 200, "PHP_10": 200, "PHP_5": 200, "PHP_1": 500,
     }
     status.snapshot = MagicMock(return_value=snapshot)
+    status.should_block_dispensing_for_inventory_reconciliation.return_value = False
     return status
 
 
@@ -114,6 +115,7 @@ def mock_machine_status_tampered():
     snapshot = MagicMock()
     snapshot.security.tamper_active = True
     status.snapshot = MagicMock(return_value=snapshot)
+    status.should_block_dispensing_for_inventory_reconciliation.return_value = False
     return status
 
 
@@ -217,6 +219,25 @@ class TestStartTransaction:
         )
         with pytest.raises(TransactionError):
             await orch.start_transaction("usd-to-php", 100)
+
+    @pytest.mark.asyncio
+    async def test_inventory_reconciliation_is_advisory_by_default(
+        self, forex_orchestrator, mock_machine_status
+    ):
+        mock_machine_status.should_block_dispensing_for_inventory_reconciliation.return_value = False
+
+        state = await forex_orchestrator.start_transaction("usd-to-php", 100)
+
+        assert state["state"] == "WAITING_FOR_BILL"
+
+    @pytest.mark.asyncio
+    async def test_strict_inventory_reconciliation_blocks_forex(
+        self, forex_orchestrator, mock_machine_status
+    ):
+        mock_machine_status.should_block_dispensing_for_inventory_reconciliation.return_value = True
+
+        with pytest.raises(TransactionError, match="reconciliation is required"):
+            await forex_orchestrator.start_transaction("usd-to-php", 100)
 
     @pytest.mark.asyncio
     async def test_start_already_active_raises(self, forex_orchestrator):

@@ -118,7 +118,7 @@ class TransactionOrchestrator:
         snapshot = self._status.snapshot()
         if snapshot.security.tamper_active:
             raise TransactionError("", "Machine is in lockdown mode")
-        if not snapshot.consumables.inventory_consistent:
+        if self._status.should_block_dispensing_for_inventory_reconciliation():
             raise TransactionError("", "Inventory reconciliation is required")
 
         # Pre-check: can we dispense the target amount?

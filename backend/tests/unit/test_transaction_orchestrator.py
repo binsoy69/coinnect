@@ -258,6 +258,24 @@ class TestStartTransaction:
         with pytest.raises(TransactionError, match="lockdown"):
             await _start_default_transaction(orchestrator)
 
+    async def test_inventory_reconciliation_is_advisory_by_default(
+        self, orchestrator, machine_status
+    ):
+        machine_status.set_inventory_consistent(False)
+
+        state = await _start_default_transaction(orchestrator)
+
+        assert state["state"] == TransactionState.WAITING_FOR_BILL.value
+
+    async def test_strict_inventory_reconciliation_blocks_transaction(
+        self, orchestrator, machine_status
+    ):
+        machine_status._settings.block_dispensing_on_inventory_inconsistency = True
+        machine_status.set_inventory_consistent(False)
+
+        with pytest.raises(TransactionError, match="reconciliation is required"):
+            await _start_default_transaction(orchestrator)
+
     async def test_raises_if_cannot_dispense_amount(self, orchestrator, machine_status):
         """If the machine cannot dispense the requested target amount,
         start_transaction raises TransactionError."""
