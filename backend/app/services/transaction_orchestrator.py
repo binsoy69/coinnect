@@ -15,14 +15,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.ws import ConnectionManager
 from app.core.constants import BILL_DENOM_VALUES, BillDenom
-from app.core.errors import TransactionError
+from app.core.errors import InsufficientInventoryError, TransactionError
 from app.models.db_models import (
     TransactionRecord,
     TransactionState,
 )
 from app.models.events import WSEvent, WSEventType
 from app.services.bill_acceptor import BillAcceptor
-from app.services.change_calculator import calculate_change
+from app.services.change_calculator import DispensePlan, calculate_change
 from app.services.dispense_orchestrator import DispenseOrchestrator
 from app.drivers.coin_security_controller import CoinSecurityController
 from app.services.machine_status import MachineStatus
@@ -357,6 +357,67 @@ class TransactionOrchestrator:
                 return await self.get_transaction_state(tx.transaction_id)
             return await self._confirm_transaction_once(tx)
 
+    @staticmethod
+    def _build_dispense_plan(db_record, snapshot) -> tuple[DispensePlan, int, bool]:
+        """Build the payout plan and any coin-only overpayment refund."""
+        bill_inventory = snapshot.consumables.bill_dispenser_counts
+        coin_inventory = snapshot.consumables.coin_counts
+
+        if db_record.type != "coin-to-bill":
+            amount = db_record.inserted_amount - db_record.fee
+            plan = calculate_change(
+                amount,
+                {} if db_record.type == "bill-to-coin" else bill_inventory,
+                coin_inventory if db_record.type == "bill-to-coin" else {},
+                preferred_denoms=db_record.selected_dispense_denoms,
+                requested_counts=db_record.selected_dispense_counts,
+            )
+            return plan, 0, False
+
+        bill_plan = calculate_change(
+            db_record.target_amount,
+            bill_inventory,
+            {},
+            preferred_denoms=db_record.selected_dispense_denoms,
+            requested_counts=db_record.selected_dispense_counts,
+        )
+        excess_refund = max(0, db_record.inserted_amount - db_record.total_due)
+        if excess_refund == 0:
+            return bill_plan, 0, False
+
+        try:
+            refund_plan = calculate_change(
+                excess_refund,
+                {},
+                coin_inventory,
+            )
+        except InsufficientInventoryError:
+            logger.warning(
+                "Exact excess refund unavailable transaction_id=%s amount=%s; "
+                "dispensing selected bill payout and claiming the refund",
+                db_record.id,
+                excess_refund,
+            )
+            return (
+                DispensePlan(
+                    items=list(bill_plan.items),
+                    total_amount=bill_plan.total_amount + excess_refund,
+                    is_exact=False,
+                ),
+                excess_refund,
+                True,
+            )
+
+        return (
+            DispensePlan(
+                items=[*bill_plan.items, *refund_plan.items],
+                total_amount=bill_plan.total_amount + refund_plan.total_amount,
+                is_exact=True,
+            ),
+            excess_refund,
+            False,
+        )
+
     async def _confirm_transaction_once(
         self, tx: TransactionStateMachine
     ) -> dict:
@@ -378,24 +439,20 @@ class TransactionOrchestrator:
         if not db_record:
             raise TransactionError(tx.transaction_id, "Transaction record not found")
 
-        # The selected amount remains immutable; the server-authoritative fee
-        # determines the payout for bill-funded conversions.
-        actual_dispense = db_record.inserted_amount - db_record.fee
-
-        # Calculate dispense plan
+        # Coin-to-bill keeps the selected bill payout immutable and returns
+        # any overpayment above total_due through the coin dispensers.
         snapshot = self._status.snapshot()
-        plan = calculate_change(
-            actual_dispense,
-            {} if db_record.type == "bill-to-coin" else snapshot.consumables.bill_dispenser_counts,
-            snapshot.consumables.coin_counts if db_record.type == "bill-to-coin" else {},
-            preferred_denoms=db_record.selected_dispense_denoms,
-            requested_counts=db_record.selected_dispense_counts,
+        plan, excess_refund, refund_unavailable = self._build_dispense_plan(
+            db_record, snapshot
         )
 
         # Store dispense plan
         db_record.dispense_plan = {
             "items": [item.model_dump() for item in plan.items],
             "total_amount": plan.total_amount,
+            "is_exact": plan.is_exact,
+            "excess_refund_amount": excess_refund,
+            "refund_unavailable": refund_unavailable,
         }
         await session.commit()
 
@@ -406,6 +463,10 @@ class TransactionOrchestrator:
         result = await self._dispenser.execute_dispense(
             plan, reference_id=tx.transaction_id, source_kind="STANDARD"
         )
+
+        if refund_unavailable and result.shortfall > 0 and not result.error:
+            result.success = False
+            result.error = "Exact excess coin refund unavailable"
 
         # Update record with result
         db_record.dispensed_amount = result.total_dispensed
@@ -420,6 +481,17 @@ class TransactionOrchestrator:
             if self._receipt_service:
                 await self._receipt_service.print_receipt(db_record)
         else:
+            refund_only_shortfall = (
+                refund_unavailable
+                and result.total_dispensed >= db_record.target_amount
+                and result.shortfall == excess_refund
+            )
+            if result.ambiguous_amount:
+                reason_code = "AMBIGUOUS_DISPENSE"
+            elif refund_only_shortfall:
+                reason_code = "EXCESS_REFUND_UNAVAILABLE"
+            else:
+                reason_code = "PARTIAL_DISPENSE"
             if self._claim_service:
                 claim = await self._claim_service.create(
                     source_kind="STANDARD",
@@ -427,7 +499,7 @@ class TransactionOrchestrator:
                     claim_kind="OUTPUT_SHORTFALL",
                     amount=result.shortfall,
                     currency="PHP",
-                    reason_code="AMBIGUOUS_DISPENSE" if result.ambiguous_amount else "PARTIAL_DISPENSE",
+                    reason_code=reason_code,
                     reason_message=result.error,
                     confirmed_dispensed_amount=result.total_dispensed,
                     ambiguous_amount=result.ambiguous_amount,
@@ -436,7 +508,7 @@ class TransactionOrchestrator:
                     session=session,
                 )
                 await tx.transition_to(TransactionState.CLAIM_REQUIRED, {
-                    "error_code": "PARTIAL_DISPENSE",
+                    "error_code": reason_code,
                     "error_message": result.error,
                     "dispensed_amount": result.total_dispensed,
                     "shortfall": result.shortfall,
@@ -444,7 +516,7 @@ class TransactionOrchestrator:
                 })
             else:
                 await tx.transition_to(TransactionState.ERROR, {
-                    "error_code": "PARTIAL_DISPENSE",
+                    "error_code": reason_code,
                     "error_message": result.error,
                     "dispensed_amount": result.total_dispensed,
                     "shortfall": result.shortfall,
@@ -582,11 +654,21 @@ class TransactionOrchestrator:
                 )
                 if self._claim_service and record.inserted_amount > 0:
                     dispensing = record.state == TransactionState.DISPENSING.value
+                    planned_output = int(
+                        (record.dispense_plan or {}).get("total_amount") or 0
+                    )
+                    default_output = (
+                        record.target_amount
+                        if record.type == "coin-to-bill"
+                        else record.target_amount - record.fee
+                    )
                     await self._claim_service.create(
                         source_kind="STANDARD",
                         transaction_id=record.id,
                         claim_kind="OUTPUT_SHORTFALL" if dispensing else "INPUT_REFUND",
-                        amount=(record.target_amount - record.fee) if dispensing else record.inserted_amount,
+                        amount=(planned_output or default_output)
+                        if dispensing
+                        else record.inserted_amount,
                         currency="PHP",
                         reason_code="CRASH_RECOVERY",
                         reason_message="Recovered interrupted transaction during startup",

@@ -188,12 +188,24 @@ export function TransactionProvider({ children }) {
 
   // Calculate money to dispense
   const getMoneyToDispense = useCallback(() => {
-    if (transaction.payoutAmount != null) return transaction.payoutAmount;
     if (transaction.serviceType === SERVICE_TYPES.COIN_TO_BILL) {
-      return transaction.selectedAmount || 0;
+      const payout = transaction.payoutAmount ?? transaction.selectedAmount ?? 0;
+      const excessRefund = Math.max(
+        0,
+        transaction.moneyInserted - transaction.totalDue,
+      );
+      return payout + excessRefund;
     }
+    if (transaction.payoutAmount != null) return transaction.payoutAmount;
     return Math.max(0, (transaction.selectedAmount || 0) - (transaction.fee || 0));
-  }, [transaction.fee, transaction.payoutAmount, transaction.selectedAmount, transaction.serviceType]);
+  }, [
+    transaction.fee,
+    transaction.moneyInserted,
+    transaction.payoutAmount,
+    transaction.selectedAmount,
+    transaction.serviceType,
+    transaction.totalDue,
+  ]);
 
   const value = {
     transaction,

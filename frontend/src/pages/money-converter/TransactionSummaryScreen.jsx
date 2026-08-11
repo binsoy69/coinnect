@@ -9,7 +9,6 @@ import {
   TRANSACTION_TYPE_LABEL,
 } from "../../constants/mockData";
 import { useTransaction } from "../../context/TransactionContext";
-import { useBackendTransaction } from "../../hooks/useBackendTransaction";
 
 // Service type indicator component
 function ServiceIndicator({ icon, shortName }) {
@@ -28,8 +27,10 @@ export default function TransactionSummaryScreen() {
   const { type } = useParams();
   const { transaction, getServiceConfig, getMoneyToDispense } =
     useTransaction();
-  const { confirmBackendTransaction } = useBackendTransaction();
   const config = getServiceConfig() || SERVICE_CONFIG[type];
+  const excessRefundAmount = type === "coin-to-bill"
+    ? Math.max(0, transaction.moneyInserted - transaction.totalDue)
+    : 0;
 
   const handleBack = () => {
     navigate(getServiceRoute(ROUTES.INSERT_MONEY, type));
@@ -67,6 +68,7 @@ export default function TransactionSummaryScreen() {
             moneyInserted={transaction.moneyInserted}
             totalDue={transaction.totalDue}
             moneyToDispense={getMoneyToDispense()}
+            excessRefundAmount={excessRefundAmount}
             selectedDenominations={transaction.selectedDispenseDenominations}
             showActions={true}
             onBack={handleBack}

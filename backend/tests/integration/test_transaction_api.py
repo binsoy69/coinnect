@@ -22,7 +22,7 @@ from app.drivers.mock_camera_controller import MockCameraController
 from app.drivers.mock_gpio_controller import MockGPIOController
 from app.drivers.serial_manager import SerialManager
 from app.ml.mock_authenticator import MockBillAuthenticator
-from app.models.db_models import Base
+from app.models.db_models import Base, TransactionRecord
 from app.services.bill_acceptor import BillAcceptor
 from app.services.dispense_orchestrator import DispenseOrchestrator
 from app.services.machine_status import MachineStatus
@@ -134,6 +134,7 @@ async def test_app():
     app.state.bill_acceptor = bill_acceptor
     app.state.dispense_orchestrator = dispense_orchestrator
     app.state.transaction_orchestrator = transaction_orchestrator
+    app.state.db_session_factory = session_factory
 
     yield app
 
@@ -177,6 +178,18 @@ async def _simulate_bill_insert(
     return await client.post(
         f"/api/v1/transaction/{transaction_id}/simulate-insert",
         json={"denom": denom, "insert_type": "bill"},
+    )
+
+
+async def _simulate_coin_insert(
+    client: AsyncClient,
+    transaction_id: str,
+    denom: int,
+):
+    """POST /api/v1/transaction/{id}/simulate-insert for a coin."""
+    return await client.post(
+        f"/api/v1/transaction/{transaction_id}/simulate-insert",
+        json={"denom": denom, "insert_type": "coin"},
     )
 
 
@@ -508,29 +521,52 @@ class TestFullLifecycle:
         assert final["dispensed_amount"] == 200
         assert final["completed_at"] is not None
 
-    async def test_lifecycle_with_overpayment(self, client):
-        """Insert more than target_amount; confirm still dispenses target."""
+    async def test_lifecycle_with_overpayment(self, client, test_app):
+        """Overpayment returns the selected bill plus excess coins."""
         payload = {
             "type": "coin-to-bill",
             "amount": 100,
-            "selected_dispense_denoms": [50, 20],
+            "selected_dispense_denoms": [100],
         }
         start = (await _start_transaction(client, payload)).json()
         tx_id = start["transaction_id"]
 
-        # Insert PHP 100 + PHP 50 = 150 (target is 100)
-        await _simulate_bill_insert(client, tx_id, denom=100)
-        # After 100, target met, state should be WAITING_FOR_CONFIRMATION
+        # Nine PHP 10 coins followed by PHP 20 crosses the PHP 100 total due.
+        for _ in range(9):
+            response = await _simulate_coin_insert(client, tx_id, denom=10)
+            assert response.status_code == 200
+        response = await _simulate_coin_insert(client, tx_id, denom=20)
+        assert response.status_code == 200
         get_resp = await client.get(f"/api/v1/transaction/{tx_id}")
         assert get_resp.json()["state"] == "WAITING_FOR_CONFIRMATION"
+        assert get_resp.json()["inserted_amount"] == 110
 
-        # Confirm
         confirm = await client.post(f"/api/v1/transaction/{tx_id}/confirm")
         assert confirm.status_code == 200
         body = confirm.json()
         assert body["state"] == "COMPLETE"
-        # Dispensed amount should equal the target_amount, not inserted_amount
-        assert body["dispensed_amount"] == 100
+        assert body["payout_amount"] == 100
+        assert body["dispensed_amount"] == 110
+
+        async with test_app.state.db_session_factory() as session:
+            record = await session.get(TransactionRecord, tx_id)
+            assert record.dispense_plan["total_amount"] == 110
+            assert record.dispense_plan["excess_refund_amount"] == 10
+            assert record.dispense_plan["items"] == [
+                {
+                    "denom": "PHP_100",
+                    "denom_type": "bill",
+                    "count": 1,
+                    "value": 100,
+                },
+                {
+                    "denom": "PHP_10",
+                    "denom_type": "coin",
+                    "count": 1,
+                    "value": 10,
+                },
+            ]
+            assert record.dispense_result["total_dispensed"] == 110
 
     async def test_lifecycle_start_cancel_restart(self, client):
         """Start, insert some bills, cancel, then start a fresh transaction."""

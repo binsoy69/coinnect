@@ -12,6 +12,7 @@ export default function TransactionCard({
   moneyInserted = 0,
   totalDue = 0,
   moneyToDispense = 0,
+  excessRefundAmount = 0,
   selectedDenominations = [],
   showActions = true,
   onBack,
@@ -80,6 +81,15 @@ export default function TransactionCard({
             </p>
           </div>
         </div>
+
+        {excessRefundAmount > 0 && (
+          <div className="flex justify-between items-center rounded-lg bg-amber-300/20 border border-amber-200/40 px-3 py-2">
+            <span className="text-amber-100 text-sm">Excess Coin Refund</span>
+            <span className="font-bold text-amber-100">
+              {formatPeso(excessRefundAmount)}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Actions */}

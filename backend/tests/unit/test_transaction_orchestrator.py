@@ -174,14 +174,18 @@ async def _start_default_transaction(orchestrator, target_amount=100, fee=0):
 
 
 async def _start_coin_to_bill_transaction(
-    orchestrator, target_amount=100, fee=0
+    orchestrator, target_amount=100, fee=0, selected_dispense_denoms=None
 ):
     """Start a coin-to-bill transaction and return the state dict."""
     return await orchestrator.start_transaction(
         transaction_type="coin-to-bill",
         target_amount=target_amount,
         fee=fee,
-        selected_dispense_denoms=[100],
+        selected_dispense_denoms=(
+            selected_dispense_denoms
+            if selected_dispense_denoms is not None
+            else [target_amount]
+        ),
     )
 
 
@@ -623,6 +627,182 @@ class TestConfirmTransaction:
         assert orchestrator.active_transaction_id is None
 
 
+class TestCoinToBillOverpayment:
+    """Coin-to-bill payouts keep the selected bills and refund excess coins."""
+
+    @staticmethod
+    async def _start_and_insert(orchestrator, monkeypatch, denoms):
+        settings = Settings(fee_coin_to_bill=3)
+        monkeypatch.setattr(
+            "app.services.transaction_orchestrator.get_settings",
+            lambda: settings,
+        )
+        started = await _start_coin_to_bill_transaction(
+            orchestrator,
+            target_amount=20,
+            selected_dispense_denoms=[20],
+        )
+        total = 0
+        for denom in denoms:
+            total += denom
+            await orchestrator.handle_coin_inserted(denom=denom, total=total)
+        return started
+
+    async def test_exact_payment_dispenses_selected_bill_only(
+        self, orchestrator, mock_dispense_orchestrator, monkeypatch
+    ):
+        mock_dispense_orchestrator.execute_dispense.return_value = DispenseResult(
+            success=True,
+            dispensed_bills={"PHP_20": 1},
+            dispensed_coins={},
+            total_dispensed=20,
+            shortfall=0,
+        )
+        await self._start_and_insert(orchestrator, monkeypatch, [20, 1, 1, 1])
+
+        state = await orchestrator.confirm_transaction()
+
+        plan = mock_dispense_orchestrator.execute_dispense.await_args.args[0]
+        assert [(item.denom_type, item.denom, item.count) for item in plan.items] == [
+            ("bill", "PHP_20", 1)
+        ]
+        assert plan.total_amount == 20
+        assert state["payout_amount"] == 20
+        assert state["dispensed_amount"] == 20
+
+    async def test_overpayment_dispenses_bill_then_excess_coins(
+        self, orchestrator, mock_dispense_orchestrator, monkeypatch, db_session_factory
+    ):
+        mock_dispense_orchestrator.execute_dispense.return_value = DispenseResult(
+            success=True,
+            dispensed_bills={"PHP_20": 1},
+            dispensed_coins={"PHP_1": 2},
+            total_dispensed=22,
+            shortfall=0,
+        )
+        started = await self._start_and_insert(orchestrator, monkeypatch, [20, 5])
+
+        state = await orchestrator.confirm_transaction()
+
+        plan = mock_dispense_orchestrator.execute_dispense.await_args.args[0]
+        assert [(item.denom_type, item.denom, item.count) for item in plan.items] == [
+            ("bill", "PHP_20", 1),
+            ("coin", "PHP_1", 2),
+        ]
+        assert plan.total_amount == 22
+        assert state["payout_amount"] == 20
+        assert state["dispensed_amount"] == 22
+        async with db_session_factory() as session:
+            record = await session.get(TransactionRecord, started["transaction_id"])
+            assert record.dispense_plan["total_amount"] == 22
+            assert record.dispense_plan["excess_refund_amount"] == 2
+            assert record.dispense_result["total_dispensed"] == 22
+
+    async def test_unavailable_exact_refund_dispenses_bill_and_claims_excess(
+        self,
+        orchestrator,
+        mock_dispense_orchestrator,
+        machine_status,
+        ws_manager,
+        db_session_factory,
+        monkeypatch,
+    ):
+        machine_status.set_coin_counts(
+            {"PHP_1": 0, "PHP_5": 0, "PHP_10": 0, "PHP_20": 0}
+        )
+        orchestrator._claim_service = ClaimService(db_session_factory, ws_manager)
+        mock_dispense_orchestrator.execute_dispense.return_value = DispenseResult(
+            success=False,
+            dispensed_bills={"PHP_20": 1},
+            dispensed_coins={},
+            total_dispensed=20,
+            shortfall=2,
+        )
+        started = await self._start_and_insert(orchestrator, monkeypatch, [20, 5])
+
+        state = await orchestrator.confirm_transaction()
+
+        plan = mock_dispense_orchestrator.execute_dispense.await_args.args[0]
+        assert [(item.denom_type, item.denom) for item in plan.items] == [
+            ("bill", "PHP_20")
+        ]
+        assert plan.total_amount == 22
+        assert plan.is_exact is False
+        assert state["state"] == TransactionState.CLAIM_REQUIRED.value
+        assert state["dispensed_amount"] == 20
+        assert state["shortfall"] == 2
+        assert state["error_code"] == "EXCESS_REFUND_UNAVAILABLE"
+        async with db_session_factory() as session:
+            claim = (
+                await session.execute(
+                    select(ClaimRecord).where(
+                        ClaimRecord.transaction_id == started["transaction_id"]
+                    )
+                )
+            ).scalar_one()
+            assert claim.claim_kind == "OUTPUT_SHORTFALL"
+            assert claim.amount == 2
+
+    @pytest.mark.parametrize(
+        ("result", "expected_dispensed", "expected_shortfall"),
+        [
+            (
+                DispenseResult(
+                    success=False,
+                    dispensed_bills={"PHP_20": 0},
+                    dispensed_coins={},
+                    total_dispensed=0,
+                    shortfall=22,
+                    error="Bill dispenser failed",
+                ),
+                0,
+                22,
+            ),
+            (
+                DispenseResult(
+                    success=False,
+                    dispensed_bills={"PHP_20": 1},
+                    dispensed_coins={"PHP_1": 0},
+                    total_dispensed=20,
+                    shortfall=2,
+                    error="Coin dispenser failed",
+                ),
+                20,
+                2,
+            ),
+        ],
+    )
+    async def test_hardware_failure_claims_full_remaining_obligation(
+        self,
+        orchestrator,
+        mock_dispense_orchestrator,
+        ws_manager,
+        db_session_factory,
+        monkeypatch,
+        result,
+        expected_dispensed,
+        expected_shortfall,
+    ):
+        orchestrator._claim_service = ClaimService(db_session_factory, ws_manager)
+        mock_dispense_orchestrator.execute_dispense.return_value = result
+        started = await self._start_and_insert(orchestrator, monkeypatch, [20, 5])
+
+        state = await orchestrator.confirm_transaction()
+
+        assert state["state"] == TransactionState.CLAIM_REQUIRED.value
+        assert state["dispensed_amount"] == expected_dispensed
+        assert state["shortfall"] == expected_shortfall
+        async with db_session_factory() as session:
+            claim = (
+                await session.execute(
+                    select(ClaimRecord).where(
+                        ClaimRecord.transaction_id == started["transaction_id"]
+                    )
+                )
+            ).scalar_one()
+            assert claim.amount == expected_shortfall
+
+
 # ---------------------------------------------------------------------------
 # TestCancelTransaction
 # ---------------------------------------------------------------------------
@@ -894,6 +1074,41 @@ class TestRecoverPendingTransactions:
             assert record.state == TransactionState.DISPENSING.value
             wal = await session.get(WALEntry, wal_id)
             assert wal.status == WALStatus.PENDING.value
+
+    async def test_recovery_claims_persisted_overpayment_obligation(
+        self, orchestrator, db_session_factory, ws_manager
+    ):
+        tx_id = str(uuid.uuid4())
+        orchestrator._claim_service = ClaimService(db_session_factory, ws_manager)
+        async with db_session_factory() as session:
+            session.add(
+                TransactionRecord(
+                    id=tx_id,
+                    type="coin-to-bill",
+                    state=TransactionState.DISPENSING.value,
+                    target_amount=20,
+                    fee=3,
+                    total_due=23,
+                    inserted_amount=25,
+                    dispense_plan={
+                        "items": [],
+                        "total_amount": 22,
+                        "excess_refund_amount": 2,
+                    },
+                )
+            )
+            await session.commit()
+
+        await orchestrator.recover_pending_transactions()
+
+        async with db_session_factory() as session:
+            claim = (
+                await session.execute(
+                    select(ClaimRecord).where(ClaimRecord.transaction_id == tx_id)
+                )
+            ).scalar_one()
+            assert claim.claim_kind == "OUTPUT_SHORTFALL"
+            assert claim.amount == 22
 
 
 
