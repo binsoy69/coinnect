@@ -26,6 +26,14 @@ JSON documents and can exhaust the Uno's 2 KB SRAM, causing valid commands to
 produce empty `{}` serial responses. The sketch includes a compile-time guard
 against building the Uno firmware with ArduinoJson 7.
 
+The Uno firmware sizes command parsing and replies with `JSON_OBJECT_SIZE(6)`,
+covering the largest five-field message plus its transport command ID. Do not
+increase that capacity without checking compiler stack-usage output: the
+production sketch leaves about 599 bytes for all local variables and interrupt
+frames. Firmware 3.0.6 reduced `dispatchCommand()` from 261 to 147 bytes of
+static stack allocation to prevent the serial buffers from being overwritten
+during UUID-bearing recovery replies.
+
 The Uno also has a 64-byte hardware serial receive ring while operation-ID
 commands can exceed 100 bytes. The backend therefore resynchronizes and paces
 coin-controller writes, and firmware 3.0.5 prioritizes serial draining over
@@ -69,6 +77,19 @@ Default smoke checks avoid actuator commands:
 ```bash
 python scripts/firmware_smoke.py
 ```
+
+After flashing the Uno, stop the backend so it does not compete for the serial
+port, then run repeated coin-controller recovery probes:
+
+```bash
+python scripts/firmware_smoke.py --skip-bill --coin-port /dev/coinnect_coin --iterations 25
+```
+
+The safe probe verifies command IDs and operation IDs, rejects malformed UTF-8
+or JSON with the raw bytes included in the error, queries unknown operation
+status/acknowledgement, and repeatedly confirms the coin acceptor is disabled.
+If the controller reports an operation requiring reconciliation, the probe
+stops before continuing; resolve that operation through the backend first.
 
 Run actuator checks only after wiring is verified:
 

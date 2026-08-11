@@ -18,7 +18,7 @@
 // Coinnect Uno firmware: coin accept/dispense + security + RFID.
 // Serial protocol: newline-delimited JSON at 115200 baud.
 
-static const char *FIRMWARE_VERSION = "3.0.5-uno";
+static const char *FIRMWARE_VERSION = "3.0.6-uno";
 static const char *CONTROLLER_ID = "COIN_SECURITY";
 
 // MFRC522 RFID reader pins.
@@ -90,6 +90,8 @@ static const uint8_t COIN_DISPENSER_COUNT =
 // The largest supported command is 122 bytes including its newline. A
 // 128-byte buffer preserves bounded headroom without wasting scarce Uno SRAM.
 static const size_t SERIAL_INPUT_CAPACITY = 128;
+// Five request/response fields plus the transport-level command ID.
+static const size_t COMMAND_JSON_CAPACITY = JSON_OBJECT_SIZE(6);
 static char inputLine[SERIAL_INPUT_CAPACITY];
 static size_t inputLength = 0;
 static bool inputOverflow = false;
@@ -221,8 +223,9 @@ bool isValidOperationId(const char *value) {
   return true;
 }
 
-bool findOperation(const char *operationId, OperationJournalRecord &found) {
+bool findOperation(const char *operationId, uint8_t &state, int16_t &dispensed) {
   bool matched = false;
+  uint32_t latestSequence = 0;
   const int slots = EEPROM.length() / sizeof(OperationJournalRecord);
   for (int slot = 0; slot < slots; slot++) {
     OperationJournalRecord candidate;
@@ -230,8 +233,10 @@ bool findOperation(const char *operationId, OperationJournalRecord &found) {
     if (candidate.magic == JOURNAL_MAGIC &&
         candidate.crc == journalCrc(candidate) &&
         strcmp(candidate.operationId, operationId) == 0 &&
-        (!matched || candidate.sequence > found.sequence)) {
-      found = candidate;
+        (!matched || candidate.sequence > latestSequence)) {
+      latestSequence = candidate.sequence;
+      state = candidate.state;
+      dispensed = candidate.dispensed;
       matched = true;
     }
   }
@@ -323,6 +328,16 @@ void sendCommandError(JsonDocument &doc, const char *code, int dispensed = -1,
   if (operationId && operationId[0]) {
     doc["operation_id"] = operationId;
   }
+  sendDocument(doc);
+}
+
+void sendCommandParseError(JsonDocument &doc, const char *detail,
+                           size_t receivedBytes) {
+  doc.clear();
+  doc["status"] = "ERROR";
+  doc["code"] = "PARSE_ERROR";
+  doc["detail"] = detail;
+  doc["received_bytes"] = receivedBytes;
   sendDocument(doc);
 }
 
@@ -802,16 +817,18 @@ void handleCoinDispense(JsonDocument &cmdDoc) {
     return;
   }
 
-  OperationJournalRecord prior = {};
-  if (findOperation(operationId, prior)) {
-    if (prior.state == 2) {
-      cmdDoc.clear();
+  uint8_t priorState = 0;
+  int16_t priorDispensed = 0;
+  if (findOperation(operationId, priorState, priorDispensed)) {
+    if (priorState == 2) {
+      cmdDoc.remove("cmd");
+      cmdDoc.remove("denom");
+      cmdDoc.remove("count");
       cmdDoc["status"] = "OK";
-      cmdDoc["dispensed"] = prior.dispensed;
-      cmdDoc["operation_id"] = operationId;
+      cmdDoc["dispensed"] = priorDispensed;
       sendDocument(cmdDoc);
     } else {
-      sendCommandError(cmdDoc, "RECOVERY_REQUIRED", prior.dispensed, operationId);
+      sendCommandError(cmdDoc, "RECOVERY_REQUIRED", priorDispensed, operationId);
     }
     return;
   }
@@ -858,23 +875,24 @@ void handleOperationStatus(JsonDocument &cmdDoc) {
     return;
   }
 
-  OperationJournalRecord prior = {};
+  uint8_t priorState = 0;
+  int16_t priorDispensed = 0;
   const bool journalIsAmbiguous =
       journalRecord.state == 4 && journalRecord.operationId[0] == '\0';
-  const bool operationFound = findOperation(operationId, prior);
-  cmdDoc.clear();
+  const bool operationFound =
+      findOperation(operationId, priorState, priorDispensed);
+  cmdDoc.remove("cmd");
   cmdDoc["status"] = "OK";
-  cmdDoc["operation_id"] = operationId;
   if (journalIsAmbiguous) {
     cmdDoc["operation_status"] = "AMBIGUOUS";
   } else if (!operationFound) {
     cmdDoc["operation_status"] = "NOT_FOUND";
   } else {
     cmdDoc["operation_status"] =
-        prior.state == 1 ? "STARTED" :
-        prior.state == 2 ? "COMPLETED" :
-        prior.state == 3 ? "FAILED" : "AMBIGUOUS";
-    cmdDoc["dispensed"] = prior.dispensed;
+        priorState == 1 ? "STARTED" :
+        priorState == 2 ? "COMPLETED" :
+        priorState == 3 ? "FAILED" : "AMBIGUOUS";
+    cmdDoc["dispensed"] = priorDispensed;
   }
   sendDocument(cmdDoc);
 }
@@ -891,9 +909,8 @@ void handleOperationAck(JsonDocument &cmdDoc) {
   }
   clearCorruptJournalSlots();
   persistOperation(0, "", 0);
-  cmdDoc.clear();
+  cmdDoc.remove("cmd");
   cmdDoc["status"] = "OK";
-  cmdDoc["operation_id"] = operationId;
   sendDocument(cmdDoc);
 }
 
@@ -992,8 +1009,10 @@ void handleCoinAcceptorEnable(JsonDocument &cmdDoc) {
   coinAcceptorShouldBeEnabled = enabled;
   setCoinAcceptorEnabled(enabled);
 
-  // Reuse the parsed command buffer to keep peak SRAM usage low on the Uno.
-  cmdDoc.clear();
+  // Preserve the parsed fields and add the response status in place. Avoiding
+  // a clear/rebuild keeps strings linked to the input buffer and lowers stack
+  // pressure while HardwareSerial is transmitting.
+  cmdDoc.remove("cmd");
   cmdDoc["status"] = "OK";
   cmdDoc["enabled"] = (bool)coinAcceptorEnabled;
   sendDocument(cmdDoc);
@@ -1055,11 +1074,13 @@ void handleSecurityStatus(JsonDocument &doc) {
 void dispatchCommand(char *line) {
   // Parsing from a mutable buffer lets ArduinoJson keep string values in the
   // input buffer instead of duplicating them in the document's memory pool.
-  StaticJsonDocument<160> cmdDoc;
+  // Capacity is derived from the six-field maximum instead of reserving an
+  // arbitrary buffer. String values remain linked to the mutable input buffer.
+  StaticJsonDocument<COMMAND_JSON_CAPACITY> cmdDoc;
   DeserializationError err = deserializeJson(cmdDoc, line);
   if (err) {
     currentCommandId = -1;
-    sendParseError(err.c_str(), strlen(line));
+    sendCommandParseError(cmdDoc, err.c_str(), strlen(line));
     return;
   }
 
