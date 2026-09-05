@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { API_BASE } from "../constants/api";
-import { useWebSocket } from "../context/WebSocketContext";
 import { useTransaction } from "../context/TransactionContext";
 
 /**
@@ -13,9 +12,7 @@ import { useTransaction } from "../context/TransactionContext";
  * persists across screen navigations.
  */
 export function useBackendTransaction() {
-  const { subscribe, unsubscribe } = useWebSocket();
   const {
-    addInsertedMoney,
     backendTransactionId,
     setBackendTransactionId,
     backendState,
@@ -33,86 +30,75 @@ export function useBackendTransaction() {
     txIdRef.current = backendTransactionId;
   }, [backendTransactionId]);
 
-  // Subscribe to transaction events
-  useEffect(() => {
-    const handleStateChange = (event) => {
-      if (event.payload?.transaction_id === txIdRef.current) {
-        setBackendState(event.payload);
+  const createQuote = useCallback(async (type, amount, requestedCounts = null) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const resp = await fetch(`${API_BASE}/transaction/quote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type,
+          amount,
+          requested_counts: requestedCounts,
+        }),
+      });
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        const err = new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
+        err.code = errData.detail?.code;
+        throw err;
       }
-    };
+      return await resp.json();
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
-    const handleBillStored = (event) => {
-      if (event.payload) {
-        const value = event.payload.value;
-        if (value) {
-          addInsertedMoney(value);
-        }
+  const fetchOptions = useCallback(async (type) => {
+    try {
+      const resp = await fetch(`${API_BASE}/transaction/options?type=${encodeURIComponent(type)}`);
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        throw new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
       }
-    };
-
-    const handleCoinInserted = (event) => {
-      if (event.payload) {
-        const denom = event.payload.denomination;
-        if (denom) {
-          addInsertedMoney(denom);
-        }
-      }
-    };
-
-    const handleDispenseProgress = (event) => {
-      setDispenseProgress(event.payload);
-    };
-
-    const handleError = (event) => {
-      if (event.payload?.transaction_id === txIdRef.current) {
-        setBackendState(event.payload);
-        setError(event.payload?.error_message || "Transaction error");
-      }
-    };
-
-    subscribe("TRANSACTION_STATE_CHANGED", handleStateChange);
-    subscribe("TRANSACTION_COMPLETE", handleStateChange);
-    subscribe("TRANSACTION_CANCELLED", handleStateChange);
-    subscribe("TRANSACTION_ERROR", handleError);
-    subscribe("BILL_STORED", handleBillStored);
-    subscribe("COIN_INSERTED", handleCoinInserted);
-    subscribe("DISPENSE_PROGRESS", handleDispenseProgress);
-
-    return () => {
-      unsubscribe("TRANSACTION_STATE_CHANGED", handleStateChange);
-      unsubscribe("TRANSACTION_COMPLETE", handleStateChange);
-      unsubscribe("TRANSACTION_CANCELLED", handleStateChange);
-      unsubscribe("TRANSACTION_ERROR", handleError);
-      unsubscribe("BILL_STORED", handleBillStored);
-      unsubscribe("COIN_INSERTED", handleCoinInserted);
-      unsubscribe("DISPENSE_PROGRESS", handleDispenseProgress);
-    };
-  }, [
-    subscribe,
-    unsubscribe,
-    addInsertedMoney,
-    setBackendState,
-    setDispenseProgress,
-  ]);
+      return await resp.json();
+    } catch (err) {
+      console.warn("fetchOptions error:", err);
+      return null;
+    }
+  }, []);
 
   const startBackendTransaction = useCallback(
-    async (type, amount, dispenseDenoms = [], dispenseCounts = null) => {
+    async (type, amount, dispenseDenoms = [], dispenseCounts = null, quoteId = null) => {
       setIsLoading(true);
       setError(null);
       try {
+        const body = {
+          type,
+          amount,
+          selected_dispense_denoms: dispenseDenoms,
+          selected_dispense_counts: dispenseCounts,
+        };
+        if (quoteId) {
+          body.quote_id = quoteId;
+        }
         const resp = await fetch(`${API_BASE}/transaction/`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type,
-            amount,
-            selected_dispense_denoms: dispenseDenoms,
-            selected_dispense_counts: dispenseCounts,
-          }),
+          body: JSON.stringify(body),
         });
         if (!resp.ok) {
           const errData = await resp.json().catch(() => ({}));
-          throw new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
+          const err = new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
+          err.status = resp.status;
+          err.code = errData.detail?.code;
+          err.quote = errData.detail?.quote;
+          if (errData.detail?.transaction_id) setBackendTransactionId(errData.detail.transaction_id);
+          throw err;
         }
         const data = await resp.json();
         setBackendTransactionId(data.transaction_id);
@@ -140,6 +126,38 @@ export function useBackendTransaction() {
       );
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
+        const err = new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
+        err.status = resp.status;
+        err.code = errData.detail?.code;
+        err.pendingQuote = errData.detail?.pending_quote;
+        throw err;
+      }
+      const data = await resp.json();
+      setBackendState(data);
+      return data;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [backendTransactionId, setBackendState]);
+
+  const approveQuote = useCallback(async (quoteId) => {
+    if (!backendTransactionId) return null;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const resp = await fetch(
+        `${API_BASE}/transaction/${backendTransactionId}/approve-quote`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ quote_id: quoteId }),
+        }
+      );
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
         throw new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
       }
       const data = await resp.json();
@@ -151,6 +169,48 @@ export function useBackendTransaction() {
     } finally {
       setIsLoading(false);
     }
+  }, [backendTransactionId, setBackendState]);
+
+  const requestClaim = useCallback(async () => {
+    if (!backendTransactionId) return null;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const resp = await fetch(
+        `${API_BASE}/transaction/${backendTransactionId}/claim`,
+        { method: "POST" }
+      );
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        throw new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      setBackendState(data);
+      return data;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [backendTransactionId, setBackendState]);
+
+  const recordActivity = useCallback(async () => {
+    if (!backendTransactionId) return null;
+    try {
+      const resp = await fetch(
+        `${API_BASE}/transaction/${backendTransactionId}/activity`,
+        { method: "POST" }
+      );
+      if (resp.ok) {
+        const data = await resp.json();
+        setBackendState(data);
+        return data;
+      }
+    } catch (err) {
+      console.warn("recordActivity warning:", err);
+    }
+    return null;
   }, [backendTransactionId, setBackendState]);
 
   const refreshBackendTransaction = useCallback(async () => {
@@ -219,12 +279,14 @@ export function useBackendTransaction() {
         const errData = await resp.json().catch(() => ({}));
         throw new Error(errData.detail || `HTTP ${resp.status}`);
       }
-      return await resp.json();
+      const snapshot = await resp.json();
+      setBackendState(snapshot);
+      return snapshot;
     } catch (err) {
       console.error("Simulate insert error:", err);
       return null;
     }
-  }, [backendTransactionId]);
+  }, [backendTransactionId, setBackendState]);
 
   const resetBackendTransaction = useCallback(() => {
     setBackendTransactionId(null);
@@ -249,5 +311,10 @@ export function useBackendTransaction() {
     cancelBackendTransaction,
     simulateInsert,
     resetBackendTransaction,
+    createQuote,
+    fetchOptions,
+    approveQuote,
+    requestClaim,
+    recordActivity,
   };
 }

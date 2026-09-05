@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import Button from "../../components/common/Button";
 import PageTransition from "../../components/layout/PageTransition";
@@ -15,63 +15,56 @@ const QuestionIcon = () => (
   </div>
 );
 
-function calculateAutoBreakdown(amount, preferredDenoms = [], dispenseType = "bill") {
-  if (!amount || amount <= 0) return { bills: {}, coins: {}, coinSum: 0 };
-
-  // Available bill denoms to try: use preferred if provided, otherwise standard [500, 100, 50, 20]
-  // Strictly respects user preferred bill choices without introducing unselected bills (e.g. 200)
-  const availableDenoms = preferredDenoms.length > 0
-    ? [...preferredDenoms].sort((a, b) => b - a)
-    : (dispenseType === "coin" ? [20, 10, 5, 1] : [1000, 500, 200, 100, 50, 20]);
-  let rem = amount;
-  const bills = {};
-  const coins = {};
-
-  for (const d of availableDenoms) {
-    if (rem >= d) {
-      const count = Math.floor(rem / d);
-      if (dispenseType === "coin") coins[d] = count;
-      else bills[d] = count;
-      rem %= d;
-    }
-  }
-
-  const coinSum = Object.entries(coins).reduce((sum, [d, c]) => sum + Number(d) * c, 0);
-
-  return { bills, coins, coinSum };
-}
-
 export default function ConfirmationScreen() {
   const navigate = useNavigate();
   const { type } = useParams();
-  const { transaction } = useTransaction();
-  const { startBackendTransaction, cancelBackendTransaction, transactionId } = useBackendTransaction();
+  const { transaction, currentQuote, setCurrentQuote } = useTransaction();
+  const {
+    startBackendTransaction,
+    cancelBackendTransaction,
+    createQuote,
+    transactionId,
+    backendState,
+  } = useBackendTransaction();
+
   const [isStarting, setIsStarting] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
+  const [quoteChangedNotice, setQuoteChangedNotice] = useState(null);
 
-  const netPayoutAmount = type === "coin-to-bill"
-    ? (transaction.selectedAmount || 0)
-    : Math.max(0, (transaction.selectedAmount || 0) - (transaction.fee || 0));
+  // Active quote: prioritize currentQuote from context, then backendState quote
+  const activeQuote = currentQuote || backendState?.approved_quote || backendState?.pending_quote;
 
-  const userCounts = transaction.selectedDispenseCounts || {};
-  const userAllocatedSum = Object.entries(userCounts).reduce(
-    (sum, [d, c]) => sum + Number(d) * (c || 0),
-    0
+  // If no quote exists yet (e.g. direct link or page reload), fetch one
+  useEffect(() => {
+    let mounted = true;
+    if (!activeQuote && transaction.selectedAmount && type) {
+      createQuote(type, transaction.selectedAmount, null)
+        .then((q) => {
+          if (mounted && q) setCurrentQuote(q);
+        })
+        .catch((err) => {
+          if (mounted) setErrorMsg(err.message || "Failed to load payout proposal.");
+        });
+    }
+    return () => {
+      mounted = false;
+    };
+  }, [activeQuote, transaction.selectedAmount, type, createQuote, setCurrentQuote]);
+
+  const netPayoutAmount = activeQuote?.payout_amount ?? (
+    type === "coin-to-bill"
+      ? (transaction.selectedAmount || 0)
+      : Math.max(0, (transaction.selectedAmount || 0) - (transaction.fee || 0))
   );
 
-  const breakdownObj = userAllocatedSum === netPayoutAmount && userAllocatedSum > 0
-    ? { bills: userCounts, coins: {}, coinSum: 0 }
-    : calculateAutoBreakdown(
-        netPayoutAmount,
-        transaction.selectedDispenseDenominations || [],
-        type === "bill-to-coin" ? "coin" : "bill"
-      );
+  const totalToInsert = activeQuote?.total_due ?? transaction.totalDue;
+  const transactionFee = activeQuote?.fee ?? transaction.fee;
 
-  // Merge bills and coins dictionary for backend transaction start
-  const effectiveDispenseCounts = {
-    ...breakdownObj.bills,
-    ...breakdownObj.coins,
-  };
+  // Payout items breakdown
+  const items = activeQuote?.items || [];
+  const bills = items.filter((i) => i.denom_type === "bill" || !i.denom_type);
+  const coins = items.filter((i) => i.denom_type === "coin");
+  const coinSum = coins.reduce((sum, c) => sum + Number(c.value) * (c.count || 0), 0);
 
   const handleBack = async () => {
     if (transactionId) {
@@ -87,17 +80,30 @@ export default function ConfirmationScreen() {
   const handleProceed = async () => {
     setIsStarting(true);
     setErrorMsg(null);
+    setQuoteChangedNotice(null);
+
     try {
-      // Start backend transaction before navigating to insert screen
       await startBackendTransaction(
         type,
-        transaction.selectedAmount,
-        transaction.selectedDispenseDenominations,
-        effectiveDispenseCounts
+        activeQuote?.input_amount || transaction.selectedAmount,
+        transaction.selectedDispenseDenominations || [],
+        transaction.selectedDispenseCounts || null,
+        activeQuote?.id || null
       );
       navigate(getServiceRoute(ROUTES.INSERT_MONEY, type));
     } catch (err) {
-      setErrorMsg(err.message || "Failed to start transaction. Please check machine inventory and try again.");
+      if (err.code === "QUOTE_CHANGED" && err.quote) {
+        // Update to new proposal and prompt customer
+        setCurrentQuote(err.quote);
+        setQuoteChangedNotice(
+          "Available inventory changed. A revised payout proposal has been updated below for your review."
+        );
+      } else {
+        setErrorMsg(
+          err.message ||
+            "Failed to start transaction. Please check machine inventory and try again."
+        );
+      }
     } finally {
       setIsStarting(false);
     }
@@ -116,6 +122,34 @@ export default function ConfirmationScreen() {
             <QuestionIcon />
           </div>
 
+          {/* Quote changed banner notice */}
+          {quoteChangedNotice && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-amber-400 text-amber-950 font-bold p-4 rounded-2xl mb-4 text-sm shadow-lg border border-amber-300"
+            >
+              ⚠️ {quoteChangedNotice}
+            </motion.div>
+          )}
+
+          {/* Substitution Notice */}
+          {activeQuote?.is_substitution && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-amber-500/25 border-2 border-amber-300 text-amber-100 p-4 rounded-2xl mb-4 text-left shadow-lg backdrop-blur-md"
+            >
+              <div className="flex items-center gap-2 text-amber-200 font-bold text-sm mb-1 uppercase tracking-wide">
+                <span className="text-xl">⚠️</span> Stock Substitution Notice
+              </div>
+              <p className="text-sm font-medium leading-relaxed">
+                {activeQuote.substitution_notice ||
+                  "Some requested denominations were substituted with available bills/coins to complete your exact payout amount."}
+              </p>
+            </motion.div>
+          )}
+
           {/* Amount details */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -126,11 +160,11 @@ export default function ConfirmationScreen() {
             <p className="text-xl">
               Amount Selected:{" "}
               <span className="font-bold">
-                {formatPeso(transaction.selectedAmount || 0)}
+                {formatPeso(activeQuote?.input_amount || transaction.selectedAmount || 0)}
               </span>
               {" | "}
               Transaction Fee:{" "}
-              <span className="font-bold">{formatPeso(transaction.fee)}</span>
+              <span className="font-bold">{formatPeso(transactionFee)}</span>
             </p>
           </motion.div>
 
@@ -142,7 +176,7 @@ export default function ConfirmationScreen() {
             className="mb-6 space-y-1"
           >
             <p className="text-3xl font-bold">
-              Total Cash to Insert: {formatPeso(transaction.totalDue)}
+              Total Cash to Insert: {formatPeso(totalToInsert)}
             </p>
             <p className="text-2xl font-extrabold text-amber-300">
               Total Cash to Dispense: {formatPeso(netPayoutAmount)}
@@ -162,31 +196,31 @@ export default function ConfirmationScreen() {
 
             <div className="flex flex-wrap gap-3 justify-center mb-2">
               {/* Bills */}
-              {Object.entries(breakdownObj.bills).map(([denom, count]) => (
+              {bills.map((item, idx) => (
                 <div
-                  key={`bill-${denom}`}
+                  key={`b-${idx}-${item.value}`}
                   className="bg-white/20 border border-white/30 px-4 py-2 rounded-xl text-lg font-bold text-white shadow-sm flex items-center gap-1.5"
                 >
                   <span className="text-xs bg-white/30 px-1.5 py-0.5 rounded font-mono">Bill</span>
-                  {count}x {formatPeso(denom)}
+                  {item.count}x {formatPeso(item.value)}
                 </div>
               ))}
 
               {/* Coins */}
-              {Object.entries(breakdownObj.coins).map(([denom, count]) => (
+              {coins.map((item, idx) => (
                 <div
-                  key={`coin-${denom}`}
+                  key={`c-${idx}-${item.value}`}
                   className="bg-amber-400/30 border border-amber-300/40 px-4 py-2 rounded-xl text-lg font-bold text-amber-200 shadow-sm flex items-center gap-1.5"
                 >
                   <span className="text-xs bg-amber-400/40 text-amber-100 px-1.5 py-0.5 rounded font-mono">Coin</span>
-                  {count}x {formatPeso(denom)}
+                  {item.count}x {formatPeso(item.value)}
                 </div>
               ))}
             </div>
 
-            {breakdownObj.coinSum > 0 && (
+            {coinSum > 0 && type !== "bill-to-coin" && (
               <p className="text-xs text-amber-200 bg-amber-500/20 border border-amber-400/30 rounded-xl py-2 px-3 mt-3 font-semibold">
-                ⚠️ Note: {formatPeso(breakdownObj.coinSum)} remainder will be dispensed in coins.
+                ⚠️ Note: {formatPeso(coinSum)} remainder will be dispensed in coins.
               </p>
             )}
           </motion.div>
@@ -221,7 +255,7 @@ export default function ConfirmationScreen() {
               size="xl"
               onClick={handleProceed}
               className="px-12"
-              disabled={isStarting}
+              disabled={isStarting || !activeQuote}
             >
               {isStarting ? "Starting..." : "Proceed"}
             </Button>

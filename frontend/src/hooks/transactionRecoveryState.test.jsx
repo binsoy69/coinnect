@@ -78,6 +78,7 @@ test("money-converter hook instances share terminal backend state", async () => 
     ) {
       return jsonResponse({
         transaction_id: "money-tx-1",
+        inserted_amount: 100,
         state: "ERROR",
         claim_ticket_code: "CLAIM123",
         shortfall: 100,

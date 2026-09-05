@@ -142,6 +142,9 @@ class DispenseOrchestrator:
 
             # Phase 2: Dispense bills
             for item in plan.bill_items:
+                if self._status.snapshot().security.tamper_active:
+                    error_msg = "LOCKED_OUT"
+                    break
                 operation_id = operations.get(("BILL", item.denom))
                 try:
                     await self._mark_operation_started(operation_id, execution_id)
@@ -170,7 +173,7 @@ class DispenseOrchestrator:
                             continue
                     ambiguous = True
                     ambiguous_keys.add(("BILL", item.denom))
-                    await self._mark_operation_ambiguous(operation_id, execution_id, str(e))
+                    await self._mark_operation_ambiguous(operation_id, execution_id, str(e), getattr(e, "dispensed", 0) or 0)
                     actual = getattr(e, "dispensed", 0) or 0
                     dispensed_bills[item.denom] = actual
                     total_dispensed += actual * item.value
@@ -200,6 +203,9 @@ class DispenseOrchestrator:
             # Phase 3: Dispense coins (only if bills succeeded)
             if error_msg is None:
                 for item in plan.coin_items:
+                    if self._status.snapshot().security.tamper_active:
+                        error_msg = "LOCKED_OUT"
+                        break
                     operation_id = operations.get(("COIN", item.denom))
                     try:
                         await self._mark_operation_started(operation_id, execution_id)
@@ -228,7 +234,7 @@ class DispenseOrchestrator:
                                 continue
                         ambiguous = True
                         ambiguous_keys.add(("COIN", item.denom))
-                        await self._mark_operation_ambiguous(operation_id, execution_id, str(e))
+                        await self._mark_operation_ambiguous(operation_id, execution_id, str(e), getattr(e, "dispensed", 0) or 0)
                         actual = getattr(e, "dispensed", 0) or 0
                         dispensed_coins[item.denom] = actual
                         total_dispensed += actual * item.value
@@ -310,7 +316,11 @@ class DispenseOrchestrator:
             shortfall=shortfall,
             error=error_msg,
             claim_ticket_code=claim_ticket,
-            ambiguous_amount=shortfall if ambiguous else 0,
+            ambiguous_amount=sum(
+                max(0, item.count - (dispensed_bills if item.denom_type == "bill" else dispensed_coins).get(item.denom, 0)) * item.value
+                for item in plan.items
+                if ("BILL" if item.denom_type == "bill" else "COIN", item.denom) in ambiguous_keys
+            ),
         )
         await self._finish_execution(
             execution_id,
@@ -370,6 +380,8 @@ class DispenseOrchestrator:
             )
             return response.dispensed, None
         except HardwareError as e:
+            if e.code in {"AMBIGUOUS", "LOCKED_OUT"}:
+                raise
             # Partial dispense - some bills may have been dispensed
             actual = e.dispensed or 0
             logger.error(
@@ -401,6 +413,8 @@ class DispenseOrchestrator:
             )
             return response.dispensed, None
         except HardwareError as e:
+            if e.code in {"AMBIGUOUS", "LOCKED_OUT"}:
+                raise
             actual = e.dispensed or 0
             logger.error(
                 "Coin dispense hardware error reference_id=%s denom=%s "
@@ -670,17 +684,18 @@ class DispenseOrchestrator:
                     operation.inventory_reconciled = True
             await session.commit()
 
-    async def _mark_operation_ambiguous(self, operation_id, execution_id, message):
+    async def _mark_operation_ambiguous(self, operation_id, execution_id, message, confirmed_count=0):
         if self._db_factory is None or operation_id is None:
             return
         async with self._db_factory() as session:
             operation = await session.get(PhysicalOperation, operation_id)
             execution = await session.get(DispenseExecution, execution_id)
             operation.state = PhysicalOperationState.AMBIGUOUS.value
+            operation.confirmed_count = min(operation.requested_count, max(0, confirmed_count))
             operation.error_code = "COMMAND_TIMEOUT"
             operation.error_message = message
             execution.state = DispenseExecutionState.AMBIGUOUS.value
-            execution.ambiguous_amount += operation.requested_count * operation.denomination_value
+            execution.ambiguous_amount += (operation.requested_count - operation.confirmed_count) * operation.denomination_value
             await session.commit()
 
     async def _recover_timed_out_operation(self, controller, operation_id, execution_id):

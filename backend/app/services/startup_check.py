@@ -87,6 +87,13 @@ class StartupCheckService:
                 errors["arduino_coin"] = f"Coin controller connection failed: {str(e)}"
                 self._status.update_coin_device(connection="disconnected", last_error=str(e))
 
+            for name, controller in (("arduino_bill", self._bill_controller), ("arduino_coin", self._coin_controller)):
+                if name not in errors:
+                    try:
+                        await controller.verify_converter_protocol()
+                    except Exception as exc:
+                        errors[name] = f"Converter firmware upgrade required: {exc}"
+
             # 3. Camera check
             try:
                 if not self._settings.use_mock_hardware:

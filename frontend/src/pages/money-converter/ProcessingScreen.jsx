@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import LoadingDots from "../../components/common/LoadingDots";
 import PageTransition from "../../components/layout/PageTransition";
+import PayoutReapprovalModal from "../../components/transaction/PayoutReapprovalModal";
 import { ROUTES, getServiceRoute } from "../../constants/routes";
 import { useWebSocket } from "../../context/WebSocketContext";
 import { useBackendTransaction } from "../../hooks/useBackendTransaction";
@@ -12,15 +13,21 @@ const SAFETY_TIMEOUT = 30000; // 30s fallback
 export default function ProcessingScreen() {
   const navigate = useNavigate();
   const { type } = useParams();
-  const { subscribe, unsubscribe, isConnected } = useWebSocket();
+  const { isConnected } = useWebSocket();
   const {
     confirmBackendTransaction,
     refreshBackendTransaction,
+    approveQuote,
+    requestClaim,
     transactionId,
+    backendState,
   } = useBackendTransaction();
   const [progressText, setProgressText] = useState("Please wait...");
   const [isDone, setIsDone] = useState(false);
+  const [pendingQuote, setPendingQuote] = useState(null);
+  const [isApproving, setIsApproving] = useState(false);
   const isDoneRef = useRef(false);
+  const submittedRef = useRef(null);
 
   const handleComplete = useCallback(
     (success) => {
@@ -45,7 +52,7 @@ export default function ProcessingScreen() {
       if (
         data?.state === "ERROR" ||
         Boolean(data?.claim_ticket_code) ||
-        data?.shortfall != null
+        data?.state === "CLAIM_REQUIRED" || data?.state === "CANCELLED"
       ) {
         handleComplete(false);
         return true;
@@ -63,19 +70,31 @@ export default function ProcessingScreen() {
       return;
     }
 
+    if (submittedRef.current === transactionId) return;
+    submittedRef.current = transactionId;
     confirmBackendTransaction()
       .then((data) => {
         handleState(data);
       })
       .catch(async (err) => {
+        if (err.code === "PAYOUT_REAPPROVAL_REQUIRED" || err.pendingQuote) {
+          setPendingQuote(err.pendingQuote || backendState?.pending_quote);
+          return;
+        }
         console.error("Error confirming transaction on processing mount:", err);
         const recovered = await refreshBackendTransaction().catch(() => null);
+        if (Boolean(recovered?.pending_quote) && recovered?.pending_quote) {
+          setPendingQuote(recovered.pending_quote);
+          return;
+        }
         if (!handleState(recovered)) {
-          handleComplete(false);
+          if (recovered?.can_confirm) navigate(getServiceRoute(ROUTES.TRANSACTION_SUMMARY, type));
+          else setProgressText("Verifying the transaction status. Please wait...");
         }
       });
   }, [
     confirmBackendTransaction,
+    backendState?.pending_quote,
     handleComplete,
     handleState,
     refreshBackendTransaction,
@@ -84,42 +103,10 @@ export default function ProcessingScreen() {
     type,
   ]);
 
-  // Subscribe to dispense events
   useEffect(() => {
-    const handleProgress = (event) => {
-      const { completed_items, total_items } = event.payload || {};
-      if (total_items) {
-        setProgressText(
-          `Dispensing ${completed_items}/${total_items} items...`
-        );
-      }
-    };
-
-    const handleDispenseComplete = (event) => {
-      const success = event.payload?.success !== false;
-      handleComplete(success);
-    };
-
-    const handleTransactionComplete = () => {
-      handleComplete(true);
-    };
-
-    const handleTransactionError = () => {
-      handleComplete(false);
-    };
-
-    subscribe("DISPENSE_PROGRESS", handleProgress);
-    subscribe("DISPENSE_COMPLETE", handleDispenseComplete);
-    subscribe("TRANSACTION_COMPLETE", handleTransactionComplete);
-    subscribe("TRANSACTION_ERROR", handleTransactionError);
-
-    return () => {
-      unsubscribe("DISPENSE_PROGRESS", handleProgress);
-      unsubscribe("DISPENSE_COMPLETE", handleDispenseComplete);
-      unsubscribe("TRANSACTION_COMPLETE", handleTransactionComplete);
-      unsubscribe("TRANSACTION_ERROR", handleTransactionError);
-    };
-  }, [subscribe, unsubscribe, handleComplete]);
+    if (backendState?.pending_quote) setPendingQuote(backendState.pending_quote);
+    handleState(backendState);
+  }, [backendState, handleState]);
 
   // Safety timeout: if no WS events received, navigate after 30s
   // Also handles case when WS is not connected (offline/demo mode)
@@ -171,6 +158,33 @@ export default function ProcessingScreen() {
           </motion.p>
         </motion.div>
       </div>
+
+      <PayoutReapprovalModal
+        pendingQuote={pendingQuote || backendState?.pending_quote}
+        onApprove={async (quoteId) => {
+          setIsApproving(true);
+          try {
+            await approveQuote(quoteId);
+            setPendingQuote(null);
+            const data = await confirmBackendTransaction();
+            handleState(data);
+          } catch (e) {
+            console.error("Failed to approve revised quote:", e);
+          } finally {
+            setIsApproving(false);
+          }
+        }}
+        onRequestClaim={async () => {
+          try {
+            await requestClaim();
+            handleComplete(false);
+          } catch (e) {
+            console.error("Failed to request claim:", e);
+            handleComplete(false);
+          }
+        }}
+        isLoading={isApproving}
+      />
     </PageTransition>
   );
 }

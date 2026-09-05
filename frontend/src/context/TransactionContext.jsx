@@ -1,17 +1,76 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { SERVICE_CONFIG, DEFAULT_TRANSACTION_STATE } from '../constants/mockData';
 import { SERVICE_TYPES } from '../constants/routes';
+import InactivityWarningModal from '../components/transaction/InactivityWarningModal';
+import { useWebSocket } from './WebSocketContext';
 import { API_BASE } from '../constants/api';
 
 const TransactionContext = createContext(null);
 
 export function TransactionProvider({ children }) {
   const [transaction, setTransaction] = useState(DEFAULT_TRANSACTION_STATE);
-  const [backendTransactionId, setBackendTransactionId] = useState(null);
-  const [backendState, setBackendState] = useState(null);
+  const [backendTransactionId, storeBackendTransactionId] = useState(() => sessionStorage.getItem('converterTransactionId'));
+  const txIdRef = useRef(backendTransactionId);
+  const revisionRef = useRef(-1);
+  const { subscribe, unsubscribe, isConnected } = useWebSocket();
+  const setBackendTransactionId = useCallback((id) => {
+    if (txIdRef.current !== id) revisionRef.current = -1;
+    txIdRef.current = id;
+    storeBackendTransactionId(id);
+    if (id) sessionStorage.setItem('converterTransactionId', id);
+    else sessionStorage.removeItem('converterTransactionId');
+  }, []);
+  const [backendState, storeBackendState] = useState(null);
   const [dispenseProgress, setDispenseProgress] = useState(null);
   const [machineFees, setMachineFees] = useState(null);
+  const [currentQuote, setCurrentQuote] = useState(null);
+  const [serverOptions, setServerOptions] = useState(null);
+
+  const setBackendState = useCallback((snapshot) => {
+    if (snapshot === null) { storeBackendState(null); return; }
+    if (!txIdRef.current || snapshot.transaction_id !== txIdRef.current || snapshot.inserted_amount == null) return;
+    const revision = snapshot.revision ?? 0;
+    if (revision < revisionRef.current) return;
+    revisionRef.current = revision;
+    storeBackendState(snapshot);
+    setTransaction(prev => ({
+      ...prev, serviceType: snapshot.type, selectedAmount: snapshot.target_amount,
+      fee: snapshot.fee, totalDue: snapshot.total_due, payoutAmount: snapshot.payout_amount,
+      moneyInserted: snapshot.inserted_amount, insertedCounts: snapshot.inserted_denominations || {},
+      selectedDispenseCounts: snapshot.selected_dispense_counts || {},
+      selectedDispenseDenominations: snapshot.selected_dispense_denoms || [],
+    }));
+  }, []);
+
+  useEffect(() => {
+    if (!backendTransactionId) return;
+    let disposed = false;
+    let fetching = false;
+    const refresh = async () => {
+      if (fetching) return;
+      fetching = true;
+      try {
+        const response = await fetch(`${API_BASE}/transaction/${backendTransactionId}`);
+        if (response.ok && !disposed) setBackendState(await response.json());
+      } catch { /* Keep the last confirmed snapshot; the next poll retries. */ }
+      finally { fetching = false; }
+    };
+    const snapshot = event => setBackendState(event.payload);
+    const progress = event => {
+      if (event.payload?.transaction_id === txIdRef.current) setDispenseProgress(event.payload);
+    };
+    subscribe('CONVERTER_SNAPSHOT', snapshot);
+    subscribe('DISPENSE_PROGRESS', progress);
+    refresh();
+    const timer = setInterval(refresh, 2000);
+    return () => {
+      disposed = true;
+      clearInterval(timer);
+      unsubscribe('CONVERTER_SNAPSHOT', snapshot);
+      unsubscribe('DISPENSE_PROGRESS', progress);
+    };
+  }, [backendTransactionId, isConnected, subscribe, unsubscribe, setBackendState]);
 
   // Fetch machine fee configuration from backend
   useEffect(() => {
@@ -38,6 +97,7 @@ export function TransactionProvider({ children }) {
 
   // Initialize transaction with service type
   const startTransaction = useCallback((serviceType) => {
+    if (txIdRef.current) return;
     const config = SERVICE_CONFIG[serviceType];
     if (!config) return;
     const fee = getFeeForService(serviceType);
@@ -50,16 +110,21 @@ export function TransactionProvider({ children }) {
     setBackendTransactionId(null);
     setBackendState(null);
     setDispenseProgress(null);
-  }, [getFeeForService]);
+    setCurrentQuote(null);
+  }, [getFeeForService, setBackendState, setBackendTransactionId]);
 
   // Set selected amount
   const setSelectedAmount = useCallback((amount) => {
+    setCurrentQuote(null);
     setTransaction(prev => {
       const feeVal = getFeeForService(prev.serviceType);
       const userAddsFee = prev.serviceType === SERVICE_TYPES.COIN_TO_BILL;
       return {
         ...prev,
         selectedAmount: amount,
+        selectedDispenseCounts: {},
+        selectedDispenseDenominations: [],
+        payoutAmount: null,
         fee: feeVal,
         totalDue: amount + (userAddsFee ? feeVal : 0),
       };
@@ -174,7 +239,9 @@ export function TransactionProvider({ children }) {
     setBackendTransactionId(null);
     setBackendState(null);
     setDispenseProgress(null);
-  }, []);
+    setCurrentQuote(null);
+    setServerOptions(null);
+  }, [setBackendState, setBackendTransactionId]);
 
   // Get current service config
   const getServiceConfig = useCallback(() => {
@@ -215,6 +282,10 @@ export function TransactionProvider({ children }) {
     setBackendState,
     dispenseProgress,
     setDispenseProgress,
+    currentQuote,
+    setCurrentQuote,
+    serverOptions,
+    setServerOptions,
     startTransaction,
     setSelectedAmount,
     applyAuthoritativeTerms,
@@ -233,6 +304,18 @@ export function TransactionProvider({ children }) {
   return (
     <TransactionContext.Provider value={value}>
       {children}
+      {backendState && ['WAITING_FOR_BILL', 'WAITING_FOR_CONFIRMATION'].includes(backendState.state) && (
+        <InactivityWarningModal
+          warningAt={backendState.warning_at} expiresAt={backendState.expires_at}
+          serverTime={backendState.server_time}
+          onKeepAlive={async () => {
+            try {
+              const response = await fetch(`${API_BASE}/transaction/${backendTransactionId}/activity`, { method: 'POST' });
+              if (response.ok) setBackendState(await response.json());
+            } catch { /* Keep the warning until the server acknowledges Continue. */ }
+          }}
+        />
+      )}
     </TransactionContext.Provider>
   );
 }

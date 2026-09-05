@@ -113,13 +113,14 @@ async def lifespan(app: FastAPI):
     coin_controller = CoinSecurityController(serial_manager)
     admin_sessions.set_coin_controller(coin_controller)
     event_dispatcher = EventDispatcher(
-
         serial_manager.event_queue,
         machine_status,
         ws_manager,
         inventory_service=inventory_service,
         admin_session_service=admin_sessions,
         coin_controller=coin_controller,
+        bill_controller=bill_controller,
+        serial_manager=serial_manager,
     )
 
     # --- Phase 3: Hardware controllers (GPIO + Camera + ML) ---
@@ -168,6 +169,7 @@ async def lifespan(app: FastAPI):
         settings=settings,
         inventory_service=inventory_service,
     )
+    event_dispatcher.set_bill_acceptor(bill_acceptor)
 
     dispense_orchestrator = DispenseOrchestrator(
         bill_controller=bill_controller,

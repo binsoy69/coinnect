@@ -25,7 +25,7 @@ function ServiceIndicator({ icon, shortName }) {
 export default function TransactionSummaryScreen() {
   const navigate = useNavigate();
   const { type } = useParams();
-  const { transaction, getServiceConfig, getMoneyToDispense } =
+  const { transaction, backendState, getServiceConfig, getMoneyToDispense } =
     useTransaction();
   const config = getServiceConfig() || SERVICE_CONFIG[type];
   const excessRefundAmount = type === "coin-to-bill"
@@ -37,6 +37,7 @@ export default function TransactionSummaryScreen() {
   };
 
   const handleProceed = () => {
+    if (!backendState?.can_confirm) return;
     navigate(getServiceRoute(ROUTES.PROCESSING, type));
   };
 
@@ -73,6 +74,7 @@ export default function TransactionSummaryScreen() {
             showActions={true}
             onBack={handleBack}
             onProceed={handleProceed}
+            proceedDisabled={!backendState?.can_confirm}
           />
         </motion.div>
       </div>

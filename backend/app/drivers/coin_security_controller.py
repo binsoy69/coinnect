@@ -9,9 +9,13 @@ from app.models.serial_messages import (
     CoinChangeResponse,
     CoinDispenseResponse,
     CoinResetResponse,
+    CoinSessionStartResponse,
+    CoinSessionStopResponse,
+    CoinSessionStatusResponse,
     CoinSorterPositionResponse,
     CoinStatusResponse,
     OperationStatusResponse,
+    EmergencyStopResponse,
     ErrorResponse,
     PingResponse,
     SecurityLockResponse,
@@ -85,6 +89,51 @@ class CoinSecurityController:
         raw = await self._serial.send_coin_command({"cmd": "COIN_STATUS"})
         return self._parse_or_raise(raw, CoinStatusResponse)
 
+    async def coin_session_start(self, sid: int) -> CoinSessionStartResponse:
+        """Start a managed coin intake session with monotonic session id."""
+        settings = self._serial._settings
+        raw = await self._serial.send_coin_command({
+            "cmd": "COIN_SESSION_START", "sid": sid,
+            "grace_ms": settings.coin_session_grace_ms,
+            "timeout_ms": settings.coin_session_timeout_ms,
+            "quiet_ms": settings.coin_session_quiet_ms,
+        })
+        return self._parse_or_raise(raw, CoinSessionStartResponse)
+
+    async def coin_session_stop(self, sid: int) -> CoinSessionStopResponse:
+        """Stop coin intake session, disable acceptor gate, and initiate drain."""
+        raw = await self._serial.send_coin_command(
+            {"cmd": "COIN_SESSION_STOP", "sid": sid}
+        )
+        return self._parse_or_raise(raw, CoinSessionStopResponse)
+
+    async def coin_session_ack(self, sid: int) -> None:
+        raw = await self._serial.send_coin_command({"cmd": "COIN_SESSION_ACK", "sid": sid})
+        self._parse_or_raise(raw, EmergencyStopResponse)
+
+    async def coin_session_status(self) -> CoinSessionStatusResponse:
+        """Read four compact Uno responses; only a consistent closed set is final."""
+        reports = []
+        for denom in (1, 5, 10, 20):
+            raw = await self._serial.send_coin_command({"cmd": "COIN_SESSION_STATUS", "denom": denom})
+            if raw.get("status") == "ERROR":
+                self._parse_or_raise(raw, CoinSessionStatusResponse)
+            if "count" in raw:
+                if raw.get("denom") != denom:
+                    raise ValueError("Coin status denomination mismatch")
+                reports.append((denom, raw, raw["count"]))
+            else:
+                # Mock transport uses the aggregate model internally.
+                parsed = self._parse_or_raise(raw, CoinSessionStatusResponse)
+                reports.append((denom, raw, getattr(parsed, f"count_{denom}")))
+        sid = reports[0][1]["sid"]
+        if any(raw["sid"] != sid for _, raw, _ in reports):
+            raise ValueError("Coin status session changed during reconciliation")
+        states = {raw["session_state"] for _, raw, _ in reports}
+        state = "UNCERTAIN" if "UNCERTAIN" in states else "CLOSED" if states == {"CLOSED"} else "CLOSING"
+        return CoinSessionStatusResponse(status="OK", sid=sid, session_state=state,
+            **{f"count_{denom}": count for denom, _, count in reports})
+
     async def set_coin_sorter_position(
         self, position: str
     ) -> CoinSorterPositionResponse:
@@ -109,6 +158,15 @@ class CoinSecurityController:
         raw = await self._serial.send_coin_command({"cmd": "SECURITY_STATUS"})
         return self._parse_or_raise(raw, SecurityStatusResponse)
 
+    async def emergency_stop(self) -> EmergencyStopResponse:
+        """Immediately stop coin dispensers and disable acceptor gate."""
+        raw = await self._serial.send_coin_command(
+            {"cmd": "EMERGENCY_STOP"},
+            timeout=5.0,
+            priority=True,
+        )
+        return self._parse_or_raise(raw, EmergencyStopResponse)
+
     async def ping(self) -> PingResponse:
         raw = await self._serial.send_coin_command({"cmd": "PING"})
         return self._parse_or_raise(raw, PingResponse)
@@ -116,6 +174,15 @@ class CoinSecurityController:
     async def version(self) -> VersionResponse:
         raw = await self._serial.send_coin_command({"cmd": "VERSION"})
         return self._parse_or_raise(raw, VersionResponse)
+
+    async def verify_converter_protocol(self) -> None:
+        response = await self._serial.send_coin_command({"cmd": "CAPABILITIES"})
+        if response.get("status") != "OK" or response.get("converter_protocol") != 2:
+            raise ValueError("Expected converter protocol 2")
+
+    async def clear_emergency(self) -> None:
+        raw = await self._serial.send_coin_command({"cmd": "EMERGENCY_CLEAR"})
+        self._parse_or_raise(raw, EmergencyStopResponse)
 
     async def reset(self) -> None:
         await self._serial.send_coin_command({"cmd": "RESET"})

@@ -165,16 +165,34 @@ START_PAYLOAD = {
 
 async def _start_transaction(client: AsyncClient, payload: dict = None):
     """POST /api/v1/transaction/ and return the JSON body."""
-    resp = await client.post(
-        "/api/v1/transaction/", json=payload or START_PAYLOAD,
-    )
+    proposal = payload or START_PAYLOAD
+    if "fee" in proposal:
+        return await client.post("/api/v1/transaction/", json=proposal)
+    quote = await client.post("/api/v1/transaction/quote", json={
+        "type": proposal.get("type"), "amount": proposal.get("amount"),
+        "requested_counts": proposal.get("selected_dispense_counts"),
+    })
+    if quote.status_code != 200:
+        return quote
+    resp = await client.post("/api/v1/transaction/", json={"quote_id": quote.json()["id"]})
     return resp
 
 
 async def _simulate_bill_insert(
     client: AsyncClient, transaction_id: str, denom: int = 100,
 ):
-    """POST /api/v1/transaction/{id}/simulate-insert for a bill."""
+    """Insert the requested test value using the transaction's permitted input."""
+    current = (await client.get(f"/api/v1/transaction/{transaction_id}")).json()
+    if current.get("type") == "coin-to-bill":
+        remaining = denom
+        for coin in (20, 10, 5, 1):
+            while remaining >= coin:
+                response = await client.post(f"/api/v1/transaction/{transaction_id}/simulate-insert",
+                    json={"denom": coin, "insert_type": "coin"})
+                if response.status_code != 200:
+                    return response
+                remaining -= coin
+        return response
     return await client.post(
         f"/api/v1/transaction/{transaction_id}/simulate-insert",
         json={"denom": denom, "insert_type": "bill"},
@@ -232,7 +250,7 @@ class TestStartTransaction:
     async def test_start_returns_selected_dispense_denoms(self, client):
         resp = await _start_transaction(client)
         body = resp.json()
-        assert body["selected_dispense_denoms"] == [100, 50]
+        assert body["selected_dispense_denoms"] == [100]
 
     async def test_start_duplicate_returns_409(self, client):
         """Starting a second transaction while one is active yields 409."""

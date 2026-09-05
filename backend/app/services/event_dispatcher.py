@@ -5,6 +5,7 @@ Runs as an asyncio task during application lifetime.
 """
 
 import asyncio
+import asyncio
 import logging
 from typing import Any
 
@@ -12,6 +13,7 @@ from app.api.ws import ConnectionManager
 from app.models.events import WSEvent, WSEventType
 from app.models.serial_messages import (
     CoinInEvent,
+    CoinSessionPulseEvent,
     DoorStateEvent,
     RFIDEvent,
     ReadyEvent,
@@ -34,6 +36,9 @@ class EventDispatcher:
         ewallet_orchestrator: Any = None,
         admin_session_service: Any = None,
         coin_controller: Any = None,
+        bill_controller: Any = None,
+        serial_manager: Any = None,
+        bill_acceptor: Any = None,
     ):
         self._queue = event_queue
         self._status = machine_status
@@ -43,6 +48,9 @@ class EventDispatcher:
         self._ewallet_orchestrator = ewallet_orchestrator
         self._admin_sessions = admin_session_service
         self._coin_controller = coin_controller
+        self._bill_controller = bill_controller
+        self._serial_manager = serial_manager
+        self._bill_acceptor = bill_acceptor
         self._running = False
         self._task = None
 
@@ -51,6 +59,15 @@ class EventDispatcher:
 
     def set_ewallet_orchestrator(self, ewallet_orchestrator: Any) -> None:
         self._ewallet_orchestrator = ewallet_orchestrator
+
+    def set_bill_acceptor(self, bill_acceptor: Any) -> None:
+        self._bill_acceptor = bill_acceptor
+
+    def set_bill_controller(self, bill_controller: Any) -> None:
+        self._bill_controller = bill_controller
+
+    def set_serial_manager(self, serial_manager: Any) -> None:
+        self._serial_manager = serial_manager
 
     async def start(self) -> None:
         self._running = True
@@ -90,6 +107,7 @@ class EventDispatcher:
 
         handlers = {
             "COIN_IN": self._handle_coin_in,
+            "COIN_SESSION_PULSE": self._handle_coin_session_pulse,
             "TAMPER": self._handle_tamper,
             "RFID": self._handle_rfid,
             "DOOR_STATE": self._handle_door_state,
@@ -104,6 +122,9 @@ class EventDispatcher:
 
     async def _handle_coin_in(self, data: dict) -> None:
         parsed = CoinInEvent(**data)
+        if self._transaction_orchestrator is not None and self._transaction_orchestrator.has_active_transaction:
+            logger.warning("Ignoring unscoped legacy coin event during converter transaction")
+            return
         coin_denom = f"PHP_{parsed.denom}"
         if self._inventory is not None:
             try:
@@ -133,9 +154,45 @@ class EventDispatcher:
             payload={"denom": parsed.denom, "total": parsed.total},
         ))
 
+    async def _handle_coin_session_pulse(self, data: dict) -> None:
+        parsed = CoinSessionPulseEvent(**data)
+        if (
+            self._transaction_orchestrator is not None
+            and self._transaction_orchestrator.has_active_transaction
+        ):
+            await self._transaction_orchestrator.handle_coin_session_pulse(
+                sid=parsed.sid,
+                seq=parsed.seq,
+                denom=parsed.denom,
+                count=parsed.count,
+            )
+
     async def _handle_tamper(self, data: dict) -> None:
         parsed = TamperEvent(**data)
         self._status.update_security(tamper_active=True, sensor=parsed.sensor)
+
+        stops = []
+        if self._bill_acceptor is not None:
+            stops.append(self._bill_acceptor.stop_all())
+        if self._serial_manager is not None:
+            stops.append(self._serial_manager.emergency_stop_all())
+        else:
+            if self._bill_controller is not None:
+                stops.append(self._bill_controller.emergency_stop())
+            if self._coin_controller is not None:
+                stops.append(self._coin_controller.emergency_stop())
+        results = await asyncio.gather(*stops, return_exceptions=True)
+        for result in results:
+            if isinstance(result, Exception):
+                logger.error("Emergency stop failed: %s", result)
+
+        # 3. Active transaction handling
+        if (
+            self._transaction_orchestrator is not None
+            and self._transaction_orchestrator.has_active_transaction
+        ):
+            await self._transaction_orchestrator.handle_tamper(parsed.sensor)
+
         await self._ws.broadcast(WSEvent(
             type=WSEventType.TAMPER,
             payload={"sensor": parsed.sensor},

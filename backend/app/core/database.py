@@ -60,6 +60,10 @@ async def init_db() -> None:
                 logger.info("Migrating schema: adding selected_dispense_counts to transactions table")
                 sync_conn.execute(text("ALTER TABLE transactions ADD COLUMN selected_dispense_counts JSON"))
 
+            if transaction_columns and "converter_metadata" not in transaction_columns:
+                logger.info("Migrating schema: adding converter_metadata to transactions table")
+                sync_conn.execute(text("ALTER TABLE transactions ADD COLUMN converter_metadata JSON"))
+
             gateway_columns = table_columns("gateway_events")
             if not gateway_columns:
                 return

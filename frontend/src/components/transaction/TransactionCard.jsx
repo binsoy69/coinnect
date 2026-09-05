@@ -17,6 +17,7 @@ export default function TransactionCard({
   showActions = true,
   onBack,
   onProceed,
+  proceedDisabled = false,
   className = "",
 }) {
   return (
@@ -105,6 +106,7 @@ export default function TransactionCard({
           <Button
             variant="white"
             onClick={onProceed}
+            disabled={proceedDisabled}
             className="flex-1 py-3 text-sm"
           >
             Proceed

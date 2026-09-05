@@ -9,6 +9,7 @@ from app.models.serial_messages import (
     DispenseResponse,
     DispenseStatusResponse,
     OperationStatusResponse,
+    EmergencyStopResponse,
     ErrorResponse,
     HomeResponse,
     PingResponse,
@@ -85,6 +86,15 @@ class BillController:
         )
         return self._parse_or_raise(raw, DispenseStatusResponse)
 
+    async def emergency_stop(self) -> EmergencyStopResponse:
+        """Immediately stop stepper and dispensers, invalidate homed state."""
+        raw = await self._serial.send_bill_command(
+            {"cmd": "EMERGENCY_STOP"},
+            timeout=5.0,
+            priority=True,
+        )
+        return self._parse_or_raise(raw, EmergencyStopResponse)
+
     async def ping(self) -> PingResponse:
         raw = await self._serial.send_bill_command({"cmd": "PING"})
         return self._parse_or_raise(raw, PingResponse)
@@ -92,6 +102,15 @@ class BillController:
     async def version(self) -> VersionResponse:
         raw = await self._serial.send_bill_command({"cmd": "VERSION"})
         return self._parse_or_raise(raw, VersionResponse)
+
+    async def verify_converter_protocol(self) -> None:
+        response = await self._serial.send_bill_command({"cmd": "CAPABILITIES"})
+        if response.get("status") != "OK" or response.get("converter_protocol") != 2:
+            raise ValueError("Expected converter protocol 2")
+
+    async def clear_emergency(self) -> None:
+        raw = await self._serial.send_bill_command({"cmd": "EMERGENCY_CLEAR"})
+        self._parse_or_raise(raw, EmergencyStopResponse)
 
     async def reset(self) -> None:
         await self._serial.send_bill_command({"cmd": "RESET"})

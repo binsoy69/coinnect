@@ -59,6 +59,9 @@ class MockSerial:
         self._coin_acceptor_enabled = False
         self._coin_sorter_position = "CENTER"
         self._tamper_active = False
+        self._coin_session_id = 0
+        self._coin_session_state = "IDLE"
+        self._coin_session_counts = {1: 0, 5: 0, 10: 0, 20: 0}
 
         # Fault injection
         self._fault_next: Optional[str] = None
@@ -163,6 +166,10 @@ class MockSerial:
             "PING": self._handle_ping,
             "VERSION": self._handle_version,
             "RESET": self._handle_reset,
+            "EMERGENCY_STOP": self._handle_emergency_stop,
+            "COIN_SESSION_ACK": lambda params: [{"status": "OK"}],
+            "CAPABILITIES": lambda params: [{"status": "OK", "converter_protocol": 2}],
+            "EMERGENCY_CLEAR": lambda params: [{"status": "OK"}],
         }
         bill_handlers = {
             "SORT": self._handle_sort,
@@ -179,6 +186,10 @@ class MockSerial:
             "COIN_ACCEPTOR_ENABLE": self._handle_coin_acceptor_enable,
             "COIN_STATUS": self._handle_coin_status,
             "COIN_SORTER_POSITION": self._handle_coin_sorter_position,
+            "MOCK_COIN_INSERT": self._handle_mock_coin_insert,
+            "COIN_SESSION_START": self._handle_coin_session_start,
+            "COIN_SESSION_STOP": self._handle_coin_session_stop,
+            "COIN_SESSION_STATUS": self._handle_coin_session_status,
             "SECURITY_LOCK": self._handle_security_lock,
             "SECURITY_UNLOCK": self._handle_security_unlock,
             "SECURITY_STATUS": self._handle_security_status,
@@ -301,6 +312,9 @@ class MockSerial:
         self._coin_total = 0
         self._coin_acceptor_enabled = False
         self._coin_sorter_position = "CENTER"
+        self._coin_session_id = 0
+        self._coin_session_state = "IDLE"
+        self._coin_session_counts = {1: 0, 5: 0, 10: 0, 20: 0}
         return [{"status": "OK", "previous_total": prev}]
 
     def _handle_coin_acceptor_enable(self, cmd: dict) -> List[dict]:
@@ -330,6 +344,51 @@ class MockSerial:
             "status": "OK",
             "sorter_position": position,
             "sorter_angle": COIN_SORTER_ANGLES[position],
+        }]
+
+    def _handle_mock_coin_insert(self, cmd: dict) -> List[dict]:
+        denom = cmd.get("denom")
+        if denom not in self._coin_session_counts or self._coin_session_state != "ACTIVE":
+            return [{"status": "ERROR", "code": "INVALID_PARAM"}]
+        self._coin_session_counts[denom] += 1
+        return [{"status": "OK", "sid": self._coin_session_id, "denom": denom,
+                 "count": self._coin_session_counts[denom], "seq": sum(self._coin_session_counts.values())}]
+
+    def _handle_coin_session_start(self, cmd: dict) -> List[dict]:
+        if self._tamper_active:
+            return [{"status": "ERROR", "code": "LOCKED_OUT"}]
+        sid = cmd.get("sid")
+        if sid is None or not isinstance(sid, int):
+            return [{"status": "ERROR", "code": "INVALID_PARAM"}]
+        self._coin_session_id = sid
+        self._coin_session_state = "ACTIVE"
+        self._coin_session_counts = {1: 0, 5: 0, 10: 0, 20: 0}
+        self._coin_acceptor_enabled = True
+        return [{"status": "OK", "sid": sid, "session_state": "ACTIVE"}]
+
+    def _handle_coin_session_stop(self, cmd: dict) -> List[dict]:
+        sid = cmd.get("sid")
+        if sid is not None and sid != self._coin_session_id:
+            return [{"status": "ERROR", "code": "INVALID_PARAM"}]
+        self._coin_acceptor_enabled = False
+        self._coin_session_state = "CLOSED"
+        return [{"status": "OK", "sid": self._coin_session_id, "session_state": "CLOSED"}]
+
+    def _handle_coin_session_status(self, cmd: dict) -> List[dict]:
+        c1 = self._coin_session_counts[1]
+        c5 = self._coin_session_counts[5]
+        c10 = self._coin_session_counts[10]
+        c20 = self._coin_session_counts[20]
+        tot = c1 * 1 + c5 * 5 + c10 * 10 + c20 * 20
+        return [{
+            "status": "OK",
+            "sid": self._coin_session_id,
+            "session_state": self._coin_session_state,
+            "count_1": c1,
+            "count_5": c5,
+            "count_10": c10,
+            "count_20": c20,
+            "total_amount": tot,
         }]
 
     def _handle_security_lock(self, cmd: dict) -> List[dict]:
@@ -368,4 +427,16 @@ class MockSerial:
         self._coin_acceptor_enabled = False
         self._coin_sorter_position = "CENTER"
         self._tamper_active = False
+        self._coin_session_id = 0
+        self._coin_session_state = "IDLE"
+        self._coin_session_counts = {1: 0, 5: 0, 10: 0, 20: 0}
         return [{"status": "OK"}]
+
+    def _handle_emergency_stop(self, cmd: dict) -> List[dict]:
+        self._emergency_stop = True
+        if self._controller == ControllerType.BILL:
+            self._homed = False
+            self._current_slot = 0
+        else:
+            self._coin_acceptor_enabled = False
+        return [{"status": "OK", "stopped": True}]

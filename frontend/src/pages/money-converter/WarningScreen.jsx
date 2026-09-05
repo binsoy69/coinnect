@@ -5,11 +5,13 @@ import Button from '../../components/common/Button';
 import WarningIcon from '../../components/feedback/WarningIcon';
 import PageTransition from '../../components/layout/PageTransition';
 import { ROUTES, getServiceRoute } from '../../constants/routes';
+import { useTransaction } from '../../context/TransactionContext';
 import { useBackendTransaction } from '../../hooks/useBackendTransaction';
 import { formatPeso } from '../../constants/denominations';
 
 export default function WarningScreen() {
   const navigate = useNavigate();
+  const { resetTransaction } = useTransaction();
   const { type } = useParams();
   const {
     backendState,
@@ -55,7 +57,7 @@ export default function WarningScreen() {
   }, [navigate, refreshBackendTransaction, transactionId, type]);
 
   const claimTicket = backendState?.claim_ticket_code;
-  const shortfall = backendState?.shortfall;
+  const shortfall = backendState?.claim?.amount ?? backendState?.shortfall;
   const isDispenseError =
     backendState?.state === "ERROR" || Boolean(claimTicket) || shortfall != null;
   const isNonTerminal =
@@ -67,6 +69,7 @@ export default function WarningScreen() {
   };
 
   const handleReturnHome = () => {
+    if (["COMPLETE", "CLAIM_REQUIRED", "ERROR", "CANCELLED"].includes(backendState?.state)) resetTransaction();
     navigate(ROUTES.HOME);
   };
 
@@ -224,10 +227,10 @@ export default function WarningScreen() {
             <Button
               variant="white"
               size="xl"
-              onClick={handleInsertMore}
+              onClick={backendState?.can_continue ? handleInsertMore : handleReturnHome}
               className="px-8"
             >
-              Insert More Money
+              {backendState?.can_continue ? "Insert More Money" : "Return to Home"}
             </Button>
           </motion.div>
         </motion.div>

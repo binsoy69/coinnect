@@ -113,3 +113,22 @@ class EWalletTransactionError(CoinnectError):
     def __init__(self, message: str, code: str = "EWALLET_ERROR"):
         self.code = code
         super().__init__(message)
+
+
+class QuoteChangedError(CoinnectError):
+    """Stored quote is stale or stock changed before transaction creation."""
+
+    def __init__(self, new_quote: dict, message: str = "Quote changed"):
+        self.new_quote = new_quote
+        self.code = "QUOTE_CHANGED"
+        super().__init__(message)
+
+
+class PayoutReapprovalRequiredError(CoinnectError):
+    """Approved payout breakdown is no longer available; customer reapproval required."""
+
+    def __init__(self, transaction_id: str, pending_quote: dict, message: str = "Payout reapproval required"):
+        self.transaction_id = transaction_id
+        self.pending_quote = pending_quote
+        self.code = "PAYOUT_REAPPROVAL_REQUIRED"
+        super().__init__(f"Transaction {transaction_id}: {message}")

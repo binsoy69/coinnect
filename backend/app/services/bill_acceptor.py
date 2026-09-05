@@ -6,7 +6,7 @@ and Arduino sort commands for the bill acceptor system.
 
 import asyncio
 import logging
-from typing import Optional
+from typing import Optional, Callable, Awaitable
 
 from pydantic import BaseModel
 
@@ -74,6 +74,7 @@ class BillAcceptor:
         self._expected_currency: Optional[str] = None
         self._expected_denomination: Optional[str] = None
         self._last_bill_cleared: bool = True
+        self._acceptance_task = None
 
     def set_expected_denomination(self, denomination: Optional[str]) -> None:
         """Configure the bill acceptor to expect a specific denomination (e.g. 'PHP_100')."""
@@ -138,7 +139,30 @@ class BillAcceptor:
             await asyncio.sleep(0.05)  # 50ms poll interval
         return False
 
-    async def accept_bill(self, skip_entry_wait: bool = False) -> BillAcceptResult:
+    async def accept_bill(self, skip_entry_wait=False, on_authenticated=None, custom_store_and_record=None):
+        if self._status.snapshot().security.tamper_active:
+            return BillAcceptResult(error="LOCKED_OUT")
+        if self._acceptance_task and not self._acceptance_task.done():
+            return BillAcceptResult(error="INTAKE_BUSY")
+        task = asyncio.create_task(self._accept_bill_once(
+            skip_entry_wait, on_authenticated, custom_store_and_record
+        ))
+        self._acceptance_task = task
+        try:
+            return await task
+        except asyncio.CancelledError:
+            return BillAcceptResult(error="INTAKE_INTERRUPTED")
+        finally:
+            await self._safe_shutdown()
+            if self._acceptance_task is task:
+                self._acceptance_task = None
+
+    async def _accept_bill_once(
+        self,
+        skip_entry_wait: bool = False,
+        on_authenticated: Optional[Callable[[BillDenom, int], Awaitable[None]]] = None,
+        custom_store_and_record: Optional[Callable[[BillDenom, int], Awaitable[None]]] = None,
+    ) -> BillAcceptResult:
         """Execute full bill acceptance sequence.
 
         Args:
@@ -276,6 +300,30 @@ class BillAcceptor:
                     denom_confidence=denom_result.confidence,
                 )
 
+            bill_value = BILL_DENOM_VALUES.get(denomination, 0)
+
+            # Two-phase preparation hook before physical sorting motion
+            if on_authenticated is not None:
+                try:
+                    await on_authenticated(denomination, bill_value)
+                except Exception as prep_err:
+                    logger.error(
+                        f"Bill intake preparation failed for {denomination.value}: {prep_err}",
+                        exc_info=True,
+                    )
+                    await self._eject_bill()
+                    await self._broadcast(
+                        WSEventType.BILL_REJECTED,
+                        {"reason": "PREPARATION_FAILED", "error": str(prep_err)},
+                    )
+                    return BillAcceptResult(
+                        error=f"PREPARATION_FAILED: {prep_err}",
+                        denomination=denomination,
+                        value=bill_value,
+                        auth_confidence=auth_result.confidence,
+                        denom_confidence=denom_result.confidence,
+                    )
+
             # Step 5: Sort to correct slot
             await self._broadcast(
                 WSEventType.BILL_SORTING,
@@ -286,26 +334,28 @@ class BillAcceptor:
             # Step 6: Store bill
             await self._store_bill()
 
-            # Step 7: Update inventory
-            if self._inventory is not None:
-                storage_denom = denomination.value
-                if storage_denom.startswith("USD_"):
-                    storage_denom = "USD"
-                elif storage_denom.startswith("EUR_"):
-                    storage_denom = "EUR"
-                try:
-                    await self._inventory.adjust(
-                        InventoryLocation.BILL_STORAGE,
-                        storage_denom,
-                        1,
-                        reason="BILL_ACCEPTED",
-                    )
-                except Exception:
-                    self._status.set_inventory_consistent(False)
-                    raise
+            # Step 7: Update inventory / outcome recording
+            if custom_store_and_record is not None:
+                await custom_store_and_record(denomination, bill_value)
             else:
-                self._status.increment_bill_storage(denomination.value)
-            bill_value = BILL_DENOM_VALUES.get(denomination, 0)
+                if self._inventory is not None:
+                    storage_denom = denomination.value
+                    if storage_denom.startswith("USD_"):
+                        storage_denom = "USD"
+                    elif storage_denom.startswith("EUR_"):
+                        storage_denom = "EUR"
+                    try:
+                        await self._inventory.adjust(
+                            InventoryLocation.BILL_STORAGE,
+                            storage_denom,
+                            1,
+                            reason="BILL_ACCEPTED",
+                        )
+                    except Exception:
+                        self._status.set_inventory_consistent(False)
+                        raise
+                else:
+                    self._status.increment_bill_storage(denomination.value)
 
             await self._broadcast(
                 WSEventType.BILL_STORED,
@@ -378,6 +428,15 @@ class BillAcceptor:
         await self._gpio.motor_reverse(self._settings.bill_eject_speed)
         await asyncio.sleep(self._settings.bill_eject_duration)
         await self._gpio.motor_stop()
+
+    async def stop_all(self) -> None:
+        """Cancel acceptance before shutting down so it cannot resume motion."""
+        task = self._acceptance_task
+        if task and not task.done():
+            task.cancel()
+        await self._safe_shutdown()
+        if task:
+            await asyncio.gather(task, return_exceptions=True)
 
     async def _safe_shutdown(self) -> None:
         """Ensure motor stopped and LEDs off."""

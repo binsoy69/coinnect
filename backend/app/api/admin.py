@@ -1,7 +1,11 @@
+import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 """PIN-authenticated local maintenance sessions."""
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt
 
 from app.services.admin_session import AdminAuthError, AdminSession
 from app.services.operation_mode import OperationModeError
@@ -278,7 +282,7 @@ async def reconcile_physical_operation(
         ).scalars().all()
         confirmed = sum(op.confirmed_count * op.denomination_value for op in operations)
         ambiguous = sum(
-            op.requested_count * op.denomination_value
+            (op.requested_count - op.confirmed_count) * op.denomination_value
             for op in operations if op.state in {"AMBIGUOUS", "STARTED"}
         )
         execution.confirmed_amount = confirmed
@@ -299,7 +303,10 @@ async def reconcile_physical_operation(
         if claim:
             claim.confirmed_dispensed_amount = confirmed
             claim.ambiguous_amount = ambiguous
-            claim.amount = max(0, execution.requested_amount - confirmed)
+            from app.models.db_models import TransactionRecord
+            converter = await session.get(TransactionRecord, operation.transaction_id)
+            obligation = converter.inserted_amount if converter else execution.requested_amount
+            claim.amount = max(0, obligation - confirmed)
             if claim.amount == 0 and not ambiguous:
                 claim.status = "RESOLVED"
                 claim.resolved_at = datetime.utcnow()
@@ -398,3 +405,186 @@ async def update_fees(
             settings.forex_fee_php_to_eur = float(body.forex_fees["php-to-eur"])
 
     return await get_fees(request)
+
+
+@router.post("/tamper-recovery", status_code=status.HTTP_200_OK)
+async def tamper_recovery(
+    request: Request,
+    authorization: str | None = Header(default=None),
+):
+    """Recover machine from tamper lockdown state after technician inspection."""
+    require_admin_session(request, authorization)
+    session_factory = request.app.state.db_session_factory
+    from sqlalchemy import select
+    from app.models.db_models import PhysicalOperation, ConverterIntakeOperation, ConverterCoinSession
+
+    async with session_factory() as session:
+        unresolved = (
+            await session.execute(
+                select(PhysicalOperation).where(
+                    PhysicalOperation.state.in_(["AMBIGUOUS", "STARTED"])
+                )
+            )
+        ).scalars().all()
+        if unresolved:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Unresolved physical operations exist. Reconcile them before completing tamper recovery."
+            )
+
+    async with session_factory() as session:
+        intake = (await session.execute(select(ConverterIntakeOperation).where(
+            ConverterIntakeOperation.state.in_(["PREPARED", "UNCERTAIN"])
+        ))).scalars().first()
+        coins = (await session.execute(select(ConverterCoinSession).where(
+            ConverterCoinSession.state != "CLOSED"
+        ))).scalars().first()
+        if intake or coins:
+            raise HTTPException(status_code=409, detail="Reconcile retained cash and coin sessions first")
+
+    machine_status = request.app.state.machine_status
+    coin_controller = getattr(request.app.state, "coin_controller", None)
+    bill_controller = getattr(request.app.state, "bill_controller", None) or getattr(
+        getattr(request.app.state, "bill_acceptor", None), "_bill", None
+    )
+    if not coin_controller or not bill_controller:
+        raise HTTPException(status_code=503, detail="Both controllers are required for recovery")
+    try:
+        await coin_controller.clear_emergency()
+        await bill_controller.clear_emergency()
+        await bill_controller.home()
+        await coin_controller.security_lock()
+    except Exception as exc:
+        machine_status.update_security(tamper_active=True)
+        await asyncio.gather(
+            coin_controller.emergency_stop(), bill_controller.emergency_stop(),
+            return_exceptions=True,
+        )
+        raise HTTPException(status_code=503, detail="Hardware recovery failed; lockdown remains active") from exc
+    machine_status.update_security(tamper_active=False)
+    orchestrator = getattr(request.app.state, "transaction_orchestrator", None)
+    if orchestrator:
+        orchestrator._has_accounting_fault = False
+
+    return {"status": "success", "message": "Tamper recovery completed"}
+
+
+class IntakeResolutionRequest(BaseModel):
+    retained: bool
+    denomination: str | None = None
+    notes: str = Field(min_length=1, max_length=1000)
+
+
+class CoinSessionResolutionRequest(BaseModel):
+    counts: dict[str, StrictInt]
+    notes: str = Field(min_length=1, max_length=1000)
+
+
+async def _refresh_converter_claim(session, transaction_id):
+    from sqlalchemy import select
+    from app.models.db_models import TransactionRecord, ConverterIntakeOperation, ClaimRecord
+    record = await session.get(TransactionRecord, transaction_id)
+    uncertain = (await session.execute(select(ConverterIntakeOperation).where(
+        ConverterIntakeOperation.transaction_id == transaction_id,
+        ConverterIntakeOperation.state.in_(["PREPARED", "UNCERTAIN"]),
+    ))).scalars().all()
+    ambiguity = sum(op.value for op in uncertain)
+    claims = (await session.execute(select(ClaimRecord).where(
+        ClaimRecord.transaction_id == transaction_id, ClaimRecord.status != "RESOLVED",
+    ))).scalars().all()
+    for claim in claims:
+        claim.amount = max(0, record.inserted_amount - record.dispensed_amount) + ambiguity
+        claim.ambiguous_amount = ambiguity
+        claim.status = "PROVISIONAL" if ambiguity else "OPEN" if claim.amount else "RESOLVED"
+    meta = dict(record.converter_metadata or {})
+    meta["revision"] = meta.get("revision", 0) + 1
+    record.converter_metadata = meta
+
+
+@router.get("/converter-reconciliation")
+async def converter_reconciliation(request: Request, authorization: str | None = Header(default=None)):
+    require_admin_session(request, authorization)
+    from sqlalchemy import select
+    from app.models.db_models import ConverterIntakeOperation, ConverterCoinSession
+    async with request.app.state.db_session_factory() as session:
+        bills = (await session.execute(select(ConverterIntakeOperation).where(
+            ConverterIntakeOperation.state.in_(["PREPARED", "UNCERTAIN"])
+        ))).scalars().all()
+        coins = (await session.execute(select(ConverterCoinSession).where(
+            ConverterCoinSession.state != "CLOSED"
+        ))).scalars().all()
+        return {
+            "bills": [{"id": op.id, "transaction_id": op.transaction_id, "denomination": op.denomination, "value": op.value, "state": op.state} for op in bills],
+            "coins": [{"sid": op.session_id, "transaction_id": op.transaction_id, "state": op.state,
+                       "credited_counts": {str(d): getattr(op, f"cursor_php_{d}") for d in (1,5,10,20)}} for op in coins],
+        }
+
+
+@router.post("/converter-reconciliation/bills/{operation_id}")
+async def reconcile_converter_bill(operation_id: str, body: IntakeResolutionRequest, request: Request,
+                                   authorization: str | None = Header(default=None)):
+    require_admin_session(request, authorization)
+    from app.models.db_models import ConverterIntakeOperation, TransactionRecord
+    orchestrator = request.app.state.transaction_orchestrator
+    async with orchestrator._accounting_lock:
+        async with request.app.state.db_session_factory() as session:
+            op = await session.get(ConverterIntakeOperation, operation_id)
+            if not op:
+                raise HTTPException(status_code=404, detail="Intake operation not found")
+            target = "RETAINED" if body.retained else "RETURNED"
+            if op.state not in {"PREPARED", "UNCERTAIN", target}:
+                raise HTTPException(status_code=409, detail="Intake outcome already resolved differently")
+            if body.retained:
+                if op.denomination == "UNKNOWN":
+                    if body.denomination not in {"PHP_20", "PHP_50", "PHP_100", "PHP_200", "PHP_500", "PHP_1000"}:
+                        raise HTTPException(status_code=422, detail="Identify the retained bill denomination")
+                    op.denomination = body.denomination
+                    op.value = int(body.denomination.split("_")[1])
+                if not op.inventory_credited:
+                    await request.app.state.inventory_service.adjust_in_session(
+                        session, "BILL_STORAGE", op.denomination, 1,
+                        reason="INTAKE_RECONCILIATION", reference_id=op.transaction_id,
+                    )
+                    op.inventory_credited = True
+                if not op.transaction_credited:
+                    record = await session.get(TransactionRecord, op.transaction_id)
+                    record.inserted_amount += op.value
+                    counts = dict(record.inserted_denominations or {})
+                    counts[str(op.value)] = counts.get(str(op.value), 0) + 1
+                    record.inserted_denominations = counts
+                    op.transaction_credited = True
+            op.state = target
+            op.error_message = body.notes
+            await session.flush()
+            await _refresh_converter_claim(session, op.transaction_id)
+            await session.commit()
+        await request.app.state.inventory_service.refresh_runtime()
+    return {"status": "OK", "operation_id": operation_id, "state": target}
+
+
+@router.post("/converter-reconciliation/coins/{sid}")
+async def reconcile_converter_coins(sid: int, body: CoinSessionResolutionRequest, request: Request,
+                                    authorization: str | None = Header(default=None)):
+    require_admin_session(request, authorization)
+    from sqlalchemy import select
+    from app.models.db_models import ConverterCoinSession, TransactionRecord
+    if set(body.counts) != {"1", "5", "10", "20"} or any(type(c) is not int or not 0 <= c <= 65535 for c in body.counts.values()):
+        raise HTTPException(status_code=422, detail="Supply nonnegative cumulative counts for all four denominations")
+    orchestrator = request.app.state.transaction_orchestrator
+    async with request.app.state.db_session_factory() as session:
+        row = (await session.execute(select(ConverterCoinSession).where(ConverterCoinSession.session_id == sid))).scalar_one_or_none()
+        if not row:
+            raise HTTPException(status_code=404, detail="Coin session not found")
+        transaction_id = row.transaction_id
+        if any(body.counts[str(d)] < getattr(row, f"cursor_php_{d}") for d in (1,5,10,20)):
+            raise HTTPException(status_code=409, detail="Observed counts cannot remove already credited cash")
+    await orchestrator._apply_coin_counts(transaction_id, sid, {int(d): c for d, c in body.counts.items()}, closed=True)
+    await request.app.state.coin_controller.coin_session_ack(sid)
+    async with request.app.state.db_session_factory() as session:
+        await _refresh_converter_claim(session, transaction_id)
+        record = await session.get(TransactionRecord, transaction_id)
+        meta = dict(record.converter_metadata or {})
+        meta["coin_reconciliation"] = {"sid": sid, "notes": body.notes, "counts": body.counts}
+        record.converter_metadata = meta
+        await session.commit()
+    return {"status": "OK", "sid": sid}

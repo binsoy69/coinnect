@@ -116,6 +116,9 @@ class TransactionRecord(Base):
     selected_dispense_counts: Mapped[Optional[dict]] = mapped_column(
         JSON, nullable=True
     )
+    converter_metadata: Mapped[Optional[dict]] = mapped_column(
+        JSON, nullable=True
+    )
     # Forex-specific fields (nullable for non-forex transactions)
     from_currency: Mapped[Optional[str]] = mapped_column(
         String, nullable=True
@@ -383,4 +386,79 @@ class InventoryAdjustment(Base):
     reference_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow
+    )
+
+
+class ConverterQuote(Base):
+    """Stored proposals for money converter transactions."""
+
+    __tablename__ = "converter_quotes"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    transaction_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    service_type: Mapped[str] = mapped_column(String, nullable=False)
+    input_amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    fee: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_due: Mapped[int] = mapped_column(Integer, nullable=False)
+    payout_amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    items: Mapped[list] = mapped_column(JSON, default=list)
+    requested_counts: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    is_substitution: Mapped[bool] = mapped_column(Boolean, default=False)
+    substitution_notice: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False
+    )
+
+
+class ConverterIntakeOperation(Base):
+    """Durable bill intake operation record."""
+
+    __tablename__ = "converter_intake_operations"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    transaction_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    denomination: Mapped[str] = mapped_column(String, nullable=False)
+    value: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String, default="PREPARED")
+    inventory_credited: Mapped[bool] = mapped_column(Boolean, default=False)
+    transaction_credited: Mapped[bool] = mapped_column(Boolean, default=False)
+    error_code: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class ConverterCoinSession(Base):
+    """Persisted coin session state and cumulative count cursors."""
+
+    __tablename__ = "converter_coin_sessions"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    session_id: Mapped[int] = mapped_column(
+        Integer, unique=True, nullable=False, index=True
+    )
+    transaction_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    state: Mapped[str] = mapped_column(String, default="ACTIVE")
+    cursor_php_1: Mapped[int] = mapped_column(Integer, default=0)
+    cursor_php_5: Mapped[int] = mapped_column(Integer, default=0)
+    cursor_php_10: Mapped[int] = mapped_column(Integer, default=0)
+    cursor_php_20: Mapped[int] = mapped_column(Integer, default=0)
+    final_count_php_1: Mapped[int] = mapped_column(Integer, default=0)
+    final_count_php_5: Mapped[int] = mapped_column(Integer, default=0)
+    final_count_php_10: Mapped[int] = mapped_column(Integer, default=0)
+    final_count_php_20: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow
+    )
+    closed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True
     )

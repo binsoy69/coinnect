@@ -53,7 +53,9 @@ class SerialConnection:
         self._reader_thread: Optional[threading.Thread] = None
         self._running = False
         self._send_lock = threading.Lock()
-        self._async_lock = asyncio.Lock()
+        self._normal_command_lock = asyncio.Lock()
+        self._async_lock = self._normal_command_lock
+        self._frame_write_lock = asyncio.Lock()
         self._pending_responses: dict[int, asyncio.Future] = {}
         self._next_command_id = 1
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -140,29 +142,17 @@ class SerialConnection:
         logger.info(f"Serial disconnected: {self._port_path}")
 
     async def send_command(
-        self, command: dict, timeout: Optional[float] = None
+        self,
+        command: dict,
+        timeout: Optional[float] = None,
+        priority: bool = False,
     ) -> dict:
         if not self._serial or not self._serial.is_open:
             raise SerialError("Serial port not open", port=self._port_path)
 
         timeout = timeout or self._timeout
-        async with self._async_lock:
-            # The Uno coin controller polls an MFRC522 over SPI. That library
-            # can block long enough for a UUID-bearing command to overflow the
-            # AVR's 64-byte UART receive ring. Terminate any stale fragment,
-            # then pace the command in chunks the firmware can drain safely.
-            if not self._use_mock and self._write_chunk_size:
-                with self._send_lock:
-                    try:
-                        self._serial.write(b"\n")
-                    except Exception as e:
-                        raise SerialError(
-                            f"Serial resynchronization failed on {self._port_path}: {e}",
-                            port=self._port_path,
-                        )
-                if self._resync_delay > 0:
-                    await asyncio.sleep(self._resync_delay)
 
+        async def _execute_send() -> dict:
             # Assign and inject a unique sequential command ID
             cmd_id = self._next_command_id
             self._next_command_id = (self._next_command_id + 1) if self._next_command_id < 1000000 else 1
@@ -171,33 +161,51 @@ class SerialConnection:
             future = self._loop.create_future()
             self._pending_responses[cmd_id] = future
 
-            # Send command (thread-safe)
-            serialized_command = json.dumps(command, separators=(",", ":"))
-            cmd_line = serialized_command + "\n"
-            payload = cmd_line.encode("utf-8")
-            chunk_size = (
-                self._write_chunk_size
-                if not self._use_mock and self._write_chunk_size
-                else len(payload)
-            )
-            try:
-                for offset in range(0, len(payload), chunk_size):
+            async with self._frame_write_lock:
+                # The Uno coin controller polls an MFRC522 over SPI. That library
+                # can block long enough for a UUID-bearing command to overflow the
+                # AVR's 64-byte UART receive ring. Terminate any stale fragment,
+                # then pace the command in chunks the firmware can drain safely.
+                if not self._use_mock and self._write_chunk_size:
                     with self._send_lock:
-                        self._serial.write(payload[offset:offset + chunk_size])
-                    if (
-                        self._write_chunk_delay > 0
-                        and offset + chunk_size < len(payload)
-                    ):
-                        await asyncio.sleep(self._write_chunk_delay)
-                logger.debug(
-                    f"[{self._controller_type.value}] TX: {serialized_command}"
+                        try:
+                            self._serial.write(b"\n")
+                        except Exception as e:
+                            self._pending_responses.pop(cmd_id, None)
+                            raise SerialError(
+                                f"Serial resynchronization failed on {self._port_path}: {e}",
+                                port=self._port_path,
+                            )
+                    if self._resync_delay > 0:
+                        await asyncio.sleep(self._resync_delay)
+
+                # Send command (thread-safe)
+                serialized_command = json.dumps(command, separators=(",", ":"))
+                cmd_line = serialized_command + "\n"
+                payload = cmd_line.encode("utf-8")
+                chunk_size = (
+                    self._write_chunk_size
+                    if not self._use_mock and self._write_chunk_size
+                    else len(payload)
                 )
-            except Exception as e:
-                self._pending_responses.pop(cmd_id, None)
-                raise SerialError(
-                    f"Write failed on {self._port_path}: {e}",
-                    port=self._port_path,
-                )
+                try:
+                    for offset in range(0, len(payload), chunk_size):
+                        with self._send_lock:
+                            self._serial.write(payload[offset:offset + chunk_size])
+                        if (
+                            self._write_chunk_delay > 0
+                            and offset + chunk_size < len(payload)
+                        ):
+                            await asyncio.sleep(self._write_chunk_delay)
+                    logger.debug(
+                        f"[{self._controller_type.value}] TX: {serialized_command}"
+                    )
+                except Exception as e:
+                    self._pending_responses.pop(cmd_id, None)
+                    raise SerialError(
+                        f"Write failed on {self._port_path}: {e}",
+                        port=self._port_path,
+                    )
 
             # Wait for response
             try:
@@ -209,6 +217,12 @@ class SerialConnection:
                     command=command.get("cmd", "UNKNOWN"),
                     timeout=timeout,
                 )
+
+        if priority:
+            return await _execute_send()
+        else:
+            async with self._normal_command_lock:
+                return await _execute_send()
 
     def _reader_loop(self) -> None:
         """Background thread: reads lines from serial, routes to response or event queue."""
@@ -282,7 +296,7 @@ class SerialConnection:
                 future.set_result(data)
         else:
             # Fallback if no ID is present (e.g. legacy/error responses)
-            if self._pending_responses:
+            if len(self._pending_responses) == 1:
                 first_key = next(iter(self._pending_responses))
                 future = self._pending_responses.pop(first_key, None)
                 if future and not future.done():
@@ -398,15 +412,43 @@ class SerialManager:
         logger.info("SerialManager shutdown complete")
 
     async def send_bill_command(
-        self, command: dict, timeout: Optional[float] = None
+        self,
+        command: dict,
+        timeout: Optional[float] = None,
+        priority: bool = False,
     ) -> dict:
         if not self.bill_connection:
             raise SerialError("Bill connection not initialized")
-        return await self.bill_connection.send_command(command, timeout)
+        return await self.bill_connection.send_command(command, timeout, priority=priority)
 
     async def send_coin_command(
-        self, command: dict, timeout: Optional[float] = None
+        self,
+        command: dict,
+        timeout: Optional[float] = None,
+        priority: bool = False,
     ) -> dict:
         if not self.coin_connection:
             raise SerialError("Coin connection not initialized")
-        return await self.coin_connection.send_command(command, timeout)
+        return await self.coin_connection.send_command(command, timeout, priority=priority)
+
+    async def emergency_stop_all(self) -> dict[str, dict]:
+        """Send EMERGENCY_STOP to both bill and coin controllers concurrently with priority=True."""
+        coros = []
+        keys = []
+        if self.bill_connection and self.bill_connection.is_connected:
+            coros.append(self.send_bill_command({"cmd": "EMERGENCY_STOP"}, timeout=5.0, priority=True))
+            keys.append("bill")
+        if self.coin_connection and self.coin_connection.is_connected:
+            coros.append(self.send_coin_command({"cmd": "EMERGENCY_STOP"}, timeout=5.0, priority=True))
+            keys.append("coin")
+
+        results = {}
+        if coros:
+            res_list = await asyncio.gather(*coros, return_exceptions=True)
+            for k, r in zip(keys, res_list):
+                if isinstance(r, Exception):
+                    logger.error("Emergency stop failed for %s: %s", k, r)
+                    results[k] = {"status": "ERROR", "error": str(r)}
+                else:
+                    results[k] = r
+        return results

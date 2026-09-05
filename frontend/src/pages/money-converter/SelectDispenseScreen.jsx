@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from 'react-router-dom';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import PageLayout from '../../components/layout/PageLayout';
 import Card from '../../components/common/Card';
@@ -8,6 +8,7 @@ import Clock from '../../components/common/Clock';
 import { ROUTES, getServiceRoute, SERVICE_TYPES } from '../../constants/routes';
 import { SERVICE_CONFIG, TRANSACTION_TYPE_LABEL } from '../../constants/mockData';
 import { useTransaction } from '../../context/TransactionContext';
+import { useBackendTransaction } from '../../hooks/useBackendTransaction';
 import { formatPeso } from '../../constants/denominations';
 
 // Service type indicator component
@@ -25,7 +26,11 @@ function ServiceIndicator({ icon, shortName }) {
 export default function SelectDispenseScreen() {
   const navigate = useNavigate();
   const { type } = useParams();
-  const { transaction, setDispenseCount, getServiceConfig } = useTransaction();
+  const { transaction, setDispenseCount, getServiceConfig, setCurrentQuote } = useTransaction();
+  const { createQuote } = useBackendTransaction();
+
+  const [isGeneratingQuote, setIsGeneratingQuote] = useState(false);
+  const [quoteError, setQuoteError] = useState(null);
 
   const config = getServiceConfig() || SERVICE_CONFIG[type];
   const selectedAmount = transaction.selectedAmount || 0;
@@ -70,9 +75,26 @@ export default function SelectDispenseScreen() {
     }
   };
 
-  const handleProceed = () => {
-    if (allocatedTotal > 0 || transaction.selectedDispenseDenominations.length > 0) {
+  const handleProceed = async () => {
+    setIsGeneratingQuote(true);
+    setQuoteError(null);
+    try {
+      const activeEntries = Object.entries(counts).filter(([, count]) => count > 0);
+      const reqCounts = activeEntries.length > 0
+        ? Object.fromEntries(activeEntries.map(([denom, count]) => [String(denom), count]))
+        : null;
+
+      const quote = await createQuote(
+        type,
+        transaction.selectedAmount,
+        reqCounts
+      );
+      setCurrentQuote(quote);
       navigate(getServiceRoute(ROUTES.CONFIRMATION, type));
+    } catch (err) {
+      setQuoteError(err.message || "Failed to generate payout proposal. Please try again.");
+    } finally {
+      setIsGeneratingQuote(false);
     }
   };
 
@@ -215,14 +237,42 @@ export default function SelectDispenseScreen() {
               variant="primary"
               size="xl"
               onClick={handleProceed}
-              disabled={allocatedTotal === 0 && availableDenominations.length > 0 && targetAmount > 0}
+              disabled={isGeneratingQuote || (allocatedTotal === 0 && availableDenominations.length > 0 && targetAmount > 0)}
               className="w-full py-5 rounded-2xl text-xl font-bold"
             >
-              Proceed
+              {isGeneratingQuote ? "Checking proposal..." : "Proceed"}
             </Button>
           </motion.div>
         </div>
       </div>
+
+      {quoteError && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl text-center"
+          >
+            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4 text-amber-600 text-2xl font-bold">
+              !
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">
+              Unavailable Payout Combination
+            </h3>
+            <p className="text-gray-600 mb-6 text-sm">
+              {quoteError}
+            </p>
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={() => setQuoteError(null)}
+              className="w-full"
+            >
+              Adjust Quantities
+            </Button>
+          </motion.div>
+        </div>
+      )}
     </PageLayout>
   );
 }

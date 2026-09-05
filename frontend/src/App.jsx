@@ -3,7 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import AppRoutes from './routes';
 import { useWebSocket } from './context/WebSocketContext';
-import { ROUTES } from './constants/routes';
+import { useTransaction } from './context/TransactionContext';
+import { ROUTES, getServiceRoute } from './constants/routes';
 import { API_BASE } from './constants/api';
 import StartupChecksScreen from './pages/StartupChecksScreen';
 
@@ -11,6 +12,7 @@ const TOKEN_KEY = "coinnect_admin_token";
 
 function App() {
   const location = useLocation();
+  const { backendState } = useTransaction();
   const navigate = useNavigate();
   const { subscribe, unsubscribe, isConnected } = useWebSocket();
   const [startupState, setStartupState] = useState(null);
@@ -61,6 +63,20 @@ function App() {
       unsubscribe('STATE_CHANGE', handleStateChange);
     };
   }, [subscribe, unsubscribe, navigate]);
+
+  useEffect(() => {
+    if (!backendState?.type || !(location.pathname.startsWith('/money-converter') || location.pathname === '/')) return;
+    const state = backendState.state;
+    let route = null;
+    if (state === 'COMPLETE') route = ROUTES.SUCCESS;
+    else if (['CLAIM_REQUIRED', 'ERROR', 'CANCELLED'].includes(state)) route = ROUTES.WARNING;
+    else if (state === 'DISPENSING' || backendState.pending_quote) route = ROUTES.PROCESSING;
+    else if (location.pathname === '/') route = state === 'WAITING_FOR_CONFIRMATION' ? ROUTES.TRANSACTION_SUMMARY : ROUTES.INSERT_MONEY;
+    if (route) {
+      const destination = getServiceRoute(route, backendState.type);
+      if (location.pathname !== destination) navigate(destination, { replace: true });
+    }
+  }, [backendState, location.pathname, navigate]);
 
   // Show startup checks if they are in progress or failed
   const showDiagnostics = isConnecting || !startupState || !startupState.performed || startupState.has_errors;

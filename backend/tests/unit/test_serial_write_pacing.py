@@ -91,3 +91,16 @@ async def test_unexpected_ready_fails_pending_command_as_controller_reset():
     with pytest.raises(SerialError, match="Controller restarted"):
         await pending
     assert connection._pending_responses == {}
+
+
+@pytest.mark.asyncio
+async def test_unidentified_response_cannot_complete_priority_or_normal_waiter():
+    connection = SerialConnection("COIN", 115200, ControllerType.COIN_SECURITY, asyncio.Queue())
+    first = asyncio.get_running_loop().create_future()
+    second = asyncio.get_running_loop().create_future()
+    connection._pending_responses = {1: first, 2: second}
+    connection._resolve_in_loop({"status": "OK"})
+    assert not first.done() and not second.done()
+    connection._resolve_in_loop({"id": 2, "status": "OK"})
+    assert second.done() and not first.done()
+    first.cancel()

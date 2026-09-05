@@ -61,6 +61,7 @@ def mock_machine_status():
     status = MagicMock()
     status.is_storage_full = MagicMock(return_value=False)
     status.increment_bill_storage = MagicMock()
+    status.snapshot.return_value.security.tamper_active = False
     return status
 
 @pytest.fixture

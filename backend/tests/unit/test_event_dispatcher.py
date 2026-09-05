@@ -86,10 +86,7 @@ class TestCoinInEvent:
 
         await dispatcher._handle_event(event_data)
 
-        transaction_orchestrator.handle_coin_inserted.assert_awaited_once_with(
-            denom=20,
-            total=20,
-        )
+        transaction_orchestrator.handle_coin_inserted.assert_not_awaited()
 
 
 class TestTamperEvent:

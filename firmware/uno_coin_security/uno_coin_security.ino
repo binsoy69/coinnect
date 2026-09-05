@@ -91,7 +91,7 @@ static const uint8_t COIN_DISPENSER_COUNT =
 // 128-byte buffer preserves bounded headroom without wasting scarce Uno SRAM.
 static const size_t SERIAL_INPUT_CAPACITY = 128;
 // Five request/response fields plus the transport-level command ID.
-static const size_t COMMAND_JSON_CAPACITY = JSON_OBJECT_SIZE(6);
+static const size_t COMMAND_JSON_CAPACITY = JSON_OBJECT_SIZE(6) + 64;
 static char inputLine[SERIAL_INPUT_CAPACITY];
 static size_t inputLength = 0;
 static bool inputOverflow = false;
@@ -105,6 +105,28 @@ static bool securityArmed = false; // Starts disarmed/not listening on boot
 static volatile bool coinAcceptorEnabled = false;
 static const char *coinSorterPosition = "CENTER";
 static int coinSessionTotal = 0;
+
+enum CoinSessionState {
+  COIN_SESSION_IDLE = 0,
+  COIN_SESSION_ACTIVE = 1,
+  COIN_SESSION_CLOSING = 2,
+  COIN_SESSION_CLOSED = 3,
+  COIN_SESSION_UNCERTAIN = 4
+};
+
+static CoinSessionState coinSessionState = COIN_SESSION_IDLE;
+static uint32_t currentSessionId = 0;
+static uint16_t sessionSequence = 0;
+static uint16_t sessionCount1 = 0;
+static uint16_t sessionCount5 = 0;
+static uint16_t sessionCount10 = 0;
+static uint16_t sessionCount20 = 0;
+
+static unsigned long sessionDrainStartMs = 0;
+static unsigned long sessionLastPulseMs = 0;
+static unsigned long COIN_SESSION_MIN_DRAIN_MS = 500;
+static unsigned long COIN_SESSION_QUIET_MS = 150;
+static unsigned long COIN_SESSION_MAX_DRAIN_MS = 3000;
 
 static volatile uint8_t coinPulseCount = 0;
 static volatile unsigned long lastCoinPulseMs = 0;
@@ -304,6 +326,16 @@ void sendCoinInEvent(int denom) {
   sendDocument(doc);
 }
 
+void sendCoinSessionPulseEvent(uint32_t sid, uint16_t seq, int denom, uint16_t count) {
+  StaticJsonDocument<128> doc;
+  doc["event"] = "COIN_SESSION_PULSE";
+  doc["sid"] = sid;
+  doc["seq"] = seq;
+  doc["denom"] = denom;
+  doc["count"] = count;
+  sendDocument(doc);
+}
+
 void sendError(const char *code, int dispensed = -1, const char *operationId = NULL) {
   StaticJsonDocument<128> doc;
   doc["status"] = "ERROR";
@@ -424,6 +456,7 @@ const char *sorterPositionForDenom(int denom) {
 }
 
 void setCoinSorterPosition(const char *position) {
+  if (tamperLatched) return;
   if (strcmp(position, "LEFT") == 0) {
     coinSorterPosition = "LEFT";
   } else if (strcmp(position, "RIGHT") == 0) {
@@ -448,7 +481,7 @@ void clearCoinPulseTrain() {
 void setCoinAcceptorEnabled(bool enabled) {
   coinAcceptorEnabled = enabled;
   digitalWrite(COIN_ACCEPTOR_ENABLE_PIN, enabled ? HIGH : LOW);
-  if (!enabled) {
+  if (!enabled && coinSessionState == COIN_SESSION_IDLE) {
     clearCoinPulseTrain();
   }
 }
@@ -508,7 +541,7 @@ void handleTamper(const char *sensor) {
 }
 
 void coinPulseISR() {
-  if (!coinAcceptorEnabled) {
+  if (!coinAcceptorEnabled && coinSessionState != COIN_SESSION_CLOSING && coinSessionState != COIN_SESSION_ACTIVE) {
     return;
   }
   const unsigned long now = millis();
@@ -595,11 +628,30 @@ void serviceCoinHold() {
   }
 }
 
+void serviceCoinSessionDrain() {
+  if (coinSessionState != COIN_SESSION_CLOSING) {
+    return;
+  }
+  const unsigned long now = millis();
+  const unsigned long elapsed = now - sessionDrainStartMs;
+  const unsigned long sinceLastPulse = now - sessionLastPulseMs;
+
+  noInterrupts();
+  const bool inFlightPulses = (coinPulseCount > 0);
+  interrupts();
+
+  if (!inFlightPulses && elapsed >= COIN_SESSION_MIN_DRAIN_MS && sinceLastPulse >= COIN_SESSION_QUIET_MS) {
+    coinSessionState = COIN_SESSION_CLOSED;
+  } else if (elapsed >= COIN_SESSION_MAX_DRAIN_MS) {
+    coinSessionState = COIN_SESSION_UNCERTAIN;
+  }
+}
+
 void serviceCoinPulseTrain() {
   uint8_t pulses = 0;
   const unsigned long now = millis();
 
-  if (!coinAcceptorEnabled) {
+  if (!coinAcceptorEnabled && coinSessionState != COIN_SESSION_CLOSING && coinSessionState != COIN_SESSION_ACTIVE) {
     clearCoinPulseTrain();
     return;
   }
@@ -619,21 +671,37 @@ void serviceCoinPulseTrain() {
 
   const int denom = (int)pulses;
   if (!isValidCoinDenom(denom)) {
+    if (coinSessionState != COIN_SESSION_IDLE) {
+      coinSessionState = COIN_SESSION_UNCERTAIN;
+      coinAcceptorShouldBeEnabled = false;
+      setCoinAcceptorEnabled(false);
+    }
     return;
   }
 
   coinSessionTotal += denom;
+  sessionLastPulseMs = now;
   
   // Disable acceptor physically during sorting
   coinAcceptorEnabled = false;
   digitalWrite(COIN_ACCEPTOR_ENABLE_PIN, LOW);
-  clearCoinPulseTrain();
+  if (coinSessionState == COIN_SESSION_IDLE) clearCoinPulseTrain();
 
   // Move sorter to denomination position non-blockingly
   const char *targetPos = sorterPositionForDenom(denom);
-  setCoinSorterPosition(targetPos);
+  if (!tamperLatched) setCoinSorterPosition(targetPos);
 
-  sendCoinInEvent(denom);
+  if (coinSessionState == COIN_SESSION_ACTIVE || coinSessionState == COIN_SESSION_CLOSING) {
+    sessionSequence++;
+    uint16_t curCount = 0;
+    if (denom == 1) { sessionCount1++; curCount = sessionCount1; }
+    else if (denom == 5) { sessionCount5++; curCount = sessionCount5; }
+    else if (denom == 10) { sessionCount10++; curCount = sessionCount10; }
+    else if (denom == 20) { sessionCount20++; curCount = sessionCount20; }
+    sendCoinSessionPulseEvent(currentSessionId, sessionSequence, denom, curCount);
+  } else {
+    sendCoinInEvent(denom);
+  }
 
   coinHoldActive = true;
   coinHoldStartMs = now;
@@ -646,12 +714,12 @@ void serviceDispense() {
 
   if (tamperLatched) {
     if (strcmp(dispenseCommandContext, "DISPENSE") == 0) {
-      persistOperation(3, dispenseOperationId, dispenseActualCount);
+      persistOperation(4, dispenseOperationId, dispenseActualCount);
       currentCommandId = dispenseCommandId;
-      sendError("LOCKED_OUT", dispenseActualCount, dispenseOperationId);
+      sendError("AMBIGUOUS", dispenseActualCount, dispenseOperationId);
       currentCommandId = -1;
     } else {
-      sendError("LOCKED_OUT", dispenseActualCount);
+      sendError("AMBIGUOUS", dispenseActualCount);
     }
     detachActiveDispenser();
     dispenseActive = false;
@@ -977,9 +1045,44 @@ void handleCoinChange(JsonDocument &cmdDoc) {
   }
 }
 
+void handleEmergencyStop(JsonDocument &cmdDoc) {
+  const bool wasDispensing = dispenseActive;
+  tamperLatched = true;
+  coinHoldActive = false;
+  sorterMoving = false;
+  detachActiveDispenser();
+  dispenseActive = false;
+
+  coinAcceptorShouldBeEnabled = false;
+  setCoinAcceptorEnabled(false);
+  coinSorterServo.detach();
+
+  if (wasDispensing && dispenseOperationId[0] != '\0') {
+    persistOperation(4, dispenseOperationId, dispenseActualCount);
+  }
+
+  if (coinSessionState == COIN_SESSION_ACTIVE) {
+    coinSessionState = COIN_SESSION_CLOSING;
+    sessionDrainStartMs = millis();
+    sessionLastPulseMs = millis();
+  }
+
+  cmdDoc.clear();
+  cmdDoc["status"] = "OK";
+  cmdDoc["stopped"] = true;
+  sendDocument(cmdDoc);
+}
+
 void handleCoinReset(JsonDocument &doc) {
   const int previousTotal = coinSessionTotal;
   coinSessionTotal = 0;
+  coinSessionState = COIN_SESSION_IDLE;
+  currentSessionId = 0;
+  sessionSequence = 0;
+  sessionCount1 = 0;
+  sessionCount5 = 0;
+  sessionCount10 = 0;
+  sessionCount20 = 0;
 
   coinAcceptorShouldBeEnabled = false;
   setCoinAcceptorEnabled(false);
@@ -992,6 +1095,107 @@ void handleCoinReset(JsonDocument &doc) {
   doc["status"] = "OK";
   doc["previous_total"] = previousTotal;
   sendDocument(doc);
+}
+
+void handleCoinSessionStart(JsonDocument &cmdDoc) {
+  if (tamperLatched) {
+    sendCommandError(cmdDoc, "LOCKED_OUT");
+    return;
+  }
+  if (!cmdDoc.containsKey("sid")) {
+    sendCommandError(cmdDoc, "INVALID_PARAM");
+    return;
+  }
+
+  const unsigned long grace = cmdDoc["grace_ms"] | 500UL;
+  const unsigned long timeout = cmdDoc["timeout_ms"] | 3000UL;
+  const unsigned long quiet = cmdDoc["quiet_ms"] | 150UL;
+  if (grace < 500 || timeout < grace || timeout > 10000 || quiet < 150 || quiet > timeout) {
+    sendCommandError(cmdDoc, "INVALID_PARAM");
+    return;
+  }
+  COIN_SESSION_MIN_DRAIN_MS = grace;
+  COIN_SESSION_MAX_DRAIN_MS = timeout;
+  COIN_SESSION_QUIET_MS = quiet;
+  const uint32_t requestedSid = cmdDoc["sid"].as<uint32_t>();
+  if (!requestedSid || requestedSid < currentSessionId ||
+      (requestedSid != currentSessionId && coinSessionState != COIN_SESSION_IDLE && coinSessionState != COIN_SESSION_CLOSED)) {
+    sendCommandError(cmdDoc, "LOCKED_OUT");
+    return;
+  }
+  if (requestedSid == currentSessionId) {
+    if (coinSessionState != COIN_SESSION_ACTIVE) {
+      sendCommandError(cmdDoc, "LOCKED_OUT");
+      return;
+    }
+    cmdDoc.clear();
+    cmdDoc["status"] = "OK";
+    cmdDoc["sid"] = currentSessionId;
+    cmdDoc["session_state"] = "ACTIVE";
+    sendDocument(cmdDoc);
+    return;
+  }
+  currentSessionId = requestedSid;
+  sessionSequence = 0;
+  sessionCount1 = 0;
+  sessionCount5 = 0;
+  sessionCount10 = 0;
+  sessionCount20 = 0;
+  coinSessionTotal = 0;
+  coinSessionState = COIN_SESSION_ACTIVE;
+
+  coinAcceptorShouldBeEnabled = true;
+  setCoinAcceptorEnabled(true);
+
+  cmdDoc.clear();
+  cmdDoc["status"] = "OK";
+  cmdDoc["sid"] = currentSessionId;
+  cmdDoc["session_state"] = "ACTIVE";
+  sendDocument(cmdDoc);
+}
+
+void handleCoinSessionStop(JsonDocument &cmdDoc) {
+  if (cmdDoc.containsKey("sid") && cmdDoc["sid"].as<uint32_t>() != currentSessionId) {
+    sendCommandError(cmdDoc, "INVALID_PARAM");
+    return;
+  }
+
+  coinAcceptorShouldBeEnabled = false;
+  setCoinAcceptorEnabled(false);
+
+  const unsigned long now = millis();
+  if (coinSessionState == COIN_SESSION_ACTIVE) {
+    sessionDrainStartMs = now;
+    sessionLastPulseMs = now;
+    coinSessionState = COIN_SESSION_CLOSING;
+  }
+
+  cmdDoc.clear();
+  cmdDoc["status"] = "OK";
+  cmdDoc["sid"] = currentSessionId;
+  cmdDoc["session_state"] = (coinSessionState == COIN_SESSION_CLOSED) ? "CLOSED" : "CLOSING";
+  sendDocument(cmdDoc);
+}
+
+void handleCoinSessionStatus(JsonDocument &cmdDoc) {
+  const int denom = cmdDoc["denom"] | 0;
+  if (!isValidCoinDenom(denom)) {
+    sendCommandError(cmdDoc, "INVALID_DENOM");
+    return;
+  }
+  const char *stateStr = "IDLE";
+  if (coinSessionState == COIN_SESSION_ACTIVE) stateStr = "ACTIVE";
+  else if (coinSessionState == COIN_SESSION_CLOSING) stateStr = "CLOSING";
+  else if (coinSessionState == COIN_SESSION_CLOSED) stateStr = "CLOSED";
+  else if (coinSessionState == COIN_SESSION_UNCERTAIN) stateStr = "UNCERTAIN";
+  uint16_t count = denom == 1 ? sessionCount1 : denom == 5 ? sessionCount5 : denom == 10 ? sessionCount10 : sessionCount20;
+  cmdDoc.clear();
+  cmdDoc["status"] = "OK";
+  cmdDoc["sid"] = currentSessionId;
+  cmdDoc["session_state"] = stateStr;
+  cmdDoc["denom"] = denom;
+  cmdDoc["count"] = count;
+  sendDocument(cmdDoc);
 }
 
 void handleCoinAcceptorEnable(JsonDocument &cmdDoc) {
@@ -1087,34 +1291,62 @@ void dispatchCommand(char *line) {
   currentCommandId = cmdDoc["id"] | -1;
 
   const char *cmd = cmdDoc["cmd"] | "";
-  if (strcmp(cmd, "PING") == 0) {
+  if (strcmp_P(cmd, PSTR("COIN_SESSION_ACK")) == 0) {
+    if (cmdDoc["sid"].as<uint32_t>() != currentSessionId || coinAcceptorEnabled) {
+      sendCommandError(cmdDoc, "INVALID_PARAM");
+      return;
+    }
+    coinSessionState = COIN_SESSION_CLOSED;
+    clearCoinPulseTrain();
+    cmdDoc.clear();
+    cmdDoc["status"] = "OK";
+    sendDocument(cmdDoc);
+  } else if (strcmp_P(cmd, PSTR("CAPABILITIES")) == 0) {
+    cmdDoc.clear();
+    cmdDoc["status"] = "OK";
+    cmdDoc["converter_protocol"] = 2;
+    sendDocument(cmdDoc);
+  } else if (strcmp_P(cmd, PSTR("EMERGENCY_CLEAR")) == 0) {
+    tamperLatched = false;
+    cmdDoc.clear();
+    cmdDoc["status"] = "OK";
+    sendDocument(cmdDoc);
+  } else if (strcmp_P(cmd, PSTR("PING")) == 0) {
     handlePing(cmdDoc);
-  } else if (strcmp(cmd, "VERSION") == 0) {
+  } else if (strcmp_P(cmd, PSTR("VERSION")) == 0) {
     handleVersion(cmdDoc);
-  } else if (strcmp(cmd, "RESET") == 0) {
+  } else if (strcmp_P(cmd, PSTR("RESET")) == 0) {
     handleReset(cmdDoc);
-  } else if (strcmp(cmd, "COIN_DISPENSE") == 0) {
+  } else if (strcmp_P(cmd, PSTR("COIN_DISPENSE")) == 0) {
     handleCoinDispense(cmdDoc);
-  } else if (strcmp(cmd, "DISPENSE_OPERATION_STATUS") == 0) {
+  } else if (strcmp_P(cmd, PSTR("DISPENSE_OPERATION_STATUS")) == 0) {
     handleOperationStatus(cmdDoc);
-  } else if (strcmp(cmd, "DISPENSE_OPERATION_ACK") == 0) {
+  } else if (strcmp_P(cmd, PSTR("DISPENSE_OPERATION_ACK")) == 0) {
     handleOperationAck(cmdDoc);
-  } else if (strcmp(cmd, "COIN_CHANGE") == 0) {
+  } else if (strcmp_P(cmd, PSTR("COIN_CHANGE")) == 0) {
     handleCoinChange(cmdDoc);
-  } else if (strcmp(cmd, "COIN_RESET") == 0) {
+  } else if (strcmp_P(cmd, PSTR("EMERGENCY_STOP")) == 0) {
+    handleEmergencyStop(cmdDoc);
+  } else if (strcmp_P(cmd, PSTR("COIN_RESET")) == 0) {
     handleCoinReset(cmdDoc);
-  } else if (strcmp(cmd, "COIN_ACCEPTOR_ENABLE") == 0) {
+  } else if (strcmp_P(cmd, PSTR("COIN_ACCEPTOR_ENABLE")) == 0) {
     handleCoinAcceptorEnable(cmdDoc);
-  } else if (strcmp(cmd, "COIN_STATUS") == 0) {
+  } else if (strcmp_P(cmd, PSTR("COIN_STATUS")) == 0) {
     handleCoinStatus(cmdDoc);
-  } else if (strcmp(cmd, "COIN_SORTER_POSITION") == 0) {
+  } else if (strcmp_P(cmd, PSTR("COIN_SORTER_POSITION")) == 0) {
     handleCoinSorterPosition(cmdDoc);
-  } else if (strcmp(cmd, "SECURITY_LOCK") == 0) {
+  } else if (strcmp_P(cmd, PSTR("SECURITY_LOCK")) == 0) {
     handleSecurityLock(cmdDoc);
-  } else if (strcmp(cmd, "SECURITY_UNLOCK") == 0) {
+  } else if (strcmp_P(cmd, PSTR("SECURITY_UNLOCK")) == 0) {
     handleSecurityUnlock(cmdDoc);
-  } else if (strcmp(cmd, "SECURITY_STATUS") == 0) {
+  } else if (strcmp_P(cmd, PSTR("SECURITY_STATUS")) == 0) {
     handleSecurityStatus(cmdDoc);
+  } else if (strcmp_P(cmd, PSTR("COIN_SESSION_START")) == 0) {
+    handleCoinSessionStart(cmdDoc);
+  } else if (strcmp_P(cmd, PSTR("COIN_SESSION_STOP")) == 0) {
+    handleCoinSessionStop(cmdDoc);
+  } else if (strcmp_P(cmd, PSTR("COIN_SESSION_STATUS")) == 0) {
+    handleCoinSessionStatus(cmdDoc);
   } else {
     sendCommandError(cmdDoc, "UNKNOWN_CMD");
   }
@@ -1246,6 +1478,7 @@ void loop() {
   serviceSorter();
   serviceCoinHold();
   serviceCoinPulseTrain();
+  serviceCoinSessionDrain();
   serviceDispense();
   handleSerialInput();
   serviceRFIDWhenSerialIdle();

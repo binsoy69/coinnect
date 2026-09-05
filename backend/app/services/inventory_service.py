@@ -142,6 +142,42 @@ class InventoryService:
             await session.commit()
         await self._refresh_runtime()
 
+    async def adjust_in_session(
+        self,
+        session,
+        location: InventoryLocation | str,
+        denomination: str,
+        delta: int,
+        reason: str,
+        reference_id: str | None = None,
+        source: str = "SYSTEM",
+    ) -> None:
+        """Apply an inventory adjustment within an existing database session."""
+        loc = location if isinstance(location, InventoryLocation) else InventoryLocation(location)
+        self._validate_key(loc, denomination)
+        row = await self._get_balance(session, loc, denomination)
+        new_count = row.count + delta
+        if new_count < 0:
+            raise ValueError("Insufficient persisted inventory")
+        old_count = row.count
+        row.count = new_count
+        session.add(
+            InventoryAdjustment(
+                location=loc.value,
+                denomination=denomination,
+                old_count=old_count,
+                new_count=new_count,
+                delta=delta,
+                reason=reason,
+                source=source,
+                reference_id=reference_id,
+            )
+        )
+
+    async def refresh_runtime(self) -> None:
+        """Public method to synchronize machine status after a session commit."""
+        await self._refresh_runtime()
+
     async def reserve(
         self,
         quantities: dict[tuple[str, str], int],

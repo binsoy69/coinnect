@@ -124,6 +124,8 @@ def mock_dispense_orchestrator():
 def mock_coin_controller():
     controller = AsyncMock()
     controller.set_coin_acceptor_enabled = AsyncMock()
+    from app.models.serial_messages import CoinSessionStatusResponse
+    controller.coin_session_status.return_value = CoinSessionStatusResponse(status="OK", sid=1, session_state="CLOSED")
     return controller
 
 
@@ -229,7 +231,7 @@ class TestStartTransaction:
             selected_dispense_denoms=[100],
         )
 
-        mock_coin_controller.set_coin_acceptor_enabled.assert_awaited_with(True)
+        mock_coin_controller.coin_session_start.assert_awaited_once_with(1)
 
     async def test_bill_transaction_disables_coin_acceptor(
         self, orchestrator, mock_coin_controller
@@ -356,7 +358,7 @@ class TestHandleBillInserted:
             denom_confidence=0.95,
         )
 
-        await _start_coin_to_bill_transaction(orchestrator, target_amount=200)
+        await _start_default_transaction(orchestrator, target_amount=200)
 
         state = await orchestrator.handle_bill_inserted()
 
@@ -418,7 +420,7 @@ class TestHandleBillInserted:
             denom_confidence=0.95,
         )
 
-        await _start_coin_to_bill_transaction(orchestrator, target_amount=200)
+        await _start_default_transaction(orchestrator, target_amount=200)
         await orchestrator.handle_bill_inserted()
         state = await orchestrator.handle_bill_inserted()
 
@@ -741,7 +743,7 @@ class TestCoinToBillOverpayment:
                 )
             ).scalar_one()
             assert claim.claim_kind == "OUTPUT_SHORTFALL"
-            assert claim.amount == 2
+            assert claim.amount == 5
 
     @pytest.mark.parametrize(
         ("result", "expected_dispensed", "expected_shortfall"),
@@ -800,7 +802,7 @@ class TestCoinToBillOverpayment:
                     )
                 )
             ).scalar_one()
-            assert claim.amount == expected_shortfall
+            assert claim.amount == expected_shortfall + 3
 
 
 # ---------------------------------------------------------------------------
@@ -892,10 +894,14 @@ class TestCancelTransaction:
             denom_confidence=0.95,
         )
         monkeypatch.setitem(STATE_TIMEOUTS, TransactionState.WAITING_FOR_BILL, 0.02)
+        orchestrator._settings.inactivity_timeout_seconds = 0.02
 
         started = await _start_default_transaction(orchestrator, target_amount=200)
         await orchestrator.handle_bill_inserted()
-        await asyncio.sleep(0.06)
+        for _ in range(25):
+            await asyncio.sleep(0.02)
+            if not orchestrator.has_active_transaction:
+                break
 
         async with db_session_factory() as session:
             record = await session.get(TransactionRecord, started["transaction_id"])
@@ -1108,7 +1114,7 @@ class TestRecoverPendingTransactions:
                 )
             ).scalar_one()
             assert claim.claim_kind == "OUTPUT_SHORTFALL"
-            assert claim.amount == 22
+            assert claim.amount == 25
 
 
 
@@ -1200,6 +1206,18 @@ class TestGetTransactionState:
             "created_at",
             "updated_at",
             "completed_at",
+            "revision",
+            "approved_quote",
+            "pending_quote",
+            "acceptance_phase",
+            "accounting_fault",
+            "warning_at",
+            "expires_at",
+            "server_time",
+            "claim",
+            "can_continue",
+            "can_confirm",
+            "can_request_claim",
         }
         assert set(state.keys()) == expected_keys
 

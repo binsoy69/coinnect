@@ -54,6 +54,11 @@ class Settings(BaseSettings):
 
     # Session
     session_timeout: int = 180
+    coin_session_grace_ms: int = 500
+    coin_session_timeout_ms: int = 3000
+    coin_session_quiet_ms: int = 150
+    inactivity_warning_seconds: float = 60.0
+    inactivity_timeout_seconds: float = 90.0
 
     # Maintenance admin access
     admin_session_minutes: int = 15

@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import PageLayout from "../../components/layout/PageLayout";
 import DenominationGrid from "../../components/transaction/DenominationGrid";
@@ -10,6 +10,7 @@ import {
   TRANSACTION_TYPE_LABEL,
 } from "../../constants/mockData";
 import { useTransaction } from "../../context/TransactionContext";
+import { useBackendTransaction } from "../../hooks/useBackendTransaction";
 
 // Service type indicator component
 function ServiceIndicator({ icon, shortName }) {
@@ -26,22 +27,71 @@ function ServiceIndicator({ icon, shortName }) {
 export default function SelectAmountScreen() {
   const navigate = useNavigate();
   const { type } = useParams();
-  const { transaction, setSelectedAmount, getServiceConfig } = useTransaction();
+  const { transaction, setSelectedAmount, getServiceConfig, setCurrentQuote } = useTransaction();
+  const { fetchOptions, createQuote } = useBackendTransaction();
+
+  const [optionsData, setOptionsData] = useState(null);
+  const [isGeneratingQuote, setIsGeneratingQuote] = useState(false);
+  const [quoteError, setQuoteError] = useState(null);
 
   const config = getServiceConfig() || SERVICE_CONFIG[type];
+
+  useEffect(() => {
+    let active = true;
+    if (type) {
+      fetchOptions(type).then((data) => {
+        if (active && data) {
+          setOptionsData(data);
+        }
+      });
+    }
+    return () => {
+      active = false;
+    };
+  }, [type, fetchOptions]);
+
+  const { denominations, disabledValues, reasonsMap } = useMemo(() => {
+    if (optionsData?.options && optionsData.options.length > 0) {
+      const denoms = optionsData.options.map((o) => o.amount);
+      const disabled = optionsData.options
+        .filter((o) => !o.enabled)
+        .map((o) => o.amount);
+      const reasons = Object.fromEntries(
+        optionsData.options
+          .filter((o) => !o.enabled)
+          .map((o) => [o.amount, o.reason || "Temporarily unavailable"])
+      );
+      return { denominations: denoms, disabledValues: disabled, reasonsMap: reasons };
+    }
+    return {
+      denominations: config?.amountOptions || [],
+      disabledValues: config?.amountOptions || [],
+      reasonsMap: Object.fromEntries((config?.amountOptions || []).map(amount => [amount, "Checking availability..."])),
+    };
+  }, [optionsData, config?.amountOptions]);
 
   const handleSelectAmount = (amount) => {
     setSelectedAmount(amount);
   };
 
-  const handleProceed = () => {
-    if (transaction.selectedAmount) {
-      // For Coin-to-Bill, skip dispense selection and fee screens
-      if (type === SERVICE_TYPES.COIN_TO_BILL) {
+  const handleProceed = async () => {
+    if (!transaction.selectedAmount) return;
+
+    // For Coin-to-Bill, generate quote now and proceed directly to confirmation
+    if (type === SERVICE_TYPES.COIN_TO_BILL) {
+      setIsGeneratingQuote(true);
+      setQuoteError(null);
+      try {
+        const quote = await createQuote(type, transaction.selectedAmount, null);
+        setCurrentQuote(quote);
         navigate(getServiceRoute(ROUTES.CONFIRMATION, type));
-      } else {
-        navigate(getServiceRoute(ROUTES.SELECT_DISPENSE, type));
+      } catch (err) {
+        setQuoteError(err.message || "Failed to generate payout proposal. Please try again.");
+      } finally {
+        setIsGeneratingQuote(false);
       }
+    } else {
+      navigate(getServiceRoute(ROUTES.SELECT_DISPENSE, type));
     }
   };
 
@@ -87,10 +137,11 @@ export default function SelectAmountScreen() {
           className="w-full max-w-4xl mb-12 flex justify-center"
         >
           <DenominationGrid
-            denominations={config?.amountOptions || []}
+            denominations={denominations}
+            disabledValues={disabledValues}
+            reasonsMap={reasonsMap}
             selectedValue={transaction.selectedAmount}
             onSelect={handleSelectAmount}
-            columns={3}
             className="w-full justify-items-center gap-8"
           />
         </motion.div>
@@ -106,13 +157,41 @@ export default function SelectAmountScreen() {
             variant="primary"
             size="xl"
             onClick={handleProceed}
-            disabled={!transaction.selectedAmount}
+            disabled={!transaction.selectedAmount || isGeneratingQuote}
             className="px-20 py-6 text-2xl rounded-2xl"
           >
-            Proceed
+            {isGeneratingQuote ? "Checking..." : "Proceed"}
           </Button>
         </motion.div>
       </div>
+
+      {quoteError && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl text-center"
+          >
+            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4 text-amber-600 text-2xl font-bold">
+              !
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">
+              Unavailable Selection
+            </h3>
+            <p className="text-gray-600 mb-6 text-sm">
+              {quoteError}
+            </p>
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={() => setQuoteError(null)}
+              className="w-full"
+            >
+              Choose Another Amount
+            </Button>
+          </motion.div>
+        </div>
+      )}
     </PageLayout>
   );
 }

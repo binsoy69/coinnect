@@ -624,6 +624,35 @@ void handleReset() {
   sendDocument(doc);
 }
 
+static bool emergencyLatched = false;
+
+void handleEmergencyStop() {
+  emergencyLatched = true;
+  stopAllDispensers();
+  if (dispenseActive && dispenseOperationId[0] != '\0') {
+    persistOperation(4, dispenseOperationId, dispenseActualCount);
+  }
+  dispenseActive = false;
+  billDispenseStep = BILL_STEP_IDLE;
+
+  sorter.stop();
+  sorterHomed = false;
+  sorterHomeFailed = false;
+  digitalWrite(ENABLE_PIN, HIGH);
+
+  digitalWrite(CONVEYOR_PHP_IN1, LOW);
+  digitalWrite(CONVEYOR_PHP_IN2, LOW);
+  digitalWrite(CONVEYOR_FOREIGN_IN1, LOW);
+  digitalWrite(CONVEYOR_FOREIGN_IN2, LOW);
+  conveyorPhpActive = false;
+  conveyorForeignActive = false;
+
+  StaticJsonDocument<64> doc;
+  doc["status"] = "OK";
+  doc["stopped"] = true;
+  sendDocument(doc);
+}
+
 void handleHome() {
   sorterHomeFailed = false;
   enableStepper();
@@ -849,11 +878,42 @@ void dispatchCommand(const String &line) {
 
   const char *cmd = cmdDoc["cmd"] | "";
 
-  // RESET command should always override and stop any active motion immediately
+  if (strcmp(cmd, "CAPABILITIES") == 0) {
+    StaticJsonDocument<96> response;
+    response["status"] = "OK";
+    response["converter_protocol"] = 2;
+    sendDocument(response);
+    currentCommandId = -1;
+    return;
+  }
+  // EMERGENCY_STOP & RESET commands should always override and stop any active motion immediately
+  if (strcmp(cmd, "EMERGENCY_STOP") == 0) {
+    sorterState = STATE_IDLE;
+    asyncCommandId = -1;
+    handleEmergencyStop();
+    currentCommandId = -1;
+    return;
+  }
   if (strcmp(cmd, "RESET") == 0) {
     sorterState = STATE_IDLE;
     asyncCommandId = -1;
     handleReset();
+    currentCommandId = -1;
+    return;
+  }
+
+  if (strcmp(cmd, "EMERGENCY_CLEAR") == 0) {
+    emergencyLatched = false;
+    StaticJsonDocument<64> response;
+    response["status"] = "OK";
+    sendDocument(response);
+    currentCommandId = -1;
+    return;
+  }
+  if (emergencyLatched &&
+      (strcmp(cmd, "DISPENSE") == 0 || strcmp(cmd, "SORT") == 0 ||
+       strcmp(cmd, "HOME") == 0 || strcmp(cmd, "CONVEYOR") == 0)) {
+    sendError("LOCKED_OUT");
     currentCommandId = -1;
     return;
   }

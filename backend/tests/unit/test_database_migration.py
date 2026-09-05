@@ -200,3 +200,127 @@ async def test_init_db_preserves_unprocessed_gateway_events_for_inbox_retry(
         assert row.processing_error == "interrupted"
 
     await db_mod.close_db()
+
+
+@pytest.mark.asyncio
+async def test_init_db_adds_converter_metadata_and_tables(tmp_path, monkeypatch):
+    db_file = tmp_path / "test_converter_migration.db"
+    db_url = f"sqlite+aiosqlite:///{db_file}"
+    sync_engine = create_engine(f"sqlite:///{db_file}")
+
+    # Create an old schema table with existing data
+    with sync_engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE transactions (
+                id VARCHAR PRIMARY KEY,
+                type VARCHAR NOT NULL,
+                state VARCHAR,
+                target_amount INTEGER,
+                fee INTEGER,
+                total_due INTEGER,
+                inserted_amount INTEGER,
+                dispensed_amount INTEGER
+            )
+        """))
+        conn.execute(text("""
+            INSERT INTO transactions (id, type, state, target_amount, fee, total_due, inserted_amount, dispensed_amount)
+            VALUES ('tx_legacy_1', 'bill-to-bill', 'COMPLETE', 100, 5, 100, 100, 95)
+        """))
+
+        # Verify converter_metadata is initially missing
+        res = conn.execute(text("PRAGMA table_info(transactions)")).fetchall()
+        cols = [r[1] for r in res]
+        assert "converter_metadata" not in cols
+
+    from app.core import config
+    settings = config.get_settings()
+    monkeypatch.setattr(settings, "db_url", db_url)
+
+    import app.core.database as db_mod
+    db_mod._engine = None
+    db_mod._session_factory = None
+
+    # First migration run
+    await init_db()
+
+    # Second migration run (test idempotence)
+    await init_db()
+
+    with sync_engine.connect() as conn:
+        # Verify columns in transactions table
+        res = conn.execute(text("PRAGMA table_info(transactions)")).fetchall()
+        cols = [r[1] for r in res]
+        assert "converter_metadata" in cols
+        assert "selected_dispense_counts" in cols
+
+        # Verify existing row preserved
+        row = conn.execute(text("SELECT id, type, converter_metadata FROM transactions WHERE id = 'tx_legacy_1'")).one()
+        assert row.id == "tx_legacy_1"
+        assert row.type == "bill-to-bill"
+        assert row.converter_metadata is None
+
+        # Verify new converter tables exist
+        tables_res = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
+        table_names = {r[0] for r in tables_res}
+        assert "converter_quotes" in table_names
+        assert "converter_intake_operations" in table_names
+        assert "converter_coin_sessions" in table_names
+
+    # Test persistence of new models via async session
+    from app.models.db_models import ConverterQuote, ConverterIntakeOperation, ConverterCoinSession
+    from datetime import datetime, timezone, timedelta
+
+    async with db_mod.get_session_factory()() as session:
+        quote = ConverterQuote(
+            id="quote-123",
+            transaction_id="tx-123",
+            service_type="bill-to-bill",
+            input_amount=100,
+            fee=5,
+            total_due=100,
+            payout_amount=95,
+            items=[{"denom": "PHP_50", "denom_type": "bill", "count": 1, "value": 50}],
+            is_substitution=False,
+            expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=120)
+        )
+        session.add(quote)
+
+        intake_op = ConverterIntakeOperation(
+            id="intake-op-1",
+            transaction_id="tx-123",
+            denomination="PHP_100",
+            value=100,
+            state="PREPARED",
+            inventory_credited=False,
+            transaction_credited=False
+        )
+        session.add(intake_op)
+
+        coin_session = ConverterCoinSession(
+            session_id=1,
+            transaction_id="tx-123",
+            state="ACTIVE",
+            cursor_php_1=0,
+            cursor_php_5=0,
+            cursor_php_10=0,
+            cursor_php_20=0
+        )
+        session.add(coin_session)
+        await session.commit()
+
+    async with db_mod.get_session_factory()() as session:
+        fetched_quote = await session.get(ConverterQuote, "quote-123")
+        assert fetched_quote is not None
+        assert fetched_quote.payout_amount == 95
+
+        fetched_op = await session.get(ConverterIntakeOperation, "intake-op-1")
+        assert fetched_op is not None
+        assert fetched_op.state == "PREPARED"
+
+        from sqlalchemy import select
+        res = await session.execute(select(ConverterCoinSession).where(ConverterCoinSession.session_id == 1))
+        fetched_cs = res.scalar_one_or_none()
+        assert fetched_cs is not None
+        assert fetched_cs.state == "ACTIVE"
+
+    await db_mod.close_db()

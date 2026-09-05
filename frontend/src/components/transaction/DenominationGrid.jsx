@@ -6,33 +6,45 @@ export default function DenominationGrid({
   selectedValue = null,
   onSelect,
   disabled = false,
+  disabledValues = [],
+  reasonsMap = {},
   className = "",
 }) {
   return (
     <div className={`flex flex-wrap justify-center gap-8 ${className}`}>
       {denominations.map((denom) => {
         const isSelected = selectedValue === denom;
+        const isItemDisabled =
+          disabled || (Array.isArray(disabledValues) && disabledValues.includes(denom));
+        const reason = reasonsMap?.[denom];
 
         return (
           <motion.button
             key={denom}
-            onClick={() => !disabled && onSelect?.(denom)}
-            whileHover={disabled ? {} : { scale: 1.05 }}
-            whileTap={disabled ? {} : { scale: 0.95 }}
-            disabled={disabled}
+            type="button"
+            onClick={() => !isItemDisabled && onSelect?.(denom)}
+            whileHover={isItemDisabled ? {} : { scale: 1.05 }}
+            whileTap={isItemDisabled ? {} : { scale: 0.95 }}
+            disabled={isItemDisabled}
             className={`
-              p-8 rounded-[2rem] text-5xl font-bold min-w-[200px]
+              p-6 rounded-[2rem] text-5xl font-bold min-w-[200px] min-h-[130px]
               border-4 transition-all duration-200
-              touch-target-lg flex items-center justify-center
+              touch-target-lg flex flex-col items-center justify-center
               ${
-                isSelected
-                  ? "bg-coinnect-primary text-white border-coinnect-primary"
-                  : "bg-white text-coinnect-primary border-coinnect-primary"
+                isItemDisabled
+                  ? "bg-gray-100 text-gray-400 border-gray-300 opacity-50 cursor-not-allowed"
+                  : isSelected
+                  ? "bg-coinnect-primary text-white border-coinnect-primary cursor-pointer shadow-lg"
+                  : "bg-white text-coinnect-primary border-coinnect-primary cursor-pointer hover:shadow-md"
               }
-              ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
             `}
           >
-            {denom}
+            <span>{denom}</span>
+            {isItemDisabled && reason && (
+              <span className="text-xs font-medium text-amber-700 mt-1 max-w-[170px] text-center leading-tight">
+                {reason}
+              </span>
+            )}
           </motion.button>
         );
       })}

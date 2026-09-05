@@ -39,15 +39,18 @@ VALID_TRANSITIONS: Dict[TransactionState, Set[TransactionState]] = {
         TransactionState.SORTING,
         TransactionState.WAITING_FOR_BILL,
         TransactionState.ERROR,
+        TransactionState.CLAIM_REQUIRED,
     },
     TransactionState.SORTING: {
         TransactionState.WAITING_FOR_BILL,
         TransactionState.ERROR,
+        TransactionState.CLAIM_REQUIRED,
     },
     TransactionState.WAITING_FOR_CONFIRMATION: {
         TransactionState.DISPENSING,
         TransactionState.CANCELLED,
         TransactionState.CLAIM_REQUIRED,
+        TransactionState.ERROR,
     },
     TransactionState.DISPENSING: {
         TransactionState.COMPLETE,
@@ -86,6 +89,9 @@ class TransactionStateMachine:
         ws_manager: ConnectionManager,
         db_session: AsyncSession,
         on_timeout: Optional[Callable[[TransactionState], Awaitable[None]]] = None,
+        on_warning: Optional[Callable[[TransactionState], Awaitable[None]]] = None,
+        warning_seconds: float = 60.0,
+        timeout_seconds: Optional[float] = None,
     ):
         self._id = transaction_id
         self._type = transaction_type
@@ -95,6 +101,9 @@ class TransactionStateMachine:
         self._timeout_task: Optional[asyncio.Task] = None
         self._data: dict = {}
         self._on_timeout = on_timeout
+        self._on_warning = on_warning
+        self._warning_seconds = warning_seconds
+        self._timeout_seconds = timeout_seconds
 
     @property
     def state(self) -> TransactionState:
@@ -146,6 +155,10 @@ class TransactionStateMachine:
         )
         record = result.scalar_one_or_none()
         if record:
+            if record.converter_metadata is not None:
+                meta = dict(record.converter_metadata)
+                meta["revision"] = meta.get("revision", 0) + 1
+                record.converter_metadata = meta
             record.state = new_state.value
             record.updated_at = datetime.utcnow()
             if data:
@@ -176,8 +189,11 @@ class TransactionStateMachine:
         await self._db.commit()
 
         # Start timeout for new state if applicable
-        timeout = STATE_TIMEOUTS.get(new_state)
-        if timeout is not None:
+        state_timeout = STATE_TIMEOUTS.get(new_state)
+        if state_timeout is not None:
+            timeout = state_timeout
+            if new_state in {TransactionState.WAITING_FOR_BILL, TransactionState.WAITING_FOR_CONFIRMATION} and self._timeout_seconds is not None:
+                timeout = self._timeout_seconds
             self._start_timeout(new_state, timeout)
 
         # Broadcast state change via WebSocket
@@ -216,7 +232,28 @@ class TransactionStateMachine:
     ) -> None:
         """Handle state timeout by transitioning to ERROR/CANCELLED."""
         try:
-            await asyncio.sleep(timeout)
+            warning_timeout = (
+                min(self._warning_seconds, timeout * (2.0 / 3.0))
+                if expected_state in (
+                    TransactionState.WAITING_FOR_BILL,
+                    TransactionState.WAITING_FOR_CONFIRMATION,
+                )
+                else None
+            )
+
+            if warning_timeout is not None and warning_timeout < timeout:
+                await asyncio.sleep(warning_timeout)
+                if self._state == expected_state:
+                    logger.warning(
+                        f"Transaction {self._id}: inactivity warning in state {expected_state.value} "
+                        f"after {warning_timeout}s"
+                    )
+                    if self._on_warning is not None:
+                        await self._on_warning(expected_state)
+                    await asyncio.sleep(timeout - warning_timeout)
+            else:
+                await asyncio.sleep(timeout)
+
             # Only act if still in the expected state
             if self._state == expected_state:
                 logger.warning(
@@ -252,6 +289,8 @@ class TransactionStateMachine:
         """Reset the timeout for the current state (e.g., after bill insert)."""
         self._cancel_timeout()
         timeout = STATE_TIMEOUTS.get(self._state)
+        if self._state in {TransactionState.WAITING_FOR_BILL, TransactionState.WAITING_FOR_CONFIRMATION}:
+            timeout = self._timeout_seconds or timeout
         if timeout is not None:
             self._start_timeout(self._state, timeout)
 

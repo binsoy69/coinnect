@@ -98,6 +98,24 @@ class ConveyorCommand(BaseModel):
     target: Literal["PHP", "FOREIGN"]
 
 
+class CoinSessionStartCommand(BaseModel):
+    cmd: Literal["COIN_SESSION_START"] = "COIN_SESSION_START"
+    sid: int
+
+
+class CoinSessionStopCommand(BaseModel):
+    cmd: Literal["COIN_SESSION_STOP"] = "COIN_SESSION_STOP"
+    sid: Optional[int] = None
+
+
+class CoinSessionStatusCommand(BaseModel):
+    cmd: Literal["COIN_SESSION_STATUS"] = "COIN_SESSION_STATUS"
+
+
+class EmergencyStopCommand(BaseModel):
+    cmd: Literal["EMERGENCY_STOP"] = "EMERGENCY_STOP"
+
+
 # ============================================================================
 # Responses (Arduino -> RPi)
 # ============================================================================
@@ -213,6 +231,34 @@ class ConveyorResponse(BaseModel):
     target: Literal["PHP", "FOREIGN"]
 
 
+class CoinSessionStartResponse(BaseModel):
+    status: Literal["OK"]
+    sid: int
+    session_state: Literal["ACTIVE"] = "ACTIVE"
+
+
+class CoinSessionStopResponse(BaseModel):
+    status: Literal["OK"]
+    sid: int
+    session_state: Literal["CLOSING", "CLOSED"]
+
+
+class CoinSessionStatusResponse(BaseModel):
+    status: Literal["OK"]
+    sid: int
+    session_state: Literal["IDLE", "ACTIVE", "CLOSING", "CLOSED", "UNCERTAIN"]
+    count_1: int = 0
+    count_5: int = 0
+    count_10: int = 0
+    count_20: int = 0
+    total_amount: int = 0
+
+
+class EmergencyStopResponse(BaseModel):
+    status: Literal["OK"]
+    stopped: bool = True
+
+
 # ============================================================================
 # Events (Arduino -> RPi, unsolicited)
 # ============================================================================
@@ -222,6 +268,14 @@ class CoinInEvent(BaseModel):
     event: Literal["COIN_IN"]
     denom: int
     total: int
+
+
+class CoinSessionPulseEvent(BaseModel):
+    event: Literal["COIN_SESSION_PULSE"]
+    sid: int
+    seq: int
+    denom: int
+    count: int
 
 
 class TamperEvent(BaseModel):
@@ -245,4 +299,4 @@ class ReadyEvent(BaseModel):
     controller: str
 
 
-SerialEvent = Union[CoinInEvent, TamperEvent, RFIDEvent, DoorStateEvent, ReadyEvent]
+SerialEvent = Union[CoinInEvent, CoinSessionPulseEvent, TamperEvent, RFIDEvent, DoorStateEvent, ReadyEvent]

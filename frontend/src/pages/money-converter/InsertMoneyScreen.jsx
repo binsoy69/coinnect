@@ -4,13 +4,11 @@ import { motion } from "framer-motion";
 import PageLayout from "../../components/layout/PageLayout";
 import InsertMoneyPanel from "../../components/transaction/InsertMoneyPanel";
 import MoneyCounter from "../../components/transaction/MoneyCounter";
-import Timer from "../../components/common/Timer";
 import Button from "../../components/common/Button";
 import { ROUTES, getServiceRoute } from "../../constants/routes";
 import {
   SERVICE_CONFIG,
   TRANSACTION_TYPE_LABEL,
-  TIMER_DURATIONS,
 } from "../../constants/mockData";
 import { useTransaction } from "../../context/TransactionContext";
 import { useBackendTransaction } from "../../hooks/useBackendTransaction";
@@ -18,6 +16,7 @@ import { formatPeso } from "../../constants/denominations";
 import { ENABLE_KEYBOARD_SIM } from "../../constants/api";
 import RejectionModal from "../../components/transaction/RejectionModal";
 import SortingOverlay from "../../components/transaction/SortingOverlay";
+import PayoutReapprovalModal from "../../components/transaction/PayoutReapprovalModal";
 import { useBillAcceptance } from "../../hooks/useBillAcceptance";
 
 // Service type indicator component
@@ -35,23 +34,60 @@ function ServiceIndicator({ icon, shortName }) {
 export default function InsertMoneyScreen() {
   const navigate = useNavigate();
   const { type } = useParams();
-  const { transaction, addInsertedMoney, getServiceConfig, isAmountMatched } =
+  const { transaction, setBackendState, getServiceConfig, isAmountMatched } =
     useTransaction();
-  const { simulateInsert, transactionId, backendState, cancelBackendTransaction } = useBackendTransaction();
-  const [resetCounter, setResetCounter] = useState(0);
+  const {
+    simulateInsert,
+    transactionId,
+    backendState,
+    cancelBackendTransaction,
+    approveQuote,
+    requestClaim,
+  } = useBackendTransaction();
+  const [, setResetCounter] = useState(0);
+  const [isApprovingQuote, setIsApprovingQuote] = useState(false);
   const hasAcceptedCash = transaction.moneyInserted > 0 || (backendState?.inserted_amount || 0) > 0;
 
   const config = getServiceConfig() || SERVICE_CONFIG[type];
 
-  // Physical bill acceptor loop
+  const isIntakeBlocked =
+    Boolean(backendState?.pending_quote) ||
+    backendState?.accounting_fault;
+
+  // Physical bill acceptor loop - pause during reapproval or accounting fault
   const { isSorting, lastError, clearError } = useBillAcceptance(
     transactionId,
     "/transaction",
-    !isAmountMatched() && (config?.insertType || "bill") === "bill",
-    () => {
-      // Backend transaction updates are handled via WebSocket (BILL_STORED event)
-    }
+    !isAmountMatched() && (config?.insertType || "bill") === "bill" && !isIntakeBlocked,
+    (snapshot) => setBackendState(snapshot)
   );
+
+  // Auto-navigate to warning if claim required
+  useEffect(() => {
+    if (backendState?.state === "CLAIM_REQUIRED" || Boolean(backendState?.claim_ticket_code)) {
+      navigate(getServiceRoute(ROUTES.WARNING, type));
+    }
+  }, [backendState?.state, backendState?.claim_ticket_code, navigate, type]);
+
+  const handleApproveQuote = async (quoteId) => {
+    setIsApprovingQuote(true);
+    try {
+      await approveQuote(quoteId);
+    } catch (err) {
+      console.error("Failed to approve quote:", err);
+    } finally {
+      setIsApprovingQuote(false);
+    }
+  };
+
+  const handleRequestClaim = async () => {
+    try {
+      await requestClaim();
+      navigate(getServiceRoute(ROUTES.WARNING, type));
+    } catch (err) {
+      console.error("Failed to request claim:", err);
+    }
+  };
 
   const handleClearError = useCallback(() => {
     clearError();
@@ -73,10 +109,10 @@ export default function InsertMoneyScreen() {
 
   // Auto-navigate when inserted amount meets or exceeds the required amount
   useEffect(() => {
-    if (isAmountMatched()) {
+    if (backendState?.can_confirm) {
       navigate(getServiceRoute(ROUTES.TRANSACTION_SUMMARY, type));
     }
-  }, [transaction.moneyInserted, isAmountMatched, navigate, type]);
+  }, [backendState?.can_confirm, navigate, type]);
 
   // Keyboard simulation for development (toggleable via VITE_ENABLE_KEYBOARD_SIM)
   // Press keys 1-4 to insert different denominations
@@ -94,25 +130,13 @@ export default function InsertMoneyScreen() {
       if (keyMap[e.key]) {
         const denom = keyMap[e.key];
         const insertType = config?.insertType || "bill";
-        // Try backend simulation first, fall back to local
-        simulateInsert(denom, insertType).catch(() => {
-          addInsertedMoney(denom);
-        });
+        simulateInsert(denom, insertType);
       }
     };
 
     window.addEventListener("keypress", handleKeyPress);
     return () => window.removeEventListener("keypress", handleKeyPress);
-  }, [addInsertedMoney, simulateInsert, config?.insertCounters, config?.insertType]);
-
-  const handleTimerComplete = useCallback(() => {
-    // Auto-navigate when timer completes
-    if (isAmountMatched()) {
-      navigate(getServiceRoute(ROUTES.TRANSACTION_SUMMARY, type));
-    } else {
-      navigate(getServiceRoute(ROUTES.WARNING, type));
-    }
-  }, [navigate, type, isAmountMatched]);
+  }, [simulateInsert, config?.insertCounters, config?.insertType]);
 
   const handleProceed = () => {
     if (isAmountMatched()) {
@@ -203,19 +227,6 @@ export default function InsertMoneyScreen() {
 
             {/* Timer */}
             <div className="w-full max-w-xl pb-2">
-              <Timer
-                seconds={TIMER_DURATIONS.INSERT_MONEY}
-                onComplete={handleTimerComplete}
-                showProgressBar={true}
-                resetTrigger={`${transaction.moneyInserted}_${resetCounter}`}
-                isPaused={Boolean(lastError) || isSorting}
-              />
-
-              <p className="text-center text-gray-400 text-xs mt-2">
-                This tab will automatically close after{" "}
-                {TIMER_DURATIONS.INSERT_MONEY}s if no money is inserted.
-              </p>
-
               {/* Manual proceed button */}
               <Button
                 variant="primary"
@@ -238,6 +249,13 @@ export default function InsertMoneyScreen() {
         onNavigateWarning={() => navigate(getServiceRoute(ROUTES.WARNING, type))}
         onChangeSelection={handleChangeSelection}
       />
+      <PayoutReapprovalModal
+        pendingQuote={backendState?.pending_quote}
+        onApprove={handleApproveQuote}
+        onRequestClaim={handleRequestClaim}
+        isLoading={isApprovingQuote}
+      />
+
     </PageLayout>
   );
 }
