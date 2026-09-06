@@ -39,7 +39,7 @@ export default function ForexServiceSelectionScreen() {
         rightContent: !isOnline ? (
           <div className="flex items-center gap-2 bg-yellow-500 text-white px-3 py-1 rounded-full text-sm">
             <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
-            Offline - Using cached rates
+            Forex temporarily unavailable
           </div>
         ) : (
           <div className="flex items-center gap-2 bg-green-500 text-white px-3 py-1 rounded-full text-sm">
@@ -75,7 +75,7 @@ export default function ForexServiceSelectionScreen() {
                 icon={service.icon}
                 title={service.title}
                 color="bg-coinnect-forex"
-                onClick={() => handleSelectService(service.type)}
+                onClick={() => { if (isOnline) handleSelectService(service.type); }}
                 className="h-full min-h-[180px]"
               />
             </motion.div>

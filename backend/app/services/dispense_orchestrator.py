@@ -33,6 +33,8 @@ from app.models.db_models import (
     PhysicalOperation,
     PhysicalOperationState,
     TransactionRecord,
+    InventoryHold,
+    ForexSession,
 )
 
 logger = logging.getLogger(__name__)
@@ -631,7 +633,12 @@ class DispenseOrchestrator:
                     ("COIN_DISPENSER", item.denom): item.count
                     for item in plan.coin_items
                 })
-                await self._inventory.consume_hold_in_session(session, reference_id, quantities)
+                hold_id = reference_id + ":" + source_kind.removeprefix("FOREX_") if source_kind in {"FOREX_EXCHANGE", "FOREX_CHANGE"} else reference_id
+                if source_kind in {"FOREX_EXCHANGE", "FOREX_CHANGE"}:
+                    hold = await session.get(InventoryHold, hold_id)
+                    if hold is None or hold.state != "HELD":
+                        raise ValueError("Forex payout requires its durable inventory reservation")
+                await self._inventory.consume_hold_in_session(session, hold_id, quantities)
                 await self._inventory.reserve_in_session(
                     session, quantities, reference_id=reference_id
                 )
@@ -671,6 +678,9 @@ class DispenseOrchestrator:
                 operation.error_message = str(error)
             else:
                 operation.state = PhysicalOperationState.COMPLETED.value
+            forex = await session.get(ForexSession, operation.transaction_id)
+            if forex is not None:
+                forex.revision += 1
             await session.commit()
 
     async def _mark_inventory_reconciled(self, execution_id, ambiguous_keys):
@@ -697,6 +707,9 @@ class DispenseOrchestrator:
             operation.error_message = message
             execution.state = DispenseExecutionState.AMBIGUOUS.value
             execution.ambiguous_amount += (operation.requested_count - operation.confirmed_count) * operation.denomination_value
+            forex = await session.get(ForexSession, operation.transaction_id)
+            if forex is not None:
+                forex.revision += 1
             await session.commit()
 
     async def _recover_timed_out_operation(self, controller, operation_id, execution_id):
@@ -860,6 +873,10 @@ class DispenseOrchestrator:
                 else DispenseExecutionState.FAILED.value
             )
             execution.completed_at = datetime.utcnow()
+            if execution.source_kind.startswith("FOREX"):
+                # Forex reconciles all currency legs together, never as a scalar claim.
+                await session.commit()
+                return
             record = (
                 await session.get(EWalletTransactionRecord, execution.transaction_id)
                 if execution.source_kind.startswith("EWALLET")

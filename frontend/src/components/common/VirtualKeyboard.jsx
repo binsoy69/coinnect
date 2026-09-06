@@ -22,11 +22,6 @@ export default function VirtualKeyboard({
     "coinnect-maya": "text-coinnect-maya",
     "coinnect-ewallet": "text-coinnect-ewallet",
   };
-  const bgClasses = {
-    "coinnect-gcash": "bg-coinnect-gcash",
-    "coinnect-maya": "bg-coinnect-maya",
-    "coinnect-ewallet": "bg-coinnect-ewallet",
-  };
   const hoverBgClasses = {
     "coinnect-gcash": "hover:bg-coinnect-gcash/10",
     "coinnect-maya": "hover:bg-coinnect-maya/10",
@@ -40,7 +35,6 @@ export default function VirtualKeyboard({
 
   const borderColor = borderClasses[colorClass] || "border-coinnect-ewallet";
   const textColor = textClasses[colorClass] || "text-coinnect-ewallet";
-  const bgColor = bgClasses[colorClass] || "bg-coinnect-ewallet";
   const hoverBgColor = hoverBgClasses[colorClass] || "hover:bg-coinnect-ewallet/10";
   const activeBgColor = activeBgClasses[colorClass] || "hover:bg-coinnect-ewallet hover:text-white";
 

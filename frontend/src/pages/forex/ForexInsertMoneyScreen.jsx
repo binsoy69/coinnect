@@ -1,255 +1,67 @@
-import { useState, useEffect, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
 import PageLayout from "../../components/layout/PageLayout";
+import Button from "../../components/common/Button";
 import InsertMoneyPanel from "../../components/transaction/InsertMoneyPanel";
-import Timer from "../../components/common/Timer";
 import { ROUTES, getForexRoute } from "../../constants/routes";
 import { useForex } from "../../context/ForexContext";
-import { useForexTransaction } from "../../hooks/useForexTransaction";
-import {
-  formatCurrency,
-  isForeignToPhp,
-  FOREX_TIMER_DURATIONS,
-} from "../../constants/forexData";
-
-import { ENABLE_KEYBOARD_SIM } from "../../constants/api";
-import RejectionModal from "../../components/transaction/RejectionModal";
-import SortingOverlay from "../../components/transaction/SortingOverlay";
-import { useBillAcceptance } from "../../hooks/useBillAcceptance";
+import { API_BASE, ENABLE_KEYBOARD_SIM } from "../../constants/api";
 
 export default function ForexInsertMoneyScreen() {
   const navigate = useNavigate();
-  const { forex, addInsertedMoney, getForexConfig, isAmountMatched } =
-    useForex();
-  const { simulateForexInsert, transactionId, backendState, cancelForexTransaction } = useForexTransaction();
+  const { forex, transactionId, backendState, getForexConfig, secondsRemaining, error,
+    refreshForexTransaction, continueForexTransaction, cancelForexTransaction, simulateForexInsert } = useForex();
+  const [intakeError, setIntakeError] = useState(null);
+  const accepting = useRef(false);
   const config = getForexConfig();
-  const [resetCounter, setResetCounter] = useState(0);
-  const hasAcceptedCash = forex.moneyInserted > 0 || (backendState?.inserted_amount || 0) > 0;
-
-  // Physical bill acceptor loop
-  const { isSorting, lastError, clearError } = useBillAcceptance(
-    transactionId,
-    "/forex/transaction",
-    !isAmountMatched(),
-    () => {
-      // Backend transaction updates are handled via WebSocket (BILL_STORED event)
-    }
-  );
-
-  const handleClearError = useCallback(() => {
-    clearError();
-    if (hasAcceptedCash) return;
-    setResetCounter((c) => c + 1);
-  }, [clearError, hasAcceptedCash]);
-
-  const handleChangeSelection = useCallback(async () => {
-    clearError();
-    if (transactionId) {
+  useEffect(() => {
+    if (!transactionId || backendState?.state !== "WAITING_FOR_BILL" || intakeError) return undefined;
+    let disposed = false;
+    let timer;
+    const accept = async () => {
+      if (accepting.current) { timer = setTimeout(accept, 500); return; }
+      accepting.current = true;
       try {
-        await cancelForexTransaction();
-      } catch {
-        return;
-      }
-    }
-    navigate(getForexRoute(ROUTES.FOREX_RATE, forex.serviceType));
-  }, [clearError, hasAcceptedCash, transactionId, cancelForexTransaction, navigate, forex.serviceType]);
-
-  // Handle timeout - go to warning or conversion screen
-  const handleTimeout = useCallback(() => {
-    if (isAmountMatched()) {
-      navigate(getForexRoute(ROUTES.FOREX_CONVERSION, forex.serviceType));
-    } else {
-      navigate(getForexRoute(ROUTES.FOREX_WARNING, forex.serviceType));
-    }
-  }, [navigate, forex.serviceType, isAmountMatched]);
-
-  // Keyboard simulation for testing - uses backend API when available
-  useEffect(() => {
-    if (!config) return;
-
-    const handleKeyPress = (e) => {
-      const acceptDenoms = config.acceptDenominations;
-      const keyMap = {
-        1: acceptDenoms[0],
-        2: acceptDenoms[1],
-        3: acceptDenoms[2],
-        4: acceptDenoms[3],
-        5: acceptDenoms[4],
-        6: acceptDenoms[5],
-      };
-
-      if (keyMap[e.key]) {
-        const denom = keyMap[e.key];
-        if (transactionId) {
-          const currency = isForeignToPhp(forex.serviceType)
-            ? forex.fromCurrency
-            : "PHP";
-          simulateForexInsert(denom, currency);
-        } else {
-          addInsertedMoney(denom);
-        }
-      }
+        const resp = await fetch(`${API_BASE}/forex/transaction/${transactionId}/accept-bill`, { method: "POST" });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail?.message || data.detail || "Bill acceptance unavailable");
+        await refreshForexTransaction();
+        if (!disposed && data.state === "WAITING_FOR_BILL") timer = setTimeout(accept, 500);
+      } catch (err) { if (!disposed) setIntakeError(err.message); }
+      finally { accepting.current = false; }
     };
-
-    window.addEventListener("keydown", handleKeyPress);
-    return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [config, addInsertedMoney, simulateForexInsert, transactionId, forex.serviceType, forex.fromCurrency]);
-
-  // Auto-advance when amount is matched
+    timer = setTimeout(accept, 0);
+    return () => { disposed = true; clearTimeout(timer); };
+  }, [transactionId, backendState?.state, refreshForexTransaction, intakeError]);
   useEffect(() => {
-    if (isAmountMatched()) {
-      const timer = setTimeout(() => {
-        navigate(getForexRoute(ROUTES.FOREX_CONVERSION, forex.serviceType));
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [forex.moneyInserted, isAmountMatched, navigate, forex.serviceType]);
-
-  if (!config) {
-    navigate(ROUTES.FOREX);
-    return null;
-  }
-
-  const isForeignIn = isForeignToPhp(forex.serviceType);
-
-  // Determine denominations
-  const acceptedDenoms = config.acceptDenominations;
-
-  // Current count display
-  const currentCount = isForeignIn
-    ? formatCurrency(forex.moneyInserted, forex.fromCurrency)
-    : `P${forex.moneyInserted}`;
-
-  // Total due display
-  const totalDue = isForeignIn
-    ? formatCurrency(forex.selectedAmount, forex.fromCurrency)
-    : `P${forex.totalDue}`;
-
-  // Header subtitle
-  const headerSubtitle = `${config.name} Conversion`;
-
-  return (
-    <PageLayout
-      headerProps={{
-        showBack: !hasAcceptedCash,
-        onBack: handleChangeSelection,
-        subtitle: headerSubtitle,
-        rightContent: (
-          <div className="flex items-center gap-2 bg-coinnect-forex text-white px-3 py-1 rounded-full text-sm">
-            <span className="w-2 h-2 bg-white rounded-full"></span>
-            Foreign Exchange
-          </div>
-        ),
-      }}
-    >
-      <div className="flex gap-6 p-6 min-h-[calc(100vh-140px)]">
-        {/* Left Panel - Instructions */}
-        <div className="w-1/3">
-          <InsertMoneyPanel
-            variant="bill"
-            cardVariant="forex"
-            noteText={config.insertNote}
-          />
-        </div>
-
-        {/* Right Panel - Counter */}
-        <div className="flex-1 flex flex-col">
-          {/* Heading */}
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-center mb-6"
-          >
-            <h1 className="text-2xl font-bold text-coinnect-forex mb-1">
-              {config.insertHeading}
-            </h1>
-            {config.acceptedDenomNote && (
-              <p className="text-coinnect-forex text-sm">
-                {config.acceptedDenomNote}
-              </p>
-            )}
-          </motion.div>
-
-          {/* Current Count */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.1 }}
-            className="text-center mb-4"
-          >
-            <p className="text-lg text-gray-600 mb-1">Current Count</p>
-            <p className="text-6xl font-bold text-gray-900">{currentCount}</p>
-          </motion.div>
-
-          {/* Total Due Badge */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.2 }}
-            className="flex justify-center mb-6"
-          >
-            <span className="bg-coinnect-forex text-white px-4 py-2 rounded-full text-lg font-semibold">
-              Total Due: {totalDue}
-            </span>
-          </motion.div>
-
-          {/* Denomination Counters */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="flex justify-center gap-4 flex-wrap mb-6"
-          >
-            {acceptedDenoms.map((denom) => {
-              const count = forex.insertedCounts[denom] || 0;
-              const symbol = isForeignIn ? config.fromSymbol : "P";
-              return (
-                <div
-                  key={denom}
-                  className="text-center bg-gray-100 px-4 py-2 rounded-lg"
-                >
-                  <span className="text-lg font-semibold text-coinnect-forex">
-                    {symbol}
-                    {denom}
-                  </span>
-                  <span className="text-gray-600 ml-2">= {count}x</span>
-                </div>
-              );
-            })}
-          </motion.div>
-
-          {/* Timer */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.4 }}
-            className="mt-auto"
-          >
-            <Timer
-              seconds={FOREX_TIMER_DURATIONS.INSERT_MONEY}
-              onComplete={handleTimeout}
-              showProgressBar={true}
-              autoStart={true}
-              color="forex"
-              resetTrigger={`${forex.totalInserted}_${resetCounter}`}
-              isPaused={Boolean(lastError) || isSorting}
-            />
-            <p className="text-center text-gray-500 text-sm mt-2">
-              This tab will automatically close after 60s if no money is
-              inserted.
-            </p>
-          </motion.div>
-        </div>
+    if (backendState?.state === "WAITING_FOR_CONFIRMATION") navigate(getForexRoute(ROUTES.FOREX_CONVERSION, forex.serviceType));
+    if (["ERROR", "CLAIM_REQUIRED", "CANCELLED"].includes(backendState?.state)) navigate(getForexRoute(ROUTES.FOREX_WARNING, forex.serviceType));
+  }, [backendState?.state, navigate, forex.serviceType]);
+  useEffect(() => {
+    if (!ENABLE_KEYBOARD_SIM || !transactionId || !config) return undefined;
+    const key = e => {
+      const value = config.acceptDenominations[Number(e.key)-1];
+      if (value) simulateForexInsert(value, forex.fromCurrency).catch(() => {});
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [transactionId, config, simulateForexInsert, forex.fromCurrency]);
+  if (!config) return <p>Restoring forex transaction…</p>;
+  return <PageLayout headerProps={{ subtitle: "Foreign Exchange" }}>
+    <div className="flex gap-8 p-8">
+      <div className="w-1/3"><InsertMoneyPanel variant="bill" cardVariant="forex" noteText={config.insertNote} /></div>
+      <div className="flex-1 text-center space-y-6">
+        <h1 className="text-3xl font-bold">{config.insertHeading}</h1>
+        <p className="text-5xl font-bold">{forex.fromCurrency} {forex.moneyInserted}</p>
+        <p className="text-2xl">Total due: {forex.fromCurrency} {forex.totalDue}</p>
+        <p>PHP change is accepted only when exact change is available.</p>
+        <p>After cash is accepted, cancellation is disabled. Complete the exchange or wait for a refund claim when the session expires.</p>
+        {backendState?.error_message && <p role="alert">{backendState.error_message}</p>}
+        {(error || intakeError) && <div role="alert"><p>{error || intakeError}</p><Button onClick={() => { setIntakeError(null); refreshForexTransaction().catch(() => {}); }}>Retry status</Button></div>}
+        <p aria-live="polite">{secondsRemaining == null ? "Checking session…" : `${secondsRemaining} seconds remaining`}</p>
+        {secondsRemaining != null && secondsRemaining <= 30 && <div><p>Your session is about to expire.</p><Button onClick={() => continueForexTransaction().catch(() => {})}>Continue</Button></div>}
+        {forex.moneyInserted === 0 && <Button onClick={() => cancelForexTransaction().then(() => navigate(ROUTES.FOREX)).catch(() => {})}>Cancel</Button>}
       </div>
-      <SortingOverlay isOpen={isSorting} />
-      <RejectionModal
-        isOpen={Boolean(lastError)}
-        error={lastError}
-        onClose={handleClearError}
-        onNavigateWarning={() => navigate(getForexRoute(ROUTES.FOREX_WARNING, forex.serviceType))}
-        onChangeSelection={handleChangeSelection}
-      />
-    </PageLayout>
-  );
+    </div>
+  </PageLayout>;
 }

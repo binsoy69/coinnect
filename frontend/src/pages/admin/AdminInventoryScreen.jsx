@@ -1,3 +1,5 @@
+import ForexIntakeReview from "./ForexIntakeReview";
+import ForexClaimCard from "./ForexClaimCard";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -71,6 +73,8 @@ export default function AdminInventoryScreen() {
   // New claims state
   const [activeTab, setActiveTab] = useState("reconciliation"); // "reconciliation" | "claims"
   const [claims, setClaims] = useState([]);
+  const [forexAudit, setForexAudit] = useState([]);
+  const [forexIntakes, setForexIntakes] = useState([]);
   const [retainedCash, setRetainedCash] = useState([]);
   const [intakeOperations, setIntakeOperations] = useState([]);
   const [intakeResolution, setIntakeResolution] = useState(null);
@@ -113,6 +117,10 @@ export default function AdminInventoryScreen() {
     setLoadingClaims(true);
     try {
       const data = await request("/admin/claims");
+      const audit = await request("/admin/forex-audit");
+      setForexAudit(audit.records || []);
+      const pending = await request("/admin/forex-intakes");
+      setForexIntakes(pending.items || []);
       setRetainedCash(data?.retained_cash || []);
       setIntakeOperations(data?.intake_operations || []);
       setClaims((data?.claims || []).map(claim => ({ ...claim,
@@ -497,6 +505,12 @@ export default function AdminInventoryScreen() {
 
           {activeTab === "claims" && (
             <div className="space-y-6">
+              {forexIntakes.map(intake => <ForexIntakeReview key={intake.id} intake={intake} request={request} reload={loadClaims} />)}
+              {forexAudit.length > 0 && <details className="rounded-xl border border-amber-300 p-4"><summary>Legacy forex records requiring review ({forexAudit.length})</summary>
+                <p>Do not settle legacy scalar totals. Review per-currency physical evidence first.</p>
+                {forexAudit.map(row => <pre key={row.transaction_id} className="whitespace-pre-wrap text-sm border-t mt-3">{JSON.stringify(row, null, 2)}</pre>)}
+              </details>}
+
               <div>
                 <p className="text-sm font-bold uppercase tracking-[0.2em] text-coinnect-primary">
                   Unresolved Customer Issues
@@ -540,7 +554,7 @@ export default function AdminInventoryScreen() {
                 </div>
               ) : (
                 <div className="grid gap-6">
-                  {claims.map((claim) => (
+                  {claims.map((claim) => claim.items ? <ForexClaimCard key={claim.claim_ticket_code} claim={claim} request={request} reload={loadClaims} /> : (
                     <article
                       key={claim.claim_ticket_code}
                       className="rounded-card border border-gray-200 bg-white p-6 shadow-sm space-y-4"

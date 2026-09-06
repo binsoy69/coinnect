@@ -153,6 +153,14 @@ async def get_claims(
                 "account_name": tx.account_name,
             })
             
+    from app.models.db_models import ForexClaimTicket
+    async with session_factory() as session:
+        tickets = (await session.execute(select(ForexClaimTicket))).scalars().all()
+    for ticket in tickets:
+        itemized = await request.app.state.claim_service.get_forex(ticket_id=ticket.id)
+        if itemized["status"] != "RESOLVED":
+            claims.append(itemized)
+
     # Sort claims by created_at descending
     claims.sort(key=lambda c: c["created_at"], reverse=True)
     async with session_factory() as session:
@@ -225,6 +233,9 @@ async def resolve_claim(
     from app.models.db_models import ClaimRecord, TransactionRecord, EWalletTransactionRecord
     
     async with session_factory() as session:
+        from app.models.db_models import ForexClaimTicket
+        if await session.get(ForexClaimTicket, claim_ticket_code):
+            raise HTTPException(status_code=409, detail="Resolve each currency item separately")
         claim = (
             await session.execute(
                 select(ClaimRecord).where(
@@ -233,6 +244,8 @@ async def resolve_claim(
             )
         ).scalar_one_or_none()
         if claim:
+            if claim.source_kind == "FOREX":
+                raise HTTPException(status_code=409, detail="Legacy forex claim requires accounting review")
             if claim.status == "PROVISIONAL":
                 raise HTTPException(status_code=409, detail="Reconcile the uncertain outcome before settling this claim")
             if claim.resolved_at is not None:
@@ -258,6 +271,8 @@ async def resolve_claim(
         tx_std = res_std.scalar_one_or_none()
         
         if tx_std:
+            if tx_std.type.startswith("forex-"):
+                raise HTTPException(status_code=409, detail="Legacy forex claim requires accounting review")
             if tx_std.resolved_at is not None:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -323,6 +338,9 @@ async def reconcile_physical_operation(
         operation = await session.get(PhysicalOperation, operation_id)
         if operation is None:
             raise HTTPException(status_code=404, detail="Physical operation not found")
+        execution = await session.get(DispenseExecution, operation.execution_id)
+        if execution.source_kind == "FOREX":
+            raise HTTPException(status_code=409, detail="Legacy forex payout requires accounting review")
         if operation.state not in {"AMBIGUOUS", "STARTED"}:
             raise HTTPException(status_code=409, detail="Operation is not ambiguous")
         if body.actual_dispensed_count > operation.requested_count:
@@ -399,6 +417,8 @@ async def reconcile_physical_operation(
             )
         await session.commit()
 
+    if execution.source_kind in {"FOREX_EXCHANGE", "FOREX_CHANGE"}:
+        await request.app.state.forex_transaction_orchestrator.reconcile_payout(operation.transaction_id)
     await request.app.state.inventory_service._refresh_runtime()
     controller = (
         request.app.state.bill_controller
@@ -471,14 +491,10 @@ async def update_fees(
         settings.ewallet_fee_tiers = new_tiers
 
     if body.forex_fees is not None:
-        if "usd-to-php" in body.forex_fees:
-            settings.forex_fee_usd_to_php = float(body.forex_fees["usd-to-php"])
-        if "php-to-usd" in body.forex_fees:
-            settings.forex_fee_php_to_usd = float(body.forex_fees["php-to-usd"])
-        if "eur-to-php" in body.forex_fees:
-            settings.forex_fee_eur_to_php = float(body.forex_fees["eur-to-php"])
-        if "php-to-eur" in body.forex_fees:
-            settings.forex_fee_php_to_eur = float(body.forex_fees["php-to-eur"])
+        try:
+            await request.app.state.forex_rate_service.update_fees(body.forex_fees)
+        except (ValueError, ArithmeticError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     return await get_fees(request)
 
@@ -664,3 +680,39 @@ async def reconcile_converter_coins(sid: int, body: CoinSessionResolutionRequest
         record.converter_metadata = meta
         await session.commit()
     return {"status": "OK", "sid": sid}
+
+
+@router.get("/forex-audit")
+async def forex_audit(request: Request, authorization: str | None = Header(default=None)):
+    require_admin_session(request, authorization)
+    return {"records": await request.app.state.claim_service.forex_legacy_audit()}
+
+
+@router.post("/forex-claims/{ticket_id}/items/{item_id}/resolve")
+async def resolve_forex_item(ticket_id: str, item_id: str, body: ResolveClaimRequest,
+                             request: Request, authorization: str | None = Header(default=None)):
+    admin = require_admin_session(request, authorization)
+    try:
+        return await request.app.state.claim_service.resolve_forex_item(ticket_id, item_id, admin.session_id, body.resolution_notes)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/forex-intakes")
+async def forex_intakes(request: Request, authorization: str | None = Header(default=None)):
+    require_admin_session(request, authorization)
+    from sqlalchemy import select
+    from app.models.db_models import ForexIntake
+    async with request.app.state.db_session_factory() as session:
+        rows = (await session.execute(select(ForexIntake).where(ForexIntake.state.in_(["PREPARED", "UNCERTAIN"])))).scalars().all()
+        return {"items": [{"id": r.id, "transaction_id": r.transaction_id, "denomination": r.denomination, "value": r.value} for r in rows]}
+
+
+@router.post("/forex-intakes/{operation_id}/reconcile")
+async def reconcile_forex_intake(operation_id: str, body: IntakeResolutionRequest, request: Request,
+                                authorization: str | None = Header(default=None)):
+    admin = require_admin_session(request, authorization)
+    try:
+        return await request.app.state.forex_transaction_orchestrator.reconcile_intake(operation_id, body.retained, admin.session_id, body.notes)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

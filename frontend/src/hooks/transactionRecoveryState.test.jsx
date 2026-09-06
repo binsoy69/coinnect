@@ -99,6 +99,7 @@ test("money-converter hook instances share terminal backend state", async () => 
 });
 
 test("forex hook instances share transaction ID and terminal backend state", async () => {
+  sessionStorage.setItem("forexStart", JSON.stringify({quote_id: "reviewed", idempotency_key: "persisted-key"}));
   vi.spyOn(globalThis, "fetch").mockImplementation((url, options = {}) => {
     if (String(url).endsWith("/forex/rates")) {
       return jsonResponse({ rates: { USD: 58, EUR: 62 }, online: true });

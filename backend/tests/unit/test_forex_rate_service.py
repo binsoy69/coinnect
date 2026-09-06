@@ -127,18 +127,18 @@ class TestGetFeePercentage:
 
 class TestGetQuote:
     def test_usd_to_php_quote(self, service_with_cache):
-        """100 USD at 58.7656 rate, 5% fee."""
-        quote = service_with_cache.get_quote("usd-to-php", 100)
+        """50 USD at 58.7656 rate, 5% fee."""
+        quote = service_with_cache.get_quote("usd-to-php", 50)
         assert quote.from_currency == "USD"
         assert quote.to_currency == "PHP"
         assert quote.rate == 58.7656
-        assert quote.input_amount == 100
-        # converted: 100 * 58.7656 = 5876.56 -> 5877
-        assert quote.converted_amount == 5877
-        # fee: 5877 * 0.05 = 293.85 -> 294
-        assert quote.fee_amount == 294
-        # output: 5877 - 294 = 5583
-        assert quote.output_amount == 5583
+        assert quote.input_amount == 50
+        # principal: 50 * 58.7656 = 2938.28 -> 2938
+        assert quote.converted_amount == 2938
+        # fee: 2938.28 * 0.05 = 146.914 -> 147
+        assert quote.fee_amount == 147
+        # output: 2938 - 147 = 2791
+        assert quote.output_amount == 2791
 
     def test_php_to_usd_quote(self, service_with_cache):
         """50 USD out, rate 58.7656, 5% fee."""
@@ -150,12 +150,12 @@ class TestGetQuote:
         assert quote.output_amount == 50  # User receives 50 USD
 
     def test_eur_to_php_quote(self, service_with_cache):
-        """20 EUR at 61.7246, 4% fee."""
-        quote = service_with_cache.get_quote("eur-to-php", 20)
+        """10 EUR at 61.7246, 4% fee."""
+        quote = service_with_cache.get_quote("eur-to-php", 10)
         assert quote.from_currency == "EUR"
         assert quote.to_currency == "PHP"
         assert quote.rate == 61.7246
-        assert quote.input_amount == 20
+        assert quote.input_amount == 10
 
     def test_php_to_eur_quote(self, service_with_cache):
         """10 EUR out, 4% fee."""
@@ -166,14 +166,14 @@ class TestGetQuote:
 
     def test_quote_no_cache_raises(self, service):
         with pytest.raises(RateUnavailableError):
-            service.get_quote("usd-to-php", 100)
+            service.get_quote("usd-to-php", 50)
 
     def test_quote_expired_cache_raises(self, service_with_expired_cache):
         with pytest.raises(RateUnavailableError):
-            service_with_expired_cache.get_quote("usd-to-php", 100)
+            service_with_expired_cache.get_quote("usd-to-php", 50)
 
     def test_quote_has_locked_at(self, service_with_cache):
-        quote = service_with_cache.get_quote("usd-to-php", 100)
+        quote = service_with_cache.get_quote("usd-to-php", 50)
         assert quote.locked_at is not None
         assert isinstance(quote.locked_at, datetime)
 
@@ -204,3 +204,48 @@ class TestProperties:
 
     def test_rates_valid_with_cache(self, service_with_cache):
         assert service_with_cache.rates_valid is True
+
+
+@pytest.mark.parametrize("amount", [-10, 0, 20, 1000000000, True])
+def test_rejects_unsupported_amounts(service_with_cache, amount):
+    with pytest.raises(ValueError): service_with_cache.get_quote("usd-to-php", amount)
+
+
+@pytest.mark.parametrize("fee", [-1, 100, 150, "NaN", "Infinity", "1.001"])
+def test_rejects_invalid_fees(fee):
+    with pytest.raises((ValueError, ArithmeticError)): ForexRateService.validate_fee(fee)
+
+
+def test_half_up_principal_and_fee(service_with_cache):
+    service_with_cache._cache.rates["USD"] = 60.05
+    service_with_cache._settings.forex_fee_php_to_usd = 10
+    q=service_with_cache.get_quote("php-to-usd",10)
+    assert q.converted_amount == 601
+    assert q.fee_amount == 60
+    assert q.input_amount == 661
+    service_with_cache._cache.rates["USD"] = 61
+    service_with_cache._settings.forex_fee_php_to_usd = 5
+    assert service_with_cache.get_quote("php-to-usd",10).fee_amount == 31
+
+
+async def test_availability_requires_complete_cache(service_with_cache):
+    service_with_cache._check_connectivity = AsyncMock()
+    service_with_cache._cache.rates.pop("EUR")
+    assert not await service_with_cache.check_forex_available()
+
+
+@pytest.mark.parametrize("payload", [{"rates":{}}, {"rates":{"USD":0.02}}, {"rates":{"USD":0,"EUR":0.02}}])
+async def test_malformed_refresh_preserves_good_cache(service_with_cache,payload):
+    previous=service_with_cache.current_rates
+    response=MagicMock();response.json.return_value=payload
+    service_with_cache._http_client=AsyncMock();service_with_cache._http_client.get.return_value=response
+    await service_with_cache._fetch_rates()
+    assert service_with_cache.current_rates == previous
+
+
+def test_production_requires_explicit_enable(test_settings,mock_ws):
+    test_settings.environment="production"
+    service=ForexRateService(test_settings,mock_ws)
+    assert not service.enabled
+    test_settings.forex_enabled=True
+    assert service.enabled

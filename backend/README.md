@@ -35,3 +35,7 @@ For production Raspberry Pi Cloudflare Tunnel setup and callback-only public exp
 
 - **`app/ml/`**: **Machine Learning**. Code related to loading and running the YOLO models for bill authentication.
 - **`tests/`**: **Automated Tests**. Unit and Integration tests to ensure code quality.
+
+## Forex correctness rollout
+
+See [forex verification](../reference/forex_verification.md) for the quote/start API, currency-separated claims, migration backup, regression commands, and hardware acceptance. Production forex defaults to disabled (`FOREX_ENABLED=false`). Deploy the matching frontend and backend together.

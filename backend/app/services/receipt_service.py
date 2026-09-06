@@ -260,8 +260,36 @@ class ReceiptService:
         except Exception as exc:
             logger.error(f"Paperang printing failed: {exc}. Continuing transaction without interruption.")
 
+    async def print_forex_claim(self, state):
+        claim = state.get("claim")
+        if not claim:
+            return
+        lines = ["[CENTER]COINNECT", "[CENTER]FOREX CLAIM", f"Reference: {claim['claim_ticket_code']}",
+                 f"Transaction: {state['transaction_id']}"]
+        for item in claim["items"]:
+            lines.extend([item["kind"].replace("_", " "), f"{item['currency']} {item['amount']} ({item['status']})"])
+        lines.append("Keep this ticket for administrator assistance.")
+        try:
+            await self._queue_print_job(self._render_text_lines(lines))
+        except Exception:
+            logger.exception("Forex claim printing failed; durable claim remains available")
+
     async def print_receipt(self, record: Any) -> None:
         """Prints a successful transaction receipt."""
+        if isinstance(record, dict) and record.get("quote"):
+            q = record["quote"]
+            lines = ["[CENTER]COINNECT", "[CENTER]FOREX RECEIPT",
+                     f"Transaction: {record['transaction_id']}",
+                     f"Rate: 1 {q['to_currency'] if q['from_currency'] == 'PHP' else q['from_currency']} = PHP {q['php_rate']}",
+                     f"Inserted: {q['from_currency']} {record['inserted_amount']}",
+                     f"Principal: PHP {q['converted_amount']}", f"Fee: PHP {q['fee_amount']}"]
+            for name, leg in record["payout_legs"].items():
+                lines.append(f"{name}: {leg['currency']} {leg.get('confirmed', 0)}")
+            try:
+                await self._queue_print_job(self._render_text_lines(lines))
+            except Exception:
+                logger.exception("Forex receipt printing failed")
+            return
         try:
             tx_id = self._get_field(record, "id") or self._get_field(record, "transaction_id") or "UNKNOWN"
             tx_type = self._get_field(record, "type", "transaction")

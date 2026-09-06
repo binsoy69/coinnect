@@ -1,7 +1,7 @@
-"""Forex rate service using Abstract API with local caching.
+"""Forex rate service using Frankfurter API with local caching.
 
 Responsibilities:
-- Fetch live rates from Abstract API
+- Fetch live rates from Frankfurter API
 - Cache rates locally (24h TTL)
 - Provide rate locking for transactions
 - Check internet connectivity
@@ -10,6 +10,9 @@ Responsibilities:
 
 import asyncio
 import logging
+import uuid
+from decimal import Decimal, ROUND_HALF_UP
+from app.models.db_models import ForexQuoteRecord, ForexSetting
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
@@ -41,8 +44,10 @@ class ForexRateService:
         settings: Settings,
         ws_manager: ConnectionManager,
         machine_status: Optional[Any] = None,
+        db_session_factory=None,
     ):
         self._settings = settings
+        self._db_factory = db_session_factory
         self._ws = ws_manager
         self._machine_status = machine_status
         self._cache = ExchangeRateCache()
@@ -63,8 +68,13 @@ class ForexRateService:
     def current_rates(self) -> Dict[str, float]:
         return dict(self._cache.rates)
 
+    @property
+    def enabled(self):
+        return self._settings.environment.lower() != "production" or self._settings.forex_enabled
+
     async def start(self) -> None:
         """Start the rate service: initial fetch + periodic refresh."""
+        await self.initialize_fees()
         self._http_client = httpx.AsyncClient(timeout=10.0)
         await self._check_connectivity()
         if self._is_online:
@@ -90,7 +100,7 @@ class ForexRateService:
         Returns True only if online AND rates are valid.
         """
         await self._check_connectivity()
-        return self._is_online
+        return self._is_online and self.rates_valid and self.enabled
 
     def get_rate(self, currency: str) -> float:
         """Get the current exchange rate for currency -> PHP.
@@ -137,54 +147,75 @@ class ForexRateService:
         Raises:
             RateUnavailableError: If rates are not available.
         """
-        if not self._cache.is_valid:
-            raise RateUnavailableError()
+        allowed = {"usd-to-php": [10, 50], "php-to-usd": [10, 50],
+                   "eur-to-php": [5, 10], "php-to-eur": [5, 10]}
+        if type(amount) is not int or amount not in allowed.get(service_type, []):
+            raise ValueError("Unsupported forex service or amount")
+        from_currency, to_currency = FOREX_PAIRS[ForexServiceType(service_type)]
+        foreign = to_currency if from_currency == Currency.PHP else from_currency
+        rate = Decimal(str(self.get_rate(foreign.value)))
+        fee_pct = self.validate_fee(self.get_fee_percentage(service_type))
+        exact = Decimal(amount) * rate
+        principal = int(exact.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        fee = int((exact * fee_pct / 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        buying = from_currency == Currency.PHP
+        output = amount if buying else principal - fee
+        if output <= 0:
+            raise ValueError("Quote must have a positive payout")
+        return ForexQuote(
+            from_currency=from_currency.value, to_currency=to_currency.value,
+            rate=float(1 / rate if buying else rate), php_rate=str(rate),
+            input_amount=principal + fee if buying else amount,
+            converted_amount=principal, fee_percentage=float(fee_pct), fee_amount=fee,
+            output_amount=output, locked_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            service_type=service_type, selected_amount=amount,
+        )
 
-        pair = FOREX_PAIRS.get(ForexServiceType(service_type))
-        if not pair:
-            raise RateUnavailableError(f"Unknown service type: {service_type}")
+    @staticmethod
+    def validate_fee(value):
+        fee = Decimal(str(value))
+        if not fee.is_finite() or not 0 <= fee < 100 or fee != fee.quantize(Decimal("0.01")):
+            raise ValueError("Forex fee must be from 0 to less than 100 with at most two decimal places")
+        return fee
 
-        from_currency, to_currency = pair
-        fee_pct = self.get_fee_percentage(service_type)
+    async def initialize_fees(self):
+        if self._db_factory is None:
+            return
+        async with self._db_factory() as session:
+            for service in ForexServiceType:
+                key = service.value
+                row = await session.get(ForexSetting, key)
+                if row is None:
+                    row = ForexSetting(key=key, value=str(self.validate_fee(self.get_fee_percentage(key))))
+                    session.add(row)
+                setattr(self._settings, "forex_fee_" + key.replace("-", "_"), float(self.validate_fee(row.value)))
+            await session.commit()
 
-        if from_currency == Currency.PHP:
-            # PHP -> Foreign: user selects foreign amount to receive
-            foreign_currency = to_currency.value
-            php_per_foreign = self.get_rate(foreign_currency)
-            php_equivalent = amount * php_per_foreign
-            fee_amount = round(php_equivalent * (fee_pct / 100))
-            total_php_due = round(php_equivalent) + fee_amount
+    async def update_fees(self, fees):
+        if set(fees) - {s.value for s in ForexServiceType}:
+            raise ValueError("Unknown forex fee service")
+        validated = {k: self.validate_fee(v) for k, v in fees.items()}
+        async with self._db_factory() as session:
+            for key, value in validated.items():
+                row = await session.get(ForexSetting, key)
+                if row is None:
+                    session.add(ForexSetting(key=key, value=str(value)))
+                else:
+                    row.value = str(value)
+            await session.commit()
+        for key, value in validated.items():
+            setattr(self._settings, "forex_fee_" + key.replace("-", "_"), float(value))
 
-            return ForexQuote(
-                from_currency=from_currency.value,
-                to_currency=to_currency.value,
-                rate=round(1 / php_per_foreign, 6),
-                input_amount=total_php_due,
-                converted_amount=round(php_equivalent),
-                fee_percentage=fee_pct,
-                fee_amount=fee_amount,
-                output_amount=amount,
-                locked_at=datetime.now(timezone.utc).replace(tzinfo=None),
-            )
-        else:
-            # Foreign -> PHP: user selects foreign amount to insert
-            foreign_currency = from_currency.value
-            php_per_foreign = self.get_rate(foreign_currency)
-            php_equivalent = amount * php_per_foreign
-            fee_amount = round(php_equivalent * (fee_pct / 100))
-            output_php = round(php_equivalent) - fee_amount
-
-            return ForexQuote(
-                from_currency=from_currency.value,
-                to_currency=to_currency.value,
-                rate=php_per_foreign,
-                input_amount=amount,
-                converted_amount=round(php_equivalent),
-                fee_percentage=fee_pct,
-                fee_amount=fee_amount,
-                output_amount=output_php,
-                locked_at=datetime.now(timezone.utc).replace(tzinfo=None),
-            )
+    async def create_quote(self, service_type, amount):
+        if not await self.check_forex_available():
+            raise RateUnavailableError("Online connectivity and valid rates are required")
+        quote = self.get_quote(service_type, amount)
+        quote.quote_id = str(uuid.uuid4())
+        quote.expires_at = quote.locked_at + timedelta(seconds=60)
+        async with self._db_factory() as session:
+            session.add(ForexQuoteRecord(id=quote.quote_id, data=quote.model_dump(mode="json"), expires_at=quote.expires_at))
+            await session.commit()
+        return quote
 
     async def _check_connectivity(self) -> None:
         """Check internet connectivity by pinging the API host."""
@@ -241,6 +272,8 @@ class ForexRateService:
                 if php_to_foreign > 0:
                     rates[currency_code] = round(1 / php_to_foreign, 4)
 
+            if not all(k in rates and Decimal(str(rates[k])).is_finite() and rates[k] > 0 for k in ("USD", "EUR")):
+                raise ValueError("Incomplete or invalid forex rates")
             now = datetime.now(timezone.utc).replace(tzinfo=None)
             self._cache = ExchangeRateCache(
                 rates=rates,

@@ -47,28 +47,31 @@ ADMIN_REASONS = {"REFILL", "PHYSICAL_COUNT", "CORRECTION"}
 class InventoryService:
     async def hold(self, transaction_id, quantities):
         async with self._db_factory() as session:
-            rows = (await session.execute(select(InventoryHold).where(InventoryHold.state == "HELD"))).scalars().all()
-            other = {}
-            own = None
-            for row in rows:
-                if row.transaction_id == transaction_id:
-                    own = row
-                else:
-                    for key, count in row.quantities.items():
-                        other[key] = other.get(key, 0) + count
-            for key, count in quantities.items():
-                location, denomination = key.split(":", 1)
-                balance = await self._get_balance(session, InventoryLocation(location), denomination)
-                if balance.count - other.get(key, 0) < count:
-                    raise ValueError("Insufficient unheld inventory")
-            if own is None:
-                own = (await session.execute(select(InventoryHold).where(InventoryHold.transaction_id == transaction_id))).scalar_one_or_none()
-            if own is None:
-                own = InventoryHold(id=transaction_id, transaction_id=transaction_id)
-                session.add(own)
-            own.quantities, own.state = quantities, "HELD"
+            await self.hold_in_session(session, transaction_id, quantities)
             await session.commit()
         await self._refresh_runtime()
+
+    async def hold_in_session(self, session, transaction_id, quantities):
+        rows = (await session.execute(select(InventoryHold).where(InventoryHold.state == "HELD"))).scalars().all()
+        other = {}
+        own = None
+        for row in rows:
+            if row.transaction_id == transaction_id:
+                own = row
+            else:
+                for key, count in row.quantities.items():
+                    other[key] = other.get(key, 0) + count
+        for key, count in quantities.items():
+            location, denomination = key.split(":", 1)
+            balance = await self._get_balance(session, InventoryLocation(location), denomination)
+            if balance.count - other.get(key, 0) < count:
+                raise ValueError("Insufficient unheld inventory")
+        if own is None:
+            own = (await session.execute(select(InventoryHold).where(InventoryHold.transaction_id == transaction_id))).scalar_one_or_none()
+        if own is None:
+            own = InventoryHold(id=transaction_id, transaction_id=transaction_id)
+            session.add(own)
+        own.quantities, own.state = quantities, "HELD"
 
     async def release_hold(self, transaction_id):
         async with self._db_factory() as session:

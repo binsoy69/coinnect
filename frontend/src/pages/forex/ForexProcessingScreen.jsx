@@ -11,16 +11,15 @@ export default function ForexProcessingScreen() {
   const { forex } = useForex();
   const {
     backendState,
-    dispenseProgress,
     transactionId,
     confirmForexTransaction,
     refreshForexTransaction,
   } = useForexTransaction();
   const navigationComplete = useRef(false);
-  const statusText =
-    dispenseProgress?.dispensed != null && dispenseProgress?.total != null
-      ? `Dispensing ${dispenseProgress.dispensed}/${dispenseProgress.total}`
-      : "Dispensing Money";
+  const submitted = useRef(false);
+  const statusText = Object.entries(backendState?.payout_legs || {})
+    .map(([name, leg]) => `${name === "CHANGE" ? "Change" : "Exchange"}: ${leg.currency} ${leg.confirmed || 0}/${leg.plan.total_amount}`)
+    .join(" · ") || "Dispensing money";
 
   const handleState = useCallback((data) => {
     if (navigationComplete.current) return true;
@@ -30,7 +29,7 @@ export default function ForexProcessingScreen() {
       return true;
     }
     if (
-      data?.state === "ERROR" ||
+      data?.state === "ERROR" || data?.state === "CLAIM_REQUIRED" || data?.state === "CANCELLED" ||
       Boolean(data?.claim_ticket_code) ||
       data?.shortfall != null
     ) {
@@ -47,6 +46,8 @@ export default function ForexProcessingScreen() {
       navigate(getForexRoute(ROUTES.FOREX_WARNING, forex.serviceType));
       return;
     }
+    if (submitted.current) return;
+    submitted.current = true;
     confirmForexTransaction()
       .then(handleState)
       .catch(async (err) => {

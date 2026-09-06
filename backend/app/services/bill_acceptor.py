@@ -34,6 +34,7 @@ class BillAcceptResult(BaseModel):
     auth_confidence: Optional[float] = None
     denom_confidence: Optional[float] = None
     error: Optional[str] = None
+    retention: str = "EJECTED"
 
 
 class BillAcceptor:
@@ -151,7 +152,7 @@ class BillAcceptor:
         try:
             return await task
         except asyncio.CancelledError:
-            return BillAcceptResult(error="INTAKE_INTERRUPTED")
+            return BillAcceptResult(error="INTAKE_INTERRUPTED", retention="UNCERTAIN")
         finally:
             await self._safe_shutdown()
             if self._acceptance_task is task:
@@ -373,6 +374,7 @@ class BillAcceptor:
 
             return BillAcceptResult(
                 success=True,
+                retention="RETAINED",
                 denomination=denomination,
                 value=bill_value,
                 auth_confidence=auth_result.confidence,
@@ -387,7 +389,7 @@ class BillAcceptor:
                 WSEventType.ERROR,
                 {"error": str(e), "context": "bill_acceptance"},
             )
-            return BillAcceptResult(error=str(e))
+            return BillAcceptResult(error=str(e), retention="UNCERTAIN")
 
     async def _position_bill(self) -> bool:
         """Pull bill from entry to camera position, stopping when the position IR sensor is triggered.

@@ -45,6 +45,7 @@ class EventDispatcher:
         self._ws = ws_manager
         self._inventory = inventory_service
         self._transaction_orchestrator = transaction_orchestrator
+        self._forex_orchestrator = None
         self._ewallet_orchestrator = ewallet_orchestrator
         self._admin_sessions = admin_session_service
         self._coin_controller = coin_controller
@@ -53,6 +54,9 @@ class EventDispatcher:
         self._bill_acceptor = bill_acceptor
         self._running = False
         self._task = None
+
+    def set_forex_orchestrator(self, orchestrator):
+        self._forex_orchestrator = orchestrator
 
     def set_transaction_orchestrator(self, transaction_orchestrator: Any) -> None:
         self._transaction_orchestrator = transaction_orchestrator
@@ -193,6 +197,9 @@ class EventDispatcher:
         for result in results:
             if isinstance(result, Exception):
                 logger.error("Emergency stop failed: %s", result)
+
+        if self._forex_orchestrator is not None:
+            await self._forex_orchestrator.handle_tamper(parsed.sensor)
 
         # 3. Active transaction handling
         if self._ewallet_orchestrator is not None:

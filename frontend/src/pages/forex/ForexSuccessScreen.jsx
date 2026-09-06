@@ -8,7 +8,7 @@ import { useForexTransaction } from "../../hooks/useForexTransaction";
 
 export default function ForexSuccessScreen() {
   const navigate = useNavigate();
-  const { resetForexTransaction } = useForex();
+  const { resetForexTransaction, backendState } = useForex();
   const { resetForexTransaction: resetBackend } = useForexTransaction();
 
   const handleExit = () => {
@@ -43,9 +43,10 @@ export default function ForexSuccessScreen() {
         className="text-center text-white mb-10"
       >
         <h1 className="text-3xl font-bold mb-2">
-          Successfully dispensed excess money!
+          Foreign exchange completed!
         </h1>
         <p className="text-xl">Check the cash tray.</p>
+        {Object.entries(backendState?.payout_legs || {}).map(([name, leg]) => <p key={name}>{name === "CHANGE" ? "Change" : "Exchange"}: {leg.currency} {leg.confirmed}</p>)}
       </motion.div>
 
       {/* Buttons */}

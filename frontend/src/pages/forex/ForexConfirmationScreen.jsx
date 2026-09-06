@@ -10,7 +10,7 @@ import { useForexTransaction } from "../../hooks/useForexTransaction";
 
 export default function ForexConfirmationScreen() {
   const navigate = useNavigate();
-  const { forex, lockRate, getForexConfig } = useForex();
+  const { forex, lockRate, getForexConfig, setSelectedAmount } = useForex();
   const { startForexBackendTransaction } = useForexTransaction();
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
@@ -33,6 +33,11 @@ export default function ForexConfirmationScreen() {
       lockRate();
       navigate(getForexRoute(ROUTES.FOREX_INSERT, forex.serviceType));
     } catch (err) {
+      if (err.message?.includes("QUOTE_EXPIRED")) {
+        await setSelectedAmount(forex.selectedAmount).catch(() => {});
+        setErrorMsg("Quote expired. Review the refreshed amounts before proceeding.");
+        return;
+      }
       setErrorMsg(err.message || "Failed to start forex transaction. Please check machine inventory and try again.");
     } finally {
       setLoading(false);
@@ -45,6 +50,8 @@ export default function ForexConfirmationScreen() {
 
   // Determine display values based on direction
   const isForeignIn = isForeignToPhp(forex.serviceType);
+
+  if (!forex.selectedAmount) return <p>Select a quote or wait for transaction recovery.</p>;
 
   const amountSelected = isForeignIn
     ? formatCurrency(forex.selectedAmount, forex.fromCurrency)
@@ -138,7 +145,7 @@ export default function ForexConfirmationScreen() {
         className="text-white/80 text-sm mt-8"
       >
         <span className="font-bold">Note:</span> The transaction fee is
-        automatically deducted from the inserted amount.
+        included in the quote above and is charged in PHP.
       </motion.p>
 
       {errorMsg && (

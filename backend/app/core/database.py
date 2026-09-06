@@ -25,6 +25,19 @@ _engine = None
 _session_factory = None
 
 
+def _backup_before_forex_migration(database: str | None) -> None:
+    if not database or database == ":memory:" or not Path(database).is_file():
+        return
+    with sqlite3.connect(database) as source:
+        if source.execute("SELECT 1 FROM sqlite_master WHERE name='forex_sessions'").fetchone():
+            return
+        destination = f"{database}.{datetime.utcnow():%Y%m%dT%H%M%S%f}.pre-forex.backup"
+        with open(destination, "xb"):
+            pass
+        with sqlite3.connect(destination) as backup:
+            source.backup(backup)
+
+
 def _backup_before_wallet_migration(database: str | None) -> None:
     """Use SQLite's backup API so committed WAL data is included in the copy."""
     if not database or database == ":memory:" or not Path(database).is_file():
@@ -78,6 +91,7 @@ async def init_db() -> None:
 
     engine = get_engine()
     await asyncio.to_thread(_backup_before_wallet_migration, engine.url.database)
+    await asyncio.to_thread(_backup_before_forex_migration, engine.url.database)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

@@ -1,18 +1,23 @@
-import { useState } from "react";
+import { useEffect } from "react";
+
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import Button from "../../components/common/Button";
 import { ROUTES, getForexRoute } from "../../constants/routes";
 import { useForex } from "../../context/ForexContext";
-import { useForexTransaction } from "../../hooks/useForexTransaction";
+
 import { formatCurrency, isForeignToPhp } from "../../constants/forexData";
 
 export default function ForexSummaryScreen() {
   const navigate = useNavigate();
-  const { forex, getForexConfig } = useForex();
-  const { confirmForexTransaction, transactionId } = useForexTransaction();
+  const { forex, getForexConfig, backendState } = useForex();
+
   const config = getForexConfig();
-  const [confirming, setConfirming] = useState(false);
+  const confirming = false;
+
+  useEffect(() => {
+    if (["CLAIM_REQUIRED", "ERROR", "CANCELLED"].includes(backendState?.state)) navigate(getForexRoute(ROUTES.FOREX_WARNING, forex.serviceType));
+  }, [backendState?.state, navigate, forex.serviceType]);
 
   if (!config) {
     navigate(ROUTES.FOREX);
@@ -30,13 +35,15 @@ export default function ForexSummaryScreen() {
   const isForeignIn = isForeignToPhp(forex.serviceType);
 
   // Display values
+  if (!forex.selectedAmount) return <p>Restoring transaction…</p>;
+
   const moneyInserted = isForeignIn
     ? formatCurrency(forex.moneyInserted, forex.fromCurrency)
     : `P${forex.moneyInserted}`;
 
   const convertedAmount = isForeignIn
     ? `P${forex.convertedAmount}`
-    : formatCurrency(forex.convertedAmount, forex.toCurrency);
+    : `P${forex.convertedAmount}`;
 
   const transactionFee = `P${forex.feeAmount}`;
 
@@ -72,6 +79,8 @@ export default function ForexSummaryScreen() {
             <p className="text-sm opacity-80 mb-1">Service Type</p>
             <p className="text-xl font-bold">{config.name}</p>
           </div>
+
+          {backendState?.payout_legs?.CHANGE && <p className="text-center text-xl">PHP change to return: PHP {backendState.payout_legs.CHANGE.plan.total_amount}</p>}
 
           {/* Grid for amounts */}
           <div className="grid grid-cols-2 gap-4 mt-6">

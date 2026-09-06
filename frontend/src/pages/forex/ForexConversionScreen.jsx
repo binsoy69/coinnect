@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import PageLayout from "../../components/layout/PageLayout";
@@ -6,12 +7,16 @@ import Clock from "../../components/common/Clock";
 import { ExchangeRateCard, ConversionDisplay } from "../../components/forex";
 import { ROUTES, getForexRoute } from "../../constants/routes";
 import { useForex } from "../../context/ForexContext";
-import { isForeignToPhp, MOCK_EXCHANGE_RATES } from "../../constants/forexData";
+import { isForeignToPhp } from "../../constants/forexData";
 
 export default function ForexConversionScreen() {
   const navigate = useNavigate();
-  const { forex, getForexConfig, backendRates } = useForex();
+  const { forex, getForexConfig, backendState } = useForex();
   const config = getForexConfig();
+
+  useEffect(() => {
+    if (["CLAIM_REQUIRED", "ERROR", "CANCELLED"].includes(backendState?.state)) navigate(getForexRoute(ROUTES.FOREX_WARNING, forex.serviceType));
+  }, [backendState?.state, navigate, forex.serviceType]);
 
   if (!config) {
     navigate(ROUTES.FOREX);
@@ -23,25 +28,11 @@ export default function ForexConversionScreen() {
   };
 
   const isForeignIn = isForeignToPhp(forex.serviceType);
-  const rates = backendRates || MOCK_EXCHANGE_RATES;
-
-  // Calculate conversion based on actual inserted amount
   const insertedAmount = forex.moneyInserted;
-  let convertedAmount, fromCurrency, toCurrency;
-
-  if (isForeignIn) {
-    // Foreign to PHP
-    const rate = rates[forex.fromCurrency];
-    convertedAmount = Math.round(insertedAmount * rate * 1000) / 1000; // 3 decimal places
-    fromCurrency = forex.fromCurrency;
-    toCurrency = "PHP";
-  } else {
-    // PHP to Foreign
-    const rate = 1 / rates[forex.toCurrency];
-    convertedAmount = Math.round(insertedAmount * rate * 10000) / 10000; // 4 decimal places
-    fromCurrency = "PHP";
-    toCurrency = forex.toCurrency;
-  }
+  const convertedAmount = forex.convertedAmount;
+  const fromCurrency = isForeignIn ? forex.fromCurrency : forex.toCurrency;
+  const toCurrency = "PHP";
+  if (!forex.selectedAmount) return <p>Restoring transaction…</p>;
 
   // Header subtitle
   const headerSubtitle = `${config.name} Conversion`;
@@ -102,7 +93,7 @@ export default function ForexConversionScreen() {
               Currency Exchange Rates
             </h2>
             <p className="text-gray-500 text-sm">
-              *The rate changes every minute.
+              The confirmed rate is locked for this transaction.
             </p>
           </motion.div>
 
@@ -118,7 +109,7 @@ export default function ForexConversionScreen() {
               countryName={config.countryName}
               currencyCode={isForeignIn ? forex.fromCurrency : "PHP"}
               rate={forex.exchangeRate}
-              targetCurrency="PHP"
+              targetCurrency={forex.toCurrency}
             />
           </motion.div>
 
@@ -137,7 +128,7 @@ export default function ForexConversionScreen() {
             </p>
 
             <ConversionDisplay
-              fromAmount={insertedAmount}
+              fromAmount={forex.selectedAmount}
               fromCurrency={fromCurrency}
               toAmount={convertedAmount}
               toCurrency={toCurrency}

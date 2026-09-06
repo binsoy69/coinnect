@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useForexTransaction } from "../../hooks/useForexTransaction";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import PageLayout from "../../components/layout/PageLayout";
@@ -6,30 +6,14 @@ import Button from "../../components/common/Button";
 import { ExchangeRateCard, CurrencyAmountGrid } from "../../components/forex";
 import { ROUTES, getForexRoute } from "../../constants/routes";
 import { useForex } from "../../context/ForexContext";
-import { isForeignToPhp, CURRENCY_SYMBOLS } from "../../constants/forexData";
-import { API_BASE } from "../../constants/api";
+import { isForeignToPhp } from "../../constants/forexData";
+
 
 export default function ExchangeRateScreen() {
   const navigate = useNavigate();
   const { forex, setSelectedAmount, getForexConfig } = useForex();
   const config = getForexConfig();
-  const [inventory, setInventory] = useState(null);
-
-  useEffect(() => {
-    const fetchInventory = async () => {
-      try {
-        const resp = await fetch(`${API_BASE}/inventory`);
-        if (resp.ok) {
-          const data = await resp.json();
-          setInventory(data);
-        }
-      } catch (err) {
-        console.error("Error fetching inventory:", err);
-      }
-    };
-    fetchInventory();
-  }, []);
-
+  const { availability, isOnline, isLoading, error, fetchedAt } = useForexTransaction();
   if (!config) {
     navigate(ROUTES.FOREX);
     return null;
@@ -50,47 +34,9 @@ export default function ExchangeRateScreen() {
     ? forex.fromCurrency // For foreign→PHP: select foreign amount
     : forex.toCurrency; // For PHP→foreign: select foreign amount to receive
 
-  const disabledAmounts = useMemo(() => {
-    if (!inventory) return [];
-    
-    const isDispense = !isForeignToPhp(forex.serviceType);
-    if (!isDispense) return [];
-
-    // Check dispenser availability
-    const denoms = config.acceptDenominations || []; // e.g. [10, 50] for USD
-    const dispenser = inventory.bill_dispenser_counts || {};
-    const available = denoms.filter(d => (dispenser[`${selectionCurrency}_${d}`] || 0) > 0);
-    
-    if (available.length === 0) {
-      return config.amountOptions || [];
-    }
-
-    const minAvailable = Math.min(...available);
-    return (config.amountOptions || []).filter(amount => amount % minAvailable !== 0);
-  }, [inventory, config, forex.serviceType, selectionCurrency]);
-
-  const warningMessage = useMemo(() => {
-    if (!inventory) return null;
-    const isDispense = !isForeignToPhp(forex.serviceType);
-    if (!isDispense) return null;
-
-    const denoms = config.acceptDenominations || [];
-    const dispenser = inventory.bill_dispenser_counts || {};
-    const available = denoms.filter(d => (dispenser[`${selectionCurrency}_${d}`] || 0) > 0);
-
-    if (available.length === 0) {
-      return `Warning: No ${selectionCurrency} bills are currently available in the dispenser.`;
-    }
-
-    const minAvailable = Math.min(...available);
-    if (available.length < denoms.length) {
-      const emptyDenoms = denoms.filter(d => !available.includes(d));
-      const formattedEmpty = emptyDenoms.map(d => `${CURRENCY_SYMBOLS[selectionCurrency] || ""}${d}`).join(", ");
-      return `Notice: ${formattedEmpty} bills are currently out of stock. Selected amount must be a multiple of ${CURRENCY_SYMBOLS[selectionCurrency] || ""}${minAvailable}.`;
-    }
-
-    return null;
-  }, [inventory, config, forex.serviceType, selectionCurrency]);
+  const choices = availability[forex.serviceType] || [];
+  const disabledAmounts = (config.amountOptions || []).filter(amount => !choices.some(c => c.amount === amount && c.available));
+  const warningMessage = error || (!isOnline ? "Forex requires an internet connection and valid rates." : choices.filter(c => !c.available).map(c => `${c.amount}: ${c.reason}`).join("; "));
 
   // Get the label for selection
   const selectionLabel = isForeignToPhp(forex.serviceType)
@@ -123,7 +69,7 @@ export default function ExchangeRateScreen() {
             Live Foreign Currency Exchange Rates
           </h1>
           <p className="text-coinnect-forex text-sm">
-            *This rate changes every 60 seconds
+            Rates refresh hourly. {fetchedAt ? `Last fetched: ${new Date(fetchedAt + "Z").toLocaleString()}` : "Loading rates…"}
           </p>
         </motion.div>
 
@@ -143,7 +89,7 @@ export default function ExchangeRateScreen() {
                 : forex.fromCurrency
             }
             rate={rateDisplay}
-            targetCurrency="PHP"
+            targetCurrency={forex.toCurrency}
           />
         </motion.div>
 
@@ -173,7 +119,7 @@ export default function ExchangeRateScreen() {
             amounts={config.amountOptions}
             currency={selectionCurrency}
             selectedAmount={forex.selectedAmount}
-            onSelect={setSelectedAmount}
+            onSelect={amount => setSelectedAmount(amount).catch(() => {})}
             disabledAmounts={disabledAmounts}
           />
         </motion.div>
@@ -188,7 +134,7 @@ export default function ExchangeRateScreen() {
             variant="primary"
             size="xl"
             onClick={handleProceed}
-            disabled={!forex.selectedAmount}
+            disabled={isLoading || !forex.selectedAmount || disabledAmounts.includes(forex.selectedAmount)}
             className="min-w-[200px] !bg-coinnect-forex hover:!bg-coinnect-forex/90 !text-white"
           >
             Proceed

@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from typing import Dict, Optional
+from decimal import Decimal
 
 from pydantic import BaseModel
 
@@ -27,7 +28,9 @@ class ExchangeRateCache(BaseModel):
     def is_valid(self) -> bool:
         if not self.fetched_at or not self.expires_at:
             return False
-        return datetime.now(timezone.utc).replace(tzinfo=None) < self.expires_at
+        return (all(k in self.rates and Decimal(str(self.rates[k])).is_finite()
+                    and self.rates[k] > 0 for k in ("USD", "EUR"))
+                and datetime.now(timezone.utc).replace(tzinfo=None) < self.expires_at)
 
     @property
     def is_expired(self) -> bool:
@@ -41,11 +44,16 @@ class ForexQuote(BaseModel):
     to_currency: str
     rate: float
     input_amount: float  # Amount in source currency
-    converted_amount: float  # Amount in target currency (before fee)
+    converted_amount: float  # Rounded PHP principal, in either direction
     fee_percentage: float
-    fee_amount: float  # Fee in target currency
+    fee_amount: float  # Fee always denominated in PHP
     output_amount: float  # Final amount after fee (what user receives)
     locked_at: datetime
+    quote_id: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    service_type: Optional[str] = None
+    selected_amount: Optional[int] = None
+    php_rate: Optional[str] = None
 
 
 class ForexTransactionRequest(BaseModel):

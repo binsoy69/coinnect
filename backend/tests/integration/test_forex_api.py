@@ -21,6 +21,7 @@ from app.models.forex import ExchangeRateCache
 def mock_forex_rate_service():
     """Mock forex rate service with valid cache."""
     service = MagicMock()
+    service.enabled = True
     now = datetime.utcnow()
     service._cache = ExchangeRateCache(
         rates={"USD": 58.7656, "EUR": 61.7246},
@@ -45,6 +46,7 @@ def mock_forex_rate_service():
         locked_at=now,
     ))
 
+    service.create_quote = AsyncMock(return_value=service.get_quote.return_value)
     service.check_forex_available = AsyncMock(return_value=True)
     return service
 
@@ -53,6 +55,7 @@ def mock_forex_rate_service():
 def mock_forex_orchestrator():
     """Mock forex transaction orchestrator."""
     orch = MagicMock()
+    orch.availability = AsyncMock(return_value={})
     orch.has_active_transaction = False
     orch.active_transaction_id = None
     orch.start_transaction = AsyncMock(return_value={
@@ -174,8 +177,8 @@ class TestGetQuote:
 class TestStartTransaction:
     def test_start_transaction(self, client, mock_forex_orchestrator):
         resp = client.post("/api/v1/forex/transaction", json={
-            "service_type": "usd-to-php",
-            "selected_amount": 100,
+            "quote_id": "reviewed-quote",
+            "idempotency_key": "retry-key-123",
         })
         assert resp.status_code == 200
         data = resp.json()

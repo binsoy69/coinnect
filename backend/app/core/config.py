@@ -148,6 +148,7 @@ class Settings(BaseSettings):
     db_url: str = "sqlite+aiosqlite:///./coinnect.db"
 
     # Forex
+    forex_enabled: bool = False  # Enable in production only after hardware acceptance.
     forex_api_key: str = ""
     forex_api_url: str = "https://api.frankfurter.dev/v1/latest"
     forex_cache_ttl_seconds: int = 86400  # 24 hours
@@ -159,6 +160,15 @@ class Settings(BaseSettings):
     fee_coin_to_bill: int = 3
 
     # Forex fees (percentage per currency pair)
+    @field_validator("forex_fee_usd_to_php", "forex_fee_php_to_usd", "forex_fee_eur_to_php", "forex_fee_php_to_eur")
+    @classmethod
+    def validate_forex_fee(cls, value):
+        from decimal import Decimal
+        fee = Decimal(str(value))
+        if not fee.is_finite() or not 0 <= fee < 100 or fee != fee.quantize(Decimal("0.01")):
+            raise ValueError("Forex fees must be finite, >= 0, < 100, with at most two decimal places")
+        return value
+
     forex_fee_usd_to_php: float = 5.0
     forex_fee_php_to_usd: float = 5.0
     forex_fee_eur_to_php: float = 5.0

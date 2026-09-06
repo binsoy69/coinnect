@@ -4,7 +4,7 @@ import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -15,16 +15,17 @@ router = APIRouter(prefix="/forex", tags=["forex"])
 
 
 class ForexStartRequest(BaseModel):
-    service_type: str  # "usd-to-php", "php-to-usd", "eur-to-php", "php-to-eur"
-    selected_amount: int  # Foreign currency amount
-    selected_dispense_denoms: List[int] = []
+    quote_id: str = Field(min_length=1, max_length=64)
+    idempotency_key: str = Field(min_length=8, max_length=128)
 
 
 class ForexRatesResponse(BaseModel):
+    availability: dict = {}
     rates: dict  # {"USD": 58.7656, "EUR": 61.7246}
     fetched_at: Optional[str] = None
     valid: bool = False
     online: bool = False
+    enabled: bool = True
     fees: dict = {}  # {"usd-to-php": 5.0, ...}
 
 
@@ -59,6 +60,12 @@ class ForexTransactionResponse(BaseModel):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     completed_at: Optional[str] = None
+    revision: int = 0
+    deadline: Optional[str] = None
+    quote: Optional[dict] = None
+    payout_legs: dict = {}
+    claim: Optional[dict] = None
+    legacy_review_required: bool = False
     # Forex fields
     from_currency: Optional[str] = None
     to_currency: Optional[str] = None
@@ -76,6 +83,7 @@ async def get_forex_rates(request: Request):
     """Get current exchange rates and availability status."""
     forex_service = request.app.state.forex_rate_service
     return ForexRatesResponse(
+        availability=await request.app.state.forex_transaction_orchestrator.availability(),
         rates=forex_service.current_rates,
         fetched_at=(
             forex_service._cache.fetched_at.isoformat()
@@ -84,6 +92,7 @@ async def get_forex_rates(request: Request):
         ),
         valid=forex_service.rates_valid,
         online=forex_service.is_online,
+        enabled=forex_service.enabled,
         fees={
             "usd-to-php": forex_service.get_fee_percentage("usd-to-php"),
             "php-to-usd": forex_service.get_fee_percentage("php-to-usd"),
@@ -106,17 +115,8 @@ async def get_forex_quote(
     """
     forex_service = request.app.state.forex_rate_service
     try:
-        quote = forex_service.get_quote(service_type, amount)
-        return ForexQuoteResponse(
-            from_currency=quote.from_currency,
-            to_currency=quote.to_currency,
-            rate=quote.rate,
-            input_amount=quote.input_amount,
-            converted_amount=quote.converted_amount,
-            fee_percentage=quote.fee_percentage,
-            fee_amount=quote.fee_amount,
-            output_amount=quote.output_amount,
-        )
+        quote = await forex_service.create_quote(service_type, amount)
+        return quote.model_dump(mode="json")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -127,9 +127,7 @@ async def start_forex_transaction(req: ForexStartRequest, request: Request):
     orchestrator = request.app.state.forex_transaction_orchestrator
     try:
         state = await orchestrator.start_transaction(
-            service_type=req.service_type,
-            selected_amount=req.selected_amount,
-            selected_dispense_denoms=req.selected_dispense_denoms,
+            quote_id=req.quote_id, idempotency_key=req.idempotency_key,
         )
         return ForexTransactionResponse(**_map_state(state))
     except Exception as e:
@@ -158,7 +156,7 @@ async def cancel_forex_transaction(transaction_id: str, request: Request):
     try:
         if orchestrator.active_transaction_id != transaction_id:
             raise HTTPException(status_code=404, detail="Transaction not active")
-        state = await orchestrator.cancel_transaction()
+        state = await orchestrator.cancel_transaction(transaction_id)
         return ForexTransactionResponse(**_map_state(state))
     except HTTPException:
         raise
@@ -192,7 +190,7 @@ async def confirm_forex_transaction(transaction_id: str, request: Request):
                     status_code=409, detail="Transaction is not confirmable"
                 )
             return ForexTransactionResponse(**_map_state(state))
-        state = await orchestrator.confirm_transaction()
+        state = await orchestrator.confirm_transaction(transaction_id)
         return ForexTransactionResponse(**_map_state(state))
     except HTTPException:
         raise
@@ -209,7 +207,7 @@ async def trigger_forex_bill_acceptance(transaction_id: str, request: Request):
             raise HTTPException(
                 status_code=404, detail="Transaction not active"
             )
-        state = await orchestrator.handle_bill_inserted()
+        state = await orchestrator.handle_bill_inserted(transaction_id)
         return ForexTransactionResponse(**_map_state(state))
     except HTTPException:
         raise
@@ -224,6 +222,17 @@ async def trigger_forex_bill_acceptance(transaction_id: str, request: Request):
                 "state": None,
             },
         )
+
+
+@router.post("/transaction/{transaction_id}/continue")
+async def continue_forex(transaction_id: str, request: Request):
+    orchestrator = request.app.state.forex_transaction_orchestrator
+    if orchestrator.active_transaction_id != transaction_id:
+        raise HTTPException(status_code=409, detail="Transaction is not active")
+    try:
+        return await orchestrator.continue_transaction(transaction_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/transaction/{transaction_id}/simulate-insert")
@@ -269,7 +278,7 @@ async def simulate_forex_insert(
             except (ValueError, KeyError):
                 raise HTTPException(status_code=400, detail=f"Invalid denomination: {denom}")
 
-        state = await orchestrator.handle_bill_inserted()
+        state = await orchestrator.handle_bill_inserted(transaction_id)
         return state
     except HTTPException:
         raise

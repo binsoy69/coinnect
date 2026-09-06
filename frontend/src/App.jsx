@@ -3,8 +3,9 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import AppRoutes from './routes';
 import { useWebSocket } from './context/WebSocketContext';
+import { useForex } from './context/ForexContext';
 import { useTransaction } from './context/TransactionContext';
-import { ROUTES, getServiceRoute } from './constants/routes';
+import { ROUTES, getServiceRoute, getForexRoute } from './constants/routes';
 import { API_BASE } from './constants/api';
 import StartupChecksScreen from './pages/StartupChecksScreen';
 
@@ -13,6 +14,7 @@ const TOKEN_KEY = "coinnect_admin_token";
 function App() {
   const location = useLocation();
   const { backendState } = useTransaction();
+  const { backendState: forexState, forex } = useForex();
   const navigate = useNavigate();
   const { subscribe, unsubscribe, isConnected } = useWebSocket();
   const [startupState, setStartupState] = useState(null);
@@ -35,11 +37,26 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (isConnected) {
-      fetchStatus();
-    } else {
-      setIsConnecting(true);
+    if (!forexState || !forex.serviceType || !(location.pathname.startsWith('/forex') || location.pathname === '/')) return;
+    let route;
+    if (forexState.state === 'COMPLETE') route = ROUTES.FOREX_SUCCESS;
+    else if (['CLAIM_REQUIRED', 'ERROR', 'CANCELLED', 'RESOLVED'].includes(forexState.state)) route = ROUTES.FOREX_WARNING;
+    else if (forexState.state === 'DISPENSING') route = ROUTES.FOREX_PROCESSING;
+    else if (location.pathname === '/' || ['/forex', '/forex/reminder'].includes(location.pathname) || location.pathname.endsWith('/rate') || location.pathname.endsWith('/confirm')) {
+      route = forexState.state === 'WAITING_FOR_CONFIRMATION' ? ROUTES.FOREX_SUMMARY : ROUTES.FOREX_INSERT;
     }
+    if (route) {
+      const destination = getForexRoute(route, forex.serviceType);
+      if (location.pathname !== destination) navigate(destination, { replace: true });
+    }
+  }, [forexState, forex.serviceType, location.pathname, navigate]);
+
+  useEffect(() => {
+    const task = setTimeout(() => {
+      if (isConnected) fetchStatus();
+      else setIsConnecting(true);
+    }, 0);
+    return () => clearTimeout(task);
   }, [isConnected, fetchStatus]);
 
   useEffect(() => {

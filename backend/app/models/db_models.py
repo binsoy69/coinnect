@@ -474,6 +474,65 @@ class ConverterQuote(Base):
     )
 
 
+class ForexQuoteRecord(Base):
+    __tablename__ = "forex_quotes"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    data: Mapped[dict] = mapped_column(JSON, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class ForexSession(Base):
+    __tablename__ = "forex_sessions"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    quote_id: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    quote: Mapped[dict] = mapped_column(JSON, nullable=False)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    deadline: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    legs: Mapped[dict] = mapped_column(JSON, default=dict)
+    payout_started: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class ForexIntake(Base):
+    __tablename__ = "forex_intakes"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    transaction_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    denomination: Mapped[str] = mapped_column(String, nullable=False)
+    value: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String, default="PREPARED")
+    resolved_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    resolution_notes: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+
+class ForexClaimTicket(Base):
+    __tablename__ = "forex_claim_tickets"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    transaction_id: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    reason: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ForexClaimItem(Base):
+    __tablename__ = "forex_claim_items"
+    __table_args__ = (UniqueConstraint("ticket_id", "kind", name="uq_forex_claim_item"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    ticket_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    currency: Mapped[str] = mapped_column(String, nullable=False)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String, default="OPEN")
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    resolved_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    resolution_notes: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+
+class ForexSetting(Base):
+    __tablename__ = "forex_settings"
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str] = mapped_column(String, nullable=False)
+
+
 class ConverterIntakeOperation(Base):
     """Durable bill intake operation record."""
 

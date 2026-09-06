@@ -194,7 +194,7 @@ async def lifespan(app: FastAPI):
     event_dispatcher.set_transaction_orchestrator(transaction_orchestrator)
 
     # --- Phase 5: Forex services ---
-    forex_rate_service = ForexRateService(settings, ws_manager, machine_status)
+    forex_rate_service = ForexRateService(settings, ws_manager, machine_status, get_session_factory())
 
     forex_transaction_orchestrator = ForexTransactionOrchestrator(
         bill_acceptor=bill_acceptor,
@@ -206,7 +206,10 @@ async def lifespan(app: FastAPI):
         operation_mode=operation_mode,
         receipt_service=receipt_service,
         claim_service=claim_service,
+        inventory_service=inventory_service,
     )
+
+    event_dispatcher.set_forex_orchestrator(forex_transaction_orchestrator)
 
     # --- Phase 4: PayMongo e-wallet services ---
     paymongo_client = PayMongoClient(settings)
@@ -361,6 +364,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Coinnect backend shutting down")
+    await forex_transaction_orchestrator.stop()
     await forex_rate_service.stop()
     await gateway_inbox.stop()
     await ewallet_orchestrator.stop()
