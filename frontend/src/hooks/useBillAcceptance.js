@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { API_BASE } from "../constants/api";
 import { useWebSocket } from "../context/WebSocketContext";
+import { walletRequest } from "../lib/ewalletApi";
 
 /**
  * Hook to manage physical bill acceptance loop for a given transaction.
@@ -55,6 +56,12 @@ export function useBillAcceptance(transactionId, apiPrefix, enabled, onAccepted)
       setIsAccepting(true);
       while (!cancelled) {
         try {
+          if (apiPrefix.startsWith("/ewallet")) {
+            const data = await walletRequest(`${apiPrefix}/${transactionId}/accept-bill`, { method: "POST" });
+            if (!cancelled) onAcceptedRef.current?.(data);
+            if (data.state !== "ACCEPTING_CASH") break;
+            continue;
+          }
           const resp = await fetch(`${API_BASE}${apiPrefix}/${transactionId}/accept-bill`, {
             method: "POST",
           });
@@ -86,6 +93,7 @@ export function useBillAcceptance(transactionId, apiPrefix, enabled, onAccepted)
             setLastError(data.last_rejection || data.error);
           }
         } catch (err) {
+          if (apiPrefix.startsWith("/ewallet") && !cancelled && err.message !== "NO_BILL_DETECTED") setLastError(err.message);
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
       }
@@ -107,4 +115,3 @@ export function useBillAcceptance(transactionId, apiPrefix, enabled, onAccepted)
 
   return { isAccepting, isSorting, lastError, clearError };
 }
-

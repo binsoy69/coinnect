@@ -14,10 +14,13 @@ export default function EWalletConfirmScreen() {
     getEWalletConfig,
     getProviderStyles,
     startBackendTransaction,
+    acceptPolicy,
+    obtainQuote,
   } = useEWallet();
   const config = getEWalletConfig();
   const styles = getProviderStyles();
   const [submitting, setSubmitting] = useState(false);
+  const [quoteMessage, setQuoteMessage] = useState("");
 
   if (!config) {
     navigate(ROUTES.EWALLET);
@@ -25,6 +28,7 @@ export default function EWalletConfirmScreen() {
   }
 
   const handleProceed = async () => {
+    if (submitting || (isCashIn(ewallet.serviceType) && !ewallet.policyAccepted)) return;
     setSubmitting(true);
     try {
       await startBackendTransaction();
@@ -36,8 +40,13 @@ export default function EWalletConfirmScreen() {
       } else {
         navigate(getEWalletRoute(ROUTES.EWALLET_QR, ewallet.serviceType));
       }
-    } catch {
-      // Context exposes the backend error below the actions.
+    } catch (error) {
+      if (["QUOTE_CHANGED", "QUOTE_EXPIRED"].includes(error.code)) {
+        try {
+          await obtainQuote(ewallet.totalDue);
+          setQuoteMessage("The quote was updated. Review the amount, fee, and intake options, then confirm again.");
+        } catch (quoteError) { setQuoteMessage(quoteError.message); }
+      }
     } finally {
       setSubmitting(false);
     }
@@ -63,7 +72,15 @@ export default function EWalletConfirmScreen() {
         </div>
       </motion.div>
 
+      {isCashIn(ewallet.serviceType) && <div className="max-w-2xl rounded-xl bg-white p-5 text-gray-900 mb-6 space-y-3">
+        <p>Change is available in coins only, up to ₱20, subject to available stock. Bills requiring more change will be returned.</p>
+        <p>After cash is accepted, you cannot cancel. If you leave a partially paid transaction inactive for 120 seconds, the kiosk will retain the inserted cash without wallet credit or a claim ticket. Tap Continue to keep your session active.</p>
+        <label className="flex gap-3 items-start font-semibold"><input type="checkbox" checked={ewallet.policyAccepted}
+          onChange={event => acceptPolicy(event.target.checked)} className="mt-1 h-6 w-6" />I understand and accept these cash-in rules.</label>
+      </div>}
+
       {/* Confirmation Details */}
+      {quoteMessage && <p role="alert" className="max-w-2xl rounded-xl bg-white p-4 mb-4">{quoteMessage}</p>}
       <motion.div
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
@@ -109,6 +126,7 @@ export default function EWalletConfirmScreen() {
           variant="outline"
           size="xl"
           onClick={handleBack}
+          disabled={submitting}
           className="min-w-[150px] border-white text-white hover:bg-white/10"
         >
           Back
@@ -117,7 +135,7 @@ export default function EWalletConfirmScreen() {
           variant={ewallet.provider === "maya" ? "white-green" : "white-blue"}
           size="xl"
           onClick={handleProceed}
-          disabled={submitting}
+          disabled={submitting || (isCashIn(ewallet.serviceType) && !ewallet.policyAccepted)}
           className="min-w-[150px]"
         >
           {submitting ? "Connecting..." : "Proceed"}

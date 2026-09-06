@@ -66,6 +66,8 @@ class ClaimService:
                 )
             ).scalar_one_or_none()
             created = existing is None
+            if existing is not None and (existing.status == ClaimStatus.RESOLVED.value or existing.resolved_at is not None):
+                return existing
             if created:
                 existing = ClaimRecord(
                     id=str(uuid.uuid4()),
@@ -106,7 +108,8 @@ class ClaimService:
         payload = self.serialize(existing)
         payload["state"] = "CLAIM_REQUIRED"
         try:
-            await self._ws.broadcast(WSEvent(type=WSEventType.CLAIM_TICKET, payload=payload))
+            audience = {"kiosk_session_id": getattr(record, "session_id", None) or "legacy-unavailable"} if source_kind == "EWALLET" else {}
+            await self._ws.broadcast(WSEvent(type=WSEventType.CLAIM_TICKET, payload=payload), **audience)
         except Exception as exc:
             logger.error("Claim %s broadcast failed: %s", existing.id, exc, exc_info=True)
         if created and self._receipt is not None and record is not None:
@@ -116,6 +119,7 @@ class ClaimService:
                     claim_code=existing.claim_ticket_code,
                     shortfall=amount,
                     error_reason=reason_message or reason_code,
+                    provisional=provisional,
                 )
             except Exception as exc:
                 logger.error("Claim %s printing failed: %s", existing.id, exc, exc_info=True)

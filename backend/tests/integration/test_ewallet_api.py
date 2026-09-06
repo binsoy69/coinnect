@@ -28,6 +28,9 @@ async def ewallet_client():
     settings = Settings(
         use_mock_hardware=True,
         paymongo_webhook_secret="whsec_test",
+        paymongo_secret_key="sk_test_fixture",
+        paymongo_public_key="pk_test_fixture",
+        paymongo_source_account_number="fixture-account",
         ewallet_fee_tiers=[
             EWalletFeeTier(min=1, max=500, fee=15),
             EWalletFeeTier(min=501, max=None, fee=25),
@@ -67,18 +70,23 @@ async def ewallet_client():
     app.state.db_session_factory = factory
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
+        bootstrap = await client.post("/api/v1/ewallet/session")
+        client.headers["X-Kiosk-Session"] = bootstrap.json()["token"]
         yield client
     await engine.dispose()
 
 
 @pytest.mark.asyncio
 async def test_start_cashout_returns_paymongo_qr(ewallet_client):
+    quote = await ewallet_client.post("/api/v1/ewallet/quotes", json={"provider": "gcash", "direction": "cash-out", "amount": 105})
     response = await ewallet_client.post(
         "/api/v1/ewallet/transactions",
         json={
             "provider": "gcash",
             "direction": "cash-out",
             "amount": 105,
+            "quote_id": quote.json()["quote_id"],
+            "request_key": "cashout-test-request-1",
         },
     )
 
@@ -87,6 +95,22 @@ async def test_start_cashout_returns_paymongo_qr(ewallet_client):
     assert response.json()["fee"] == 15
     assert response.json()["transfer_amount"] == 90
     assert response.json()["shortfall"] is None
+
+
+@pytest.mark.asyncio
+async def test_customer_session_cannot_read_another_transaction(ewallet_client):
+    quote = await ewallet_client.post("/api/v1/ewallet/quotes", json={"provider": "gcash", "direction": "cash-out", "amount": 105})
+    created = await ewallet_client.post("/api/v1/ewallet/transactions", json={"provider": "gcash", "direction": "cash-out", "amount": 105, "quote_id": quote.json()["quote_id"], "request_key": "session-isolation-1"})
+    tx_id = created.json()["transaction_id"]
+    second = await ewallet_client.post("/api/v1/ewallet/session")
+    denied = await ewallet_client.get(f"/api/v1/ewallet/transactions/{tx_id}", headers={"X-Kiosk-Session": second.json()["token"]})
+    assert denied.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_untrusted_origin_cannot_bootstrap_customer_session(ewallet_client):
+    response = await ewallet_client.post("/api/v1/ewallet/session", headers={"Origin": "https://untrusted.example"})
+    assert response.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -124,12 +148,10 @@ async def test_config_returns_backend_fee_tiers(ewallet_client):
     response = await ewallet_client.get("/api/v1/ewallet/config")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "fee_tiers": [
+    assert response.json()["fee_tiers"] == [
             {"min": 1, "max": 500, "fee": 15},
             {"min": 501, "max": None, "fee": 25},
         ]
-    }
 
 
 @pytest.mark.asyncio

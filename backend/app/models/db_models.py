@@ -194,6 +194,23 @@ class EWalletTransactionRecord(Base):
 
     __tablename__ = "ewallet_transactions"
 
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    session_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    request_key: Mapped[Optional[str]] = mapped_column(String, unique=True, nullable=True)
+    policy_version: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    deadline: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    heartbeat_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    submission_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    customer_present: Mapped[bool] = mapped_column(Boolean, default=True)
+    change_due: Mapped[int] = mapped_column(Integer, default=0)
+    change_dispensed: Mapped[int] = mapped_column(Integer, default=0)
+    retained_amount: Mapped[int] = mapped_column(Integer, default=0)
+    refunded_fee: Mapped[int] = mapped_column(Integer, default=0)
+    wallet_credited: Mapped[int] = mapped_column(Integer, default=0)
+    intake_counts: Mapped[dict] = mapped_column(JSON, default=dict)
+    gateway_work: Mapped[dict] = mapped_column(JSON, default=dict)
+    __mapper_args__ = {"version_id_col": version}
+
     id: Mapped[str] = mapped_column(String, primary_key=True)
     provider: Mapped[str] = mapped_column(String, nullable=False)
     direction: Mapped[str] = mapped_column(String, nullable=False)
@@ -245,6 +262,50 @@ class EWalletTransactionRecord(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, nullable=True
     )
+
+
+class KioskSession(Base):
+    __tablename__ = "kiosk_sessions"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class EWalletQuote(Base):
+    __tablename__ = "ewallet_quotes"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    session_id: Mapped[str] = mapped_column(String, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class InventoryHold(Base):
+    __tablename__ = "inventory_holds"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    transaction_id: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    quantities: Mapped[dict] = mapped_column(JSON, default=dict)
+    state: Mapped[str] = mapped_column(String, default="HELD")
+
+
+class EWalletIntake(Base):
+    __tablename__ = "ewallet_intakes"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    transaction_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    medium: Mapped[str] = mapped_column(String, nullable=False)
+    denomination: Mapped[str] = mapped_column(String, nullable=False)
+    value: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String, default="PREPARED")
+    resolution_notes: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class EWalletCoinSession(Base):
+    __tablename__ = "ewallet_coin_sessions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    transaction_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    sid: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    counts: Mapped[dict] = mapped_column(JSON, default=dict)
+    state: Mapped[str] = mapped_column(String, default="OPEN")
+    resolution_notes: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
 
 class GatewayEventRecord(Base):

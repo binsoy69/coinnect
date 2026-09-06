@@ -168,6 +168,8 @@ class MockSerial:
             "RESET": self._handle_reset,
             "EMERGENCY_STOP": self._handle_emergency_stop,
             "COIN_SESSION_ACK": lambda params: [{"status": "OK"}],
+            "COIN_SESSION_RECONCILE": lambda params: [{"status": "OK"}],
+            "COIN_CAPABILITIES": lambda params: [{"status": "OK", "managed_intake": True, "bounded_intake": True}],
             "CAPABILITIES": lambda params: [{"status": "OK", "converter_protocol": 2}],
             "EMERGENCY_CLEAR": lambda params: [{"status": "OK"}],
         }

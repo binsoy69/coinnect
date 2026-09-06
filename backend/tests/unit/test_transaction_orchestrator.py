@@ -893,15 +893,13 @@ class TestCancelTransaction:
             auth_confidence=0.98,
             denom_confidence=0.95,
         )
-        monkeypatch.setitem(STATE_TIMEOUTS, TransactionState.WAITING_FOR_BILL, 0.02)
-        orchestrator._settings.inactivity_timeout_seconds = 0.02
-
         started = await _start_default_transaction(orchestrator, target_amount=200)
         await orchestrator.handle_bill_inserted()
-        for _ in range(25):
-            await asyncio.sleep(0.02)
-            if not orchestrator.has_active_transaction:
-                break
+        # Arm expiry only after cash is committed, then await the complete
+        # timeout callback instead of racing database setup/teardown at 20 ms.
+        transaction = orchestrator._active_tx
+        transaction._cancel_timeout()
+        await asyncio.wait_for(transaction._timeout_handler(TransactionState.WAITING_FOR_BILL, 0.02), timeout=5)
 
         async with db_session_factory() as session:
             record = await session.get(TransactionRecord, started["transaction_id"])

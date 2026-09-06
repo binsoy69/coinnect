@@ -4,6 +4,33 @@ from app.core.database import init_db
 
 
 @pytest.mark.asyncio
+async def test_wallet_migration_backs_up_and_preserves_legacy_money(tmp_path, monkeypatch):
+    import sqlite3
+    import app.core.database as db_mod
+    from app.core import config
+    path = tmp_path / "legacy_wallet.db"
+    with sqlite3.connect(path) as conn:
+        conn.execute("CREATE TABLE ewallet_transactions (id VARCHAR PRIMARY KEY, direction VARCHAR, state VARCHAR, amount INTEGER, fee INTEGER, transfer_amount INTEGER, inserted_amount INTEGER, resolved_at DATETIME)")
+        conn.execute("INSERT INTO ewallet_transactions VALUES ('complete','cash-in','COMPLETE',100,15,85,100,NULL)")
+        conn.execute("INSERT INTO ewallet_transactions VALUES ('partial','cash-in','ACCEPTING_CASH',100,15,85,50,NULL)")
+    monkeypatch.setattr(config.get_settings(), "db_url", f"sqlite+aiosqlite:///{path}")
+    db_mod._engine = db_mod._session_factory = None
+    try:
+        await init_db()
+        await init_db()
+        with sqlite3.connect(path) as conn:
+            assert conn.execute("SELECT amount,fee,transfer_amount,wallet_credited FROM ewallet_transactions WHERE id='complete'").fetchone() == (100,15,85,85)
+            assert conn.execute("SELECT state,inserted_amount,policy_version,retained_amount,customer_present FROM ewallet_transactions WHERE id='partial'").fetchone() == ("ACCEPTING_CASH",50,None,0,0)
+        backups = list(tmp_path.glob("*.pre-ewallet.backup"))
+        assert len(backups) == 1
+        with sqlite3.connect(backups[0]) as conn:
+            assert "wallet_credited" not in {r[1] for r in conn.execute("PRAGMA table_info(ewallet_transactions)")}
+            assert conn.execute("SELECT inserted_amount FROM ewallet_transactions WHERE id='partial'").fetchone()[0] == 50
+    finally:
+        await db_mod.close_db()
+
+
+@pytest.mark.asyncio
 async def test_init_db_adds_missing_selected_dispense_counts_column(tmp_path, monkeypatch):
     db_file = tmp_path / "test_migration.db"
     db_url = f"sqlite+aiosqlite:///{db_file}"

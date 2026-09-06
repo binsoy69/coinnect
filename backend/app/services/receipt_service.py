@@ -287,6 +287,11 @@ class ReceiptService:
                 mobile = self._get_field(record, "mobile_number")
                 lines.append(f"Provider : {provider.upper()}")
                 lines.append(f"Account : {self._mask_mobile_number(mobile)}")
+                lines.append(f"Service : {self._get_field(record, 'direction', '')}")
+                lines.append(f"Payment total : PHP {self._get_field(record, 'amount', 0)}")
+                lines.append(f"Wallet credited : PHP {self._get_field(record, 'wallet_credited', 0)}")
+                lines.append(f"Change returned : PHP {self._get_field(record, 'change_dispensed', 0)}")
+                lines.append(f"Fee refunded/owed : PHP {self._get_field(record, 'refunded_fee', 0)}")
             
             # Forex-specific fields
             from_curr = self._get_field(record, "from_currency")
@@ -318,7 +323,7 @@ class ReceiptService:
             logger.error(f"Error preparing receipt: {e}")
 
     async def print_claim_ticket(
-        self, record: Any, claim_code: str | None = None, shortfall: int | None = None, error_reason: str | None = None
+        self, record: Any, claim_code: str | None = None, shortfall: int | None = None, error_reason: str | None = None, provisional: bool = False
     ) -> None:
         """Prints a claim ticket for partial dispense or failed online transfers."""
         try:
@@ -344,7 +349,7 @@ class ReceiptService:
                 "------------------------",
                 f"Transaction : {tx_id}",
                 f"Date : {date_str}",
-                "Status : PARTIAL DISPENSE",
+                "Status : AWAITING VERIFICATION" if provisional else "Status : CUSTOMER CLAIM",
                 f"Shortfall : {shortfall_currency} {shortfall}",
                 f"Reason : {reason}",
                 "------------------------",
@@ -356,6 +361,17 @@ class ReceiptService:
                 "------------------------",
                 "[CENTER]Keep this ticket safe!",
             ]
+            if self._get_field(record, "provider"):
+                direction = self._get_field(record, "direction", "")
+                lines[5:5] = [
+                    f"Service : {direction}",
+                    f"Payment total : PHP {self._get_field(record, 'amount', 0)}",
+                    f"Cash accepted : PHP {self._get_field(record, 'inserted_amount', 0)}",
+                    f"Wallet credited : PHP {self._get_field(record, 'wallet_credited', 0)}",
+                    f"Cash payout : PHP {self._get_field(record, 'dispensed_amount', 0)}",
+                    f"Change returned : PHP {self._get_field(record, 'change_dispensed', 0)}",
+                    f"Fee refunded/owed : PHP {self._get_field(record, 'refunded_fee', 0)}",
+                ]
             
             image = self._render_text_lines(lines)
             await self._queue_print_job(image)

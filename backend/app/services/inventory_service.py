@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.constants import BillDenom
-from app.models.db_models import InventoryAdjustment, InventoryBalance
+from app.models.db_models import InventoryAdjustment, InventoryBalance, InventoryHold
 from app.services.machine_status import MachineStatus
 
 
@@ -45,6 +45,47 @@ ADMIN_REASONS = {"REFILL", "PHYSICAL_COUNT", "CORRECTION"}
 
 
 class InventoryService:
+    async def hold(self, transaction_id, quantities):
+        async with self._db_factory() as session:
+            rows = (await session.execute(select(InventoryHold).where(InventoryHold.state == "HELD"))).scalars().all()
+            other = {}
+            own = None
+            for row in rows:
+                if row.transaction_id == transaction_id:
+                    own = row
+                else:
+                    for key, count in row.quantities.items():
+                        other[key] = other.get(key, 0) + count
+            for key, count in quantities.items():
+                location, denomination = key.split(":", 1)
+                balance = await self._get_balance(session, InventoryLocation(location), denomination)
+                if balance.count - other.get(key, 0) < count:
+                    raise ValueError("Insufficient unheld inventory")
+            if own is None:
+                own = (await session.execute(select(InventoryHold).where(InventoryHold.transaction_id == transaction_id))).scalar_one_or_none()
+            if own is None:
+                own = InventoryHold(id=transaction_id, transaction_id=transaction_id)
+                session.add(own)
+            own.quantities, own.state = quantities, "HELD"
+            await session.commit()
+        await self._refresh_runtime()
+
+    async def release_hold(self, transaction_id):
+        async with self._db_factory() as session:
+            row = await session.get(InventoryHold, transaction_id)
+            if row and row.state == "HELD":
+                row.state = "RELEASED"
+                await session.commit()
+        await self._refresh_runtime()
+
+    async def consume_hold_in_session(self, session, transaction_id, quantities):
+        row = await session.get(InventoryHold, transaction_id)
+        if row and row.state == "HELD":
+            requested = {f"{loc}:{denom}": count for (loc, denom), count in quantities.items()}
+            if any(row.quantities.get(key, 0) < count for key, count in requested.items()):
+                raise ValueError("Payout exceeds held inventory")
+            row.state = "CONSUMED"
+
     def __init__(
         self,
         db_session_factory: async_sessionmaker,
@@ -86,7 +127,12 @@ class InventoryService:
         self._validate_updates(updates)
 
         async with self._db_factory() as session:
+            holds = (await session.execute(select(InventoryHold).where(InventoryHold.state == "HELD"))).scalars().all()
             for update in updates:
+                held = sum(hold.quantities.get(f"{update.location.value}:{update.denomination}", 0) for hold in holds)
+                if update.count < held:
+                    self.machine_status.set_inventory_consistent(False)
+                    raise ValueError("Physical stock is below reserved inventory; reconcile the affected transactions first")
                 row = await self._get_balance(
                     session, update.location, update.denomination
                 )
@@ -257,6 +303,7 @@ class InventoryService:
         self, session, deltas, *, reason: str, reference_id: str | None
     ) -> None:
         pending = []
+        holds = (await session.execute(select(InventoryHold).where(InventoryHold.state == "HELD"))).scalars().all()
         for (location_value, denomination), delta in deltas.items():
             location = InventoryLocation(location_value)
             self._validate_key(location, denomination)
@@ -264,6 +311,9 @@ class InventoryService:
             new_count = row.count + delta
             if new_count < 0:
                 raise ValueError("Insufficient persisted inventory")
+            held = sum(hold.quantities.get(f"{location_value}:{denomination}", 0) for hold in holds)
+            if delta < 0 and new_count < held:
+                raise ValueError("Inventory is reserved by another transaction")
             pending.append((row, location, denomination, delta, new_count))
         for row, location, denomination, delta, new_count in pending:
             old_count = row.count
@@ -282,9 +332,14 @@ class InventoryService:
     async def _refresh_runtime(self) -> None:
         async with self._db_factory() as session:
             rows = (await session.execute(select(InventoryBalance))).scalars().all()
+            holds = (await session.execute(select(InventoryHold).where(InventoryHold.state == "HELD"))).scalars().all()
         grouped = {location.value: {} for location in InventoryLocation}
         for row in rows:
             grouped[row.location][row.denomination] = row.count
+        for hold in holds:
+            for key, count in hold.quantities.items():
+                location, denom = key.split(":", 1)
+                grouped[location][denom] = max(0, grouped[location].get(denom, 0) - count)
         self.machine_status.set_dispenser_counts(
             grouped[InventoryLocation.BILL_DISPENSER.value]
         )

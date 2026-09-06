@@ -1,7 +1,7 @@
 import json
 import logging
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, Request
 
 from app.api.forex import router as forex_router
 from app.api.admin import router as admin_router
@@ -10,21 +10,31 @@ from app.api.health import router as health_router
 from app.api.inventory import router as inventory_router
 from app.api.status import router as status_router
 from app.api.transaction import router as transaction_router
+from app.api.kiosk_access import require_local
+from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
 api_router = APIRouter(prefix="/api/v1")
+async def local_customer_access(request: Request):
+    require_local(request)
+
 api_router.include_router(health_router)
-api_router.include_router(status_router)
-api_router.include_router(transaction_router)
-api_router.include_router(inventory_router)
-api_router.include_router(forex_router)
+api_router.include_router(status_router, dependencies=[Depends(local_customer_access)])
+api_router.include_router(transaction_router, dependencies=[Depends(local_customer_access)])
+api_router.include_router(inventory_router, dependencies=[Depends(local_customer_access)])
+api_router.include_router(forex_router, dependencies=[Depends(local_customer_access)])
 api_router.include_router(ewallet_router)
-api_router.include_router(admin_router)
+api_router.include_router(admin_router, dependencies=[Depends(local_customer_access)])
 
 
 @api_router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    try:
+        require_local(websocket)
+    except HTTPException:
+        await websocket.close(code=1008)
+        return
     ws_manager = websocket.app.state.ws_manager
     await ws_manager.connect(websocket)
     try:
@@ -47,6 +57,21 @@ async def _handle_ws_action(
 ) -> None:
     """Handle incoming WebSocket commands from the frontend."""
     if action is None:
+        return
+
+    if action == "AUTH_EWALLET":
+        import hashlib
+        from datetime import datetime
+        from app.models.db_models import KioskSession
+        token = str(data.get("token", ""))
+        session_id = hashlib.sha256(token.encode()).hexdigest()
+        async with websocket.app.state.db_session_factory() as session:
+            customer = await session.get(KioskSession, session_id)
+            if not token or customer is None or customer.expires_at < datetime.utcnow():
+                websocket.state.kiosk_session = None
+                return
+            websocket.state.kiosk_session = session_id
+            websocket.state.kiosk_expires = customer.expires_at
         return
 
     orchestrator = websocket.app.state.transaction_orchestrator

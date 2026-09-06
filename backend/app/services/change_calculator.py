@@ -102,6 +102,8 @@ def calculate_change(
     Raises:
         InsufficientInventoryError: If exact change cannot be made.
     """
+    if not preferred_denoms and not requested_counts:
+        return calculate_exact_change(amount, available_bills, available_coins, currency)
     try:
         return _calculate_change_with_order(
             amount, available_bills, available_coins, preferred_denoms, currency, requested_counts
@@ -109,10 +111,51 @@ def calculate_change(
     except InsufficientInventoryError:
         if requested_counts or preferred_denoms:
             logger.info("Preferred/requested change calculation failed. Falling back to standard greedy change.")
-            return _calculate_change_with_order(
-                amount, available_bills, available_coins, None, currency, None
-            )
+            return calculate_exact_change(amount, available_bills, available_coins, currency)
         raise
+
+
+def calculate_exact_change(amount, available_bills, available_coins, currency="PHP"):
+    """Bounded knapsack, minimizing pieces then preferring larger denominations."""
+    if amount <= 0:
+        return DispensePlan(items=[], total_amount=0, is_exact=True)
+    if currency not in _BILL_DENOMS_BY_CURRENCY:
+        raise ValueError(f"Unsupported currency for change: {currency}")
+    denominations = [(d.value, "bill", v, available_bills.get(d.value, 0))
+                     for d, v in _BILL_DENOMS_BY_CURRENCY[currency]]
+    if currency == "PHP":
+        denominations += [(f"PHP_{v}", "coin", v, available_coins.get(f"PHP_{v}", 0))
+                          for d, v in _PHP_COIN_DENOMS]
+    denominations.sort(key=lambda d: -d[2])
+    denominations = [d for d in denominations if d[3] > 0 and d[2] <= amount]
+    zero = (0,) * len(denominations)
+    best = [None] * (amount + 1)
+    best[0] = (0, zero)
+    for index, (_, _, value, stock) in enumerate(denominations):
+        left, chunk = min(stock, amount // value), 1
+        while left:
+            count = min(chunk, left)
+            weight = count * value
+            for subtotal in range(amount, weight - 1, -1):
+                previous = best[subtotal - weight]
+                if previous is None:
+                    continue
+                counts = list(previous[1])
+                counts[index] += count
+                candidate = (previous[0] + count, tuple(counts))
+                current = best[subtotal]
+                if current is None or candidate[0] < current[0] or (
+                    candidate[0] == current[0] and candidate[1] > current[1]
+                ):
+                    best[subtotal] = candidate
+            left -= count
+            chunk *= 2
+    if best[amount] is None:
+        available = next(value for value in range(amount, -1, -1) if best[value] is not None)
+        raise InsufficientInventoryError(requested=amount, available=available, shortfall=amount-available)
+    items = [DispensePlanItem(denom=d[0], denom_type=d[1], value=d[2], count=count)
+             for d, count in zip(denominations, best[amount][1]) if count]
+    return DispensePlan(items=items, total_amount=amount, is_exact=True)
 
 
 def _calculate_change_with_order(

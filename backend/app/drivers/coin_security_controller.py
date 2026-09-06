@@ -89,15 +89,24 @@ class CoinSecurityController:
         raw = await self._serial.send_coin_command({"cmd": "COIN_STATUS"})
         return self._parse_or_raise(raw, CoinStatusResponse)
 
-    async def coin_session_start(self, sid: int) -> CoinSessionStartResponse:
+    async def verify_intake_capabilities(self):
+        raw = await self._serial.send_coin_command({"cmd": "COIN_CAPABILITIES"})
+        if raw.get("status") != "OK" or not raw.get("managed_intake") or not raw.get("bounded_intake"):
+            raise ValueError("Coin firmware must support managed bounded intake (3.1+)")
+
+    async def coin_session_start(self, sid: int, max_value: int | None = None) -> CoinSessionStartResponse:
         """Start a managed coin intake session with monotonic session id."""
         settings = self._serial._settings
-        raw = await self._serial.send_coin_command({
+        command = {
             "cmd": "COIN_SESSION_START", "sid": sid,
             "grace_ms": settings.coin_session_grace_ms,
             "timeout_ms": settings.coin_session_timeout_ms,
             "quiet_ms": settings.coin_session_quiet_ms,
-        })
+        }
+        if max_value is not None:
+            # Bounded e-wallet sessions use a compact command on the Uno.
+            command = {"cmd": "COIN_SESSION_START", "sid": sid, "max_value": max_value}
+        raw = await self._serial.send_coin_command(command)
         return self._parse_or_raise(raw, CoinSessionStartResponse)
 
     async def coin_session_stop(self, sid: int) -> CoinSessionStopResponse:
@@ -109,6 +118,10 @@ class CoinSecurityController:
 
     async def coin_session_ack(self, sid: int) -> None:
         raw = await self._serial.send_coin_command({"cmd": "COIN_SESSION_ACK", "sid": sid})
+        self._parse_or_raise(raw, EmergencyStopResponse)
+
+    async def reconcile_coin_session(self, sid: int):
+        raw = await self._serial.send_coin_command({"cmd": "COIN_SESSION_RECONCILE", "sid": sid})
         self._parse_or_raise(raw, EmergencyStopResponse)
 
     async def coin_session_status(self) -> CoinSessionStatusResponse:
@@ -130,7 +143,7 @@ class CoinSecurityController:
         if any(raw["sid"] != sid for _, raw, _ in reports):
             raise ValueError("Coin status session changed during reconciliation")
         states = {raw["session_state"] for _, raw, _ in reports}
-        state = "UNCERTAIN" if "UNCERTAIN" in states else "CLOSED" if states == {"CLOSED"} else "CLOSING"
+        state = "UNCERTAIN" if "UNCERTAIN" in states else next(iter(states)) if len(states) == 1 else "CLOSING"
         return CoinSessionStatusResponse(status="OK", sid=sid, session_state=state,
             **{f"count_{denom}": count for denom, _, count in reports})
 

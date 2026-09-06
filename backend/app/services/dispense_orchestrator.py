@@ -631,10 +631,11 @@ class DispenseOrchestrator:
                     ("COIN_DISPENSER", item.denom): item.count
                     for item in plan.coin_items
                 })
+                await self._inventory.consume_hold_in_session(session, reference_id, quantities)
                 await self._inventory.reserve_in_session(
                     session, quantities, reference_id=reference_id
                 )
-            source_model = EWalletTransactionRecord if source_kind == "EWALLET" else TransactionRecord
+            source_model = EWalletTransactionRecord if source_kind.startswith("EWALLET") else TransactionRecord
             source = await session.get(source_model, reference_id)
             if source is not None:
                 source.state = "DISPENSING"
@@ -736,6 +737,13 @@ class DispenseOrchestrator:
             )).scalars().all())
 
         affected: set[str] = set()
+        # A crash can occur after all operation results commit but before the
+        # source transaction receives their outcome. Reconcile that boundary too.
+        async with self._db_factory() as session:
+            completed_work = (await session.execute(select(DispenseExecution.id).join(
+                EWalletTransactionRecord, DispenseExecution.transaction_id == EWalletTransactionRecord.id
+            ).where(EWalletTransactionRecord.state.in_({"DISPENSING", "CHANGE_PENDING", "PAYMENT_CONFIRMED"})))).scalars().all()
+            affected.update(completed_work)
         acknowledgements: list[tuple[object, str]] = []
         restorations: list[tuple[str, str, int, str]] = []
         for operation in operations:
@@ -839,7 +847,7 @@ class DispenseOrchestrator:
             )).scalars().all())
             confirmed = sum(op.confirmed_count * op.denomination_value for op in operations)
             ambiguous_amount = sum(
-                op.requested_count * op.denomination_value
+                (op.requested_count - op.confirmed_count) * op.denomination_value
                 for op in operations if op.state == PhysicalOperationState.AMBIGUOUS.value
             )
             execution.confirmed_amount = confirmed
@@ -854,15 +862,24 @@ class DispenseOrchestrator:
             execution.completed_at = datetime.utcnow()
             record = (
                 await session.get(EWalletTransactionRecord, execution.transaction_id)
-                if execution.source_kind == "EWALLET"
+                if execution.source_kind.startswith("EWALLET")
                 else await session.get(TransactionRecord, execution.transaction_id)
             )
             shortfall = max(0, execution.requested_amount - confirmed)
+            if record is not None and (record.state in {"COMPLETE", "RESOLVED"} or record.resolved_at is not None):
+                await session.commit()
+                return
             if record is not None:
-                record.dispensed_amount = confirmed
+                if execution.source_kind == "EWALLET_CHANGE":
+                    record.change_dispensed = confirmed
+                else:
+                    record.dispensed_amount = confirmed
+                if execution.source_kind == "EWALLET" and shortfall:
+                    shortfall += record.fee
+                    record.refunded_fee = record.fee
             existing_claim = (await session.execute(
                 select(ClaimRecord).where(
-                    ClaimRecord.source_kind == execution.source_kind,
+                    ClaimRecord.source_kind == ("EWALLET" if execution.source_kind.startswith("EWALLET") else execution.source_kind),
                     ClaimRecord.transaction_id == execution.transaction_id,
                     ClaimRecord.status != "RESOLVED",
                 ).limit(1)
@@ -883,9 +900,9 @@ class DispenseOrchestrator:
             elif claim_service and record is not None:
                 currency = getattr(record, "to_currency", None) or "PHP"
                 await claim_service.create(
-                    source_kind=execution.source_kind,
+                    source_kind="EWALLET" if execution.source_kind.startswith("EWALLET") else execution.source_kind,
                     transaction_id=execution.transaction_id,
-                    claim_kind="OUTPUT_SHORTFALL",
+                    claim_kind="INPUT_REFUND" if execution.source_kind == "EWALLET_CHANGE" else "OUTPUT_SHORTFALL",
                     amount=shortfall,
                     currency=currency,
                     reason_code="STARTUP_RECOVERY_AMBIGUOUS",

@@ -122,6 +122,9 @@ class EventDispatcher:
 
     async def _handle_coin_in(self, data: dict) -> None:
         parsed = CoinInEvent(**data)
+        if self._ewallet_orchestrator is not None and self._ewallet_orchestrator.has_active_transaction:
+            await self._ewallet_orchestrator.handle_coin_inserted(parsed.denom)
+            return
         if self._transaction_orchestrator is not None and self._transaction_orchestrator.has_active_transaction:
             logger.warning("Ignoring unscoped legacy coin event during converter transaction")
             return
@@ -156,6 +159,11 @@ class EventDispatcher:
 
     async def _handle_coin_session_pulse(self, data: dict) -> None:
         parsed = CoinSessionPulseEvent(**data)
+        if self._ewallet_orchestrator is not None:
+            handled = await self._ewallet_orchestrator.handle_coin_session_pulse(
+                sid=parsed.sid, seq=parsed.seq, denom=parsed.denom, count=parsed.count)
+            if handled:
+                return
         if (
             self._transaction_orchestrator is not None
             and self._transaction_orchestrator.has_active_transaction
@@ -187,6 +195,8 @@ class EventDispatcher:
                 logger.error("Emergency stop failed: %s", result)
 
         # 3. Active transaction handling
+        if self._ewallet_orchestrator is not None:
+            await self._ewallet_orchestrator.handle_tamper(parsed.sensor)
         if (
             self._transaction_orchestrator is not None
             and self._transaction_orchestrator.has_active_transaction

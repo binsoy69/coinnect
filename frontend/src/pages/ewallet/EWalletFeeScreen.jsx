@@ -31,9 +31,7 @@ export default function EWalletFeeScreen() {
   }
 
   const handleProceed = () => {
-    const nextRoute = isCashOut(ewallet.serviceType)
-      ? ROUTES.EWALLET_AMOUNT
-      : ROUTES.EWALLET_NAME;
+    const nextRoute = ROUTES.EWALLET_AMOUNT;
     navigate(getEWalletRoute(nextRoute, ewallet.serviceType));
   };
 

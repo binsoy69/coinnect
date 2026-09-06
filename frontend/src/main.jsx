@@ -8,6 +8,7 @@ import { EWalletProvider } from './context/EWalletContext';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import './index.css';
 import App from './App.jsx';
+import EWalletRouteGuard from './components/ewallet/EWalletRouteGuard';
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
@@ -17,6 +18,7 @@ createRoot(document.getElementById('root')).render(
           <ForexProvider>
             <EWalletProvider>
               <ErrorBoundary>
+                <EWalletRouteGuard />
                 <App />
               </ErrorBoundary>
             </EWalletProvider>

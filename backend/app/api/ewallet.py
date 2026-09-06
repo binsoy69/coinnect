@@ -3,16 +3,24 @@
 from __future__ import annotations
 
 from typing import Literal
+from datetime import datetime, timedelta
+import secrets
+import hashlib
+from sqlalchemy import select
+from app.api.kiosk_access import wallet_access
+from app.models.db_models import KioskSession, EWalletTransactionRecord
+from app.services.ewallet_policy import POLICY_VERSION, TERMINAL
 
 from fastapi import (
     APIRouter,
     HTTPException,
     Request,
     status,
+    Depends,
 )
 from pydantic import BaseModel, Field, model_validator
 
-router = APIRouter(prefix="/ewallet", tags=["e-wallet"])
+router = APIRouter(prefix="/ewallet", tags=["e-wallet"], dependencies=[Depends(wallet_access)])
 
 
 class StartEWalletRequest(BaseModel):
@@ -28,6 +36,9 @@ class StartEWalletRequest(BaseModel):
         max_length=120,
     )
     amount: int = Field(gt=0, le=50_000)
+    quote_id: str
+    request_key: str = Field(min_length=16, max_length=128)
+    policy_version: str | None = None
 
     @model_validator(mode="after")
     def validate_identity_fields(self):
@@ -48,9 +59,63 @@ class SimulateCashRequest(BaseModel):
     denomination: int
 
 
+class QuoteRequest(BaseModel):
+    provider: Literal["gcash", "maya"]
+    direction: Literal["cash-in", "cash-out"]
+    amount: int = Field(gt=0, le=50_000)
+
+
+@router.post("/session")
+async def create_session(request: Request):
+    token = secrets.token_urlsafe(32)
+    async with request.app.state.db_session_factory() as session:
+        session.add(KioskSession(id=hashlib.sha256(token.encode()).hexdigest(),
+                                 expires_at=datetime.utcnow()+timedelta(days=1)))
+        await session.commit()
+    return {"token": token}
+
+
+@router.post("/quotes")
+async def quote(body: QuoteRequest, request: Request):
+    try:
+        return await request.app.state.ewallet_orchestrator.quote(
+            **body.model_dump(), session_id=request.state.kiosk_session)
+    except Exception as exc:
+        raise HTTPException(409, detail={"code": getattr(exc, "code", "QUOTE_UNAVAILABLE"), "message": str(exc)}) from exc
+
+
+@router.get("/resume")
+async def resume(request: Request):
+    async with request.app.state.db_session_factory() as session:
+        record = (await session.execute(select(EWalletTransactionRecord).where(
+            EWalletTransactionRecord.session_id == request.state.kiosk_session
+        ).order_by(EWalletTransactionRecord.created_at.desc()).limit(1))).scalar_one_or_none()
+    return await request.app.state.ewallet_orchestrator.get_transaction(record.id) if record else None
+
+
+@router.post("/transactions/{transaction_id}/continue")
+async def continue_transaction(transaction_id: str, request: Request):
+    return await request.app.state.ewallet_orchestrator.touch(transaction_id, True)
+
+
+@router.post("/transactions/{transaction_id}/heartbeat")
+async def heartbeat(transaction_id: str, request: Request):
+    return await request.app.state.ewallet_orchestrator.touch(transaction_id)
+
+
+@router.post("/transactions/{transaction_id}/coins")
+async def open_coins(transaction_id: str, request: Request):
+    try:
+        return await request.app.state.ewallet_orchestrator.open_coins(transaction_id)
+    except Exception as exc:
+        raise HTTPException(409, detail={"code": "COIN_INTAKE_UNAVAILABLE", "message": str(exc)}) from exc
+
+
 @router.get("/config")
 async def ewallet_config(request: Request):
     return {
+        "policy_version": POLICY_VERSION,
+        "max_amount": 50_000,
         "fee_tiers": [
             tier.model_dump()
             for tier in request.app.state.settings.ewallet_fee_tiers
@@ -69,14 +134,14 @@ async def start_transaction(body: StartEWalletRequest, request: Request):
         )
     try:
         return await request.app.state.ewallet_orchestrator.start_transaction(
-            **body.model_dump()
+            **body.model_dump(), session_id=request.state.kiosk_session
         )
     except Exception as exc:
         response_status = (
             423 if "maintenance mode" in str(exc).lower() else 400
         )
         raise HTTPException(
-            status_code=response_status, detail=str(exc)
+            status_code=response_status, detail={"code": getattr(exc, "code", "EWALLET_ERROR"), "message": str(exc)}
         ) from exc
 
 
@@ -181,6 +246,9 @@ def _normalize_gateway_event(payload: dict) -> dict:
     nested_attrs = nested.get("attributes") or {}
     event_type = attrs.get("type") or data.get("type") or "transfer.updated"
     resource_id = nested.get("id") or data.get("id")
+    resource_id = nested_attrs.get("transfer_id") or attrs.get("transfer_id") or resource_id
+    if event_type in {"wallet_transaction", "send_payment", "send_payout"}:
+        event_type = "transfer.updated"
     payment_id = None
     if event_type.startswith("payment."):
         payment_id = nested.get("id")
@@ -197,7 +265,8 @@ def _normalize_gateway_event(payload: dict) -> dict:
     )
     return {
         "id": str(
-            data.get("id")
+            (f"callback:{data.get('id')}:{attrs.get('status')}:{attrs.get('updated_at')}" if event_type == "transfer.updated" else None)
+            or data.get("id")
             or payload.get("id")
             or ""
         ),

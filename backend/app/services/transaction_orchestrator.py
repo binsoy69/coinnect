@@ -28,6 +28,7 @@ from app.models.db_models import (
     ClaimRecord,
     ConverterIntakeOperation,
     ConverterCoinSession,
+    EWalletCoinSession,
 )
 from app.services.inventory_service import InventoryLocation
 from app.models.converter import (
@@ -366,6 +367,8 @@ class TransactionOrchestrator:
                 stmt = select(func.coalesce(func.max(ConverterCoinSession.session_id), 0) + 1)
                 res = await session.execute(stmt)
                 coin_session_id = res.scalar_one()
+                wallet_max = (await session.execute(select(func.max(EWalletCoinSession.sid)))).scalar() or 0
+                coin_session_id = max(coin_session_id, wallet_max + 1)
                 if not 0 < coin_session_id <= 0xFFFFFFFF:
                     raise TransactionError(tx_id, "Coin session identifiers exhausted")
                 coin_sess = ConverterCoinSession(

@@ -25,7 +25,7 @@ export default function EWalletMobileScreen() {
 
   const handleSubmit = (mobile) => {
     setMobileNumber(mobile);
-    navigate(getEWalletRoute(ROUTES.EWALLET_AMOUNT, ewallet.serviceType));
+    navigate(getEWalletRoute(ROUTES.EWALLET_CONFIRM, ewallet.serviceType));
   };
 
   const handleBack = () => {

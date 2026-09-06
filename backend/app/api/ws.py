@@ -24,7 +24,7 @@ class ConnectionManager:
             self._connections.remove(websocket)
         logger.info(f"WebSocket client disconnected. Total: {len(self._connections)}")
 
-    async def broadcast(self, event: WSEvent) -> None:
+    async def broadcast(self, event: WSEvent, kiosk_session_id: str | None = None) -> None:
         message = event.model_dump_json()
         if not self._connections:
             return
@@ -33,6 +33,11 @@ class ConnectionManager:
 
         async def _send(ws: WebSocket) -> WebSocket | None:
             try:
+                if kiosk_session_id is not None:
+                    from datetime import datetime
+                    if (getattr(ws.state, "kiosk_session", None) != kiosk_session_id
+                        or getattr(ws.state, "kiosk_expires", datetime.min) < datetime.utcnow()):
+                        return None
                 await ws.send_text(message)
                 return None
             except Exception:

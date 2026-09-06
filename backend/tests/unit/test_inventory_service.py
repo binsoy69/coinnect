@@ -29,6 +29,30 @@ async def test_initialize_seeds_and_hydrates_all_inventory(
     assert all(count == 0 for count in snapshot.bill_dispenser_counts.values())
 
 
+async def test_holds_survive_restart_and_cannot_be_spent_twice(inventory_service, db_session_factory):
+    from app.models.db_models import InventoryBalance
+    service = inventory_service
+    await service.apply_admin_updates([InventoryUpdate(location="COIN_DISPENSER", denomination="PHP_10", count=5)], "REFILL", "admin")
+    await service.hold("owner", {"COIN_DISPENSER:PHP_10": 3})
+    restarted = InventoryService(db_session_factory, MachineStatus(service.settings))
+    await restarted.initialize()
+    assert restarted.machine_status.snapshot().consumables.coin_counts["PHP_10"] == 2
+    with pytest.raises(ValueError, match="reserved"):
+        await service.reserve({("COIN_DISPENSER", "PHP_10"): 3}, "other")
+    with pytest.raises(ValueError, match="reserved"):
+        await service.apply_admin_updates([InventoryUpdate(location="COIN_DISPENSER", denomination="PHP_10", count=2)], "CORRECTION", "admin")
+    async with db_session_factory() as session:
+        quantities = {("COIN_DISPENSER", "PHP_10"): 3}
+        await service.consume_hold_in_session(session, "owner", quantities)
+        await service.reserve_in_session(session, quantities, "owner")
+        await session.commit()
+    await service.release_hold("owner")
+    async with db_session_factory() as session:
+        count = (await session.execute(select(InventoryBalance.count).where(InventoryBalance.location == "COIN_DISPENSER", InventoryBalance.denomination == "PHP_10"))).scalar_one()
+    assert count == 2
+    assert service.machine_status.snapshot().consumables.coin_counts["PHP_10"] == 2
+
+
 async def test_admin_batch_update_is_persisted_and_audited(
     inventory_service,
     db_session_factory,

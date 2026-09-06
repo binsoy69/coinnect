@@ -1,12 +1,14 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import {
   EWALLET_CONFIG,
   EWALLET_PROVIDERS_CONFIG,
   calculateFee,
   isCashIn,
 } from "../constants/ewalletData";
-import { API_BASE, ENABLE_KEYBOARD_SIM } from "../constants/api";
+import { ENABLE_KEYBOARD_SIM } from "../constants/api";
+import { walletRequest } from "../lib/ewalletApi";
+import { useWebSocket } from "./WebSocketContext";
 
 // Default state for e-wallet transaction
 const DEFAULT_EWALLET_STATE = {
@@ -27,15 +29,23 @@ const DEFAULT_EWALLET_STATE = {
   backendState: null,
   gatewayError: null,
   feeTiers: [],
+  quote: null,
+  policyAccepted: false,
 };
 
 const EWalletContext = createContext(null);
 
 export function EWalletProvider({ children }) {
   const [ewallet, setEWallet] = useState(DEFAULT_EWALLET_STATE);
+  const { subscribe, unsubscribe, sendMessage, isConnected } = useWebSocket();
+  const activeId = useRef(sessionStorage.getItem("ewalletTransaction"));
+  const requestKey = useRef(null);
+  const generation = useRef(0);
 
   // Start e-wallet transaction by selecting provider
   const startEWalletTransaction = useCallback((provider) => {
+    if (activeId.current) return;
+    requestKey.current = null;
     setEWallet({
       ...DEFAULT_EWALLET_STATE,
       provider,
@@ -138,27 +148,29 @@ export function EWalletProvider({ children }) {
     });
   }, []);
 
-  const request = useCallback(async (path, options = {}) => {
-    const response = await fetch(`${API_BASE}${path}`, {
-      headers: { "Content-Type": "application/json", ...options.headers },
-      ...options,
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(data.detail || `Request failed (${response.status})`);
-    }
-    return data;
-  }, []);
+  const request = walletRequest;
 
   const syncBackendState = useCallback((data) => {
-    setEWallet((prev) => ({
+    if (!data || activeId.current !== data.transaction_id) return data;
+    activeId.current = data.transaction_id;
+    sessionStorage.setItem("ewalletTransaction", data.transaction_id);
+    const bills = {}, coins = {};
+    Object.entries(data.intake_counts || {}).forEach(([key, count]) => {
+      const [medium, denomination] = key.split(":");
+      (medium === "COIN" ? coins : bills)[denomination] = count;
+    });
+    setEWallet((prev) => data.version < (prev.backendState?.version || 0) ? prev : ({
       ...prev,
+      provider: data.provider,
+      serviceType: `${data.provider}-${data.direction}`,
+      mobileNumber: data.mobile_number || "",
+      accountName: data.account_name || "",
       transactionId: data.transaction_id,
       backendState: data,
       gatewayError: data.error_message || null,
       totalInserted: data.inserted_amount ?? prev.totalInserted,
-      insertedBillCounts:
-        data.inserted_denominations || prev.insertedBillCounts,
+      insertedBillCounts: bills,
+      insertedCoinCounts: coins,
       amount: data.amount ?? prev.amount,
       fee: data.fee ?? prev.fee,
       transferAmount: data.transfer_amount ?? prev.transferAmount,
@@ -166,6 +178,52 @@ export function EWalletProvider({ children }) {
     }));
     return data;
   }, []);
+
+  useEffect(() => {
+    if (!isConnected) return;
+    const token = sessionStorage.getItem("ewalletSession");
+    if (token) sendMessage("AUTH_EWALLET", { token });
+    const id = activeId.current;
+    if (id) walletRequest(`/ewallet/transactions/${id}`).then(syncBackendState).catch(() => {});
+  }, [isConnected, sendMessage, syncBackendState, ewallet.transactionId]);
+
+  useEffect(() => {
+    const restore = activeId.current;
+    const epoch = generation.current;
+    if (restore || sessionStorage.getItem("ewalletSession")) walletRequest(restore ? `/ewallet/transactions/${restore}` : "/ewallet/resume").then(data => {
+      if (!data || generation.current !== epoch) return;
+      activeId.current = data.transaction_id;
+      syncBackendState(data);
+    }).catch(error => {
+      setEWallet(prev => ({ ...prev, gatewayError: error.message }));
+    });
+    const receive = event => {
+      if (event.payload?.transaction_id === activeId.current) syncBackendState(event.payload);
+    };
+    const events = ["EWALLET_STATE_CHANGED", "EWALLET_COMPLETE", "EWALLET_CLAIM_REQUIRED", "EWALLET_GATEWAY_PENDING"];
+    events.forEach(event => subscribe(event, receive));
+    const timer = setInterval(() => {
+      const id = activeId.current;
+      if (!id) return;
+      walletRequest(`/ewallet/transactions/${id}/heartbeat`, { method: "POST" })
+        .then(data => { if (activeId.current === id) syncBackendState(data); })
+        .catch(error => setEWallet(prev => ({ ...prev, gatewayError: error.message })));
+    }, 5000);
+    return () => { clearInterval(timer); events.forEach(event => unsubscribe(event, receive)); };
+  }, [subscribe, unsubscribe, syncBackendState]);
+
+  const obtainQuote = useCallback(async amount => {
+    const data = await walletRequest("/ewallet/quotes", { method: "POST", body: JSON.stringify({
+      provider: ewallet.provider, direction: isCashIn(ewallet.serviceType) ? "cash-in" : "cash-out", amount,
+    }) });
+    sendMessage?.("AUTH_EWALLET", { token: sessionStorage.getItem("ewalletSession") });
+    requestKey.current = crypto.randomUUID();
+    setEWallet(prev => ({ ...prev, quote: data, policyAccepted: false, amount: data.amount,
+      fee: data.fee, transferAmount: data.transfer_amount, totalDue: data.total_due, gatewayError: null }));
+    return data;
+  }, [ewallet.provider, ewallet.serviceType, sendMessage]);
+
+  const acceptPolicy = useCallback(accepted => setEWallet(prev => ({ ...prev, policyAccepted: accepted })), []);
 
   const loadFeeTiers = useCallback(async () => {
     const data = await request("/ewallet/config");
@@ -177,12 +235,16 @@ export function EWalletProvider({ children }) {
   }, [request]);
 
   const startBackendTransaction = useCallback(async () => {
+    const epoch = generation.current;
     try {
       const cashIn = isCashIn(ewallet.serviceType);
       const payload = {
         provider: ewallet.provider,
         direction: cashIn ? "cash-in" : "cash-out",
         amount: ewallet.totalDue,
+        quote_id: ewallet.quote?.quote_id,
+        request_key: requestKey.current,
+        policy_version: ewallet.policyAccepted ? ewallet.quote?.policy_version : null,
       };
       if (cashIn) {
         payload.mobile_number = ewallet.mobileNumber;
@@ -192,6 +254,8 @@ export function EWalletProvider({ children }) {
         method: "POST",
         body: JSON.stringify(payload),
       });
+      if (generation.current !== epoch) return data;
+      activeId.current = data.transaction_id;
       return syncBackendState(data);
     } catch (error) {
       setEWallet((prev) => ({ ...prev, gatewayError: error.message }));
@@ -242,8 +306,24 @@ export function EWalletProvider({ children }) {
 
   // Reset transaction
   const resetTransaction = useCallback(() => {
+    generation.current += 1;
+    activeId.current = null;
+    sessionStorage.removeItem("ewalletTransaction");
+    sessionStorage.removeItem("ewalletSession");
+    requestKey.current = null;
     setEWallet(DEFAULT_EWALLET_STATE);
   }, []);
+
+  const cancelBackendTransaction = useCallback(async () => {
+    const id = activeId.current;
+    if (!id) return null;
+    return syncBackendState(await walletRequest(`/ewallet/transactions/${id}`, { method: "DELETE" }));
+  }, [syncBackendState]);
+
+  const continueSession = useCallback(async () => {
+    const id = activeId.current;
+    if (id) syncBackendState(await walletRequest(`/ewallet/transactions/${id}/continue`, { method: "POST" }));
+  }, [syncBackendState]);
 
   // Check if inserted amount matches total due
   const isAmountMatched = useCallback(() => {
@@ -278,6 +358,7 @@ export function EWalletProvider({ children }) {
   }, [ewallet.provider]);
 
   const value = {
+    obtainQuote, acceptPolicy, cancelBackendTransaction, continueSession,
     ewallet,
     startEWalletTransaction,
     setServiceType,

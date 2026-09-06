@@ -82,6 +82,7 @@ class PayMongoClient:
         amount_centavos: int,
         reference: str,
         idempotency_key: str,
+        checkpoint=None,
     ) -> QRPaymentResult:
         intent = await self._request(
             "POST",
@@ -102,6 +103,8 @@ class PayMongoClient:
         )
         intent_data = intent["data"]
         intent_id = intent_data["id"]
+        if checkpoint:
+            await checkpoint("intent", {"id": intent_id})
         client_key = intent_data["attributes"]["client_key"]
 
         method = await self._request(
@@ -112,6 +115,8 @@ class PayMongoClient:
             json={"data": {"attributes": {"type": "qrph"}}},
         )
         method_id = method["data"]["id"]
+        if checkpoint:
+            await checkpoint("method", {"id": method_id})
 
         attached = await self._request(
             "POST",
@@ -226,6 +231,16 @@ class PayMongoClient:
             data = {**data, "transfers": attrs["transfers"]}
         return data
 
+    async def find_transfer(self, reference: str):
+        from urllib.parse import urlencode
+        response = await self._request("GET", "/v2/transfers?" + urlencode({"reference_number": reference}), secret=True)
+        data = response.get("data") or []
+        rows = data if isinstance(data, list) else data.get("transfers", [])
+        matches = [row for row in rows if (row.get("attributes") or row).get("reference_number") == reference]
+        if len(matches) > 1:
+            raise PaymentGatewayError("Multiple transfers match the reference; manual reconciliation required")
+        return matches[0] if matches else None
+
     async def close(self) -> None:
         if self._owns_http and self._http is not None:
             await self._http.aclose()
@@ -274,7 +289,7 @@ class PayMongoClient:
                 return response.json()
             except httpx.HTTPStatusError as exc:
                 retryable = (
-                    exc.response.status_code == 429
+                    exc.response.status_code in {409, 429}
                     or exc.response.status_code >= 500
                 )
                 if retryable and attempt < attempts - 1:

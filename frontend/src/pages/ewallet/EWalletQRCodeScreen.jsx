@@ -1,9 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PageLayout from "../../components/layout/PageLayout";
 import QRCodeDisplay from "../../components/ewallet/QRCodeDisplay";
 import { ROUTES, getEWalletRoute } from "../../constants/routes";
 import { useEWallet } from "../../context/EWalletContext";
+import EWalletSessionStatus from "../../components/ewallet/EWalletSessionStatus";
 
 export default function EWalletQRCodeScreen() {
   const navigate = useNavigate();
@@ -15,6 +16,12 @@ export default function EWalletQRCodeScreen() {
   } = useEWallet();
   const config = getEWalletConfig();
   const styles = getProviderStyles();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const expired = ewallet.backendState?.deadline && now >= Date.parse(ewallet.backendState.deadline);
 
   const handleVerify = async () => {
     const data = await refreshBackendTransaction();
@@ -63,7 +70,8 @@ export default function EWalletQRCodeScreen() {
       }}
     >
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-140px)] p-6">
-        <QRCodeDisplay
+        <EWalletSessionStatus />
+        {expired ? <p role="status" className="rounded-xl bg-amber-50 p-6 text-xl">QR session expired. Checking payment status…</p> : <QRCodeDisplay
           providerName={config.providerName}
           onVerify={handleVerify}
           colorVariant={ewallet.provider}
@@ -75,7 +83,7 @@ export default function EWalletQRCodeScreen() {
               ? "Payment confirmed. Preparing cash."
               : "Pay with any QR Ph-compatible wallet."
           }
-        />
+        />}
       </div>
     </PageLayout>
   );

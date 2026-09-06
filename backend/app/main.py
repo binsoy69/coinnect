@@ -213,6 +213,7 @@ async def lifespan(app: FastAPI):
     ewallet_orchestrator = EWalletOrchestrator(
         settings=settings,
         gateway=paymongo_client,
+        inventory_service=inventory_service,
         bill_acceptor=bill_acceptor,
         dispenser=dispense_orchestrator,
         coin_controller=coin_controller,
@@ -339,6 +340,7 @@ async def lifespan(app: FastAPI):
     await ewallet_orchestrator.recover_pending_transactions()
     await forex_transaction_orchestrator.recover_pending_transactions()
     await gateway_inbox.start()
+    await ewallet_orchestrator.start()
 
     # Asynchronously run system startup diagnostic checks
     async def _run_startup_diagnostics():
@@ -361,6 +363,7 @@ async def lifespan(app: FastAPI):
     logger.info("Coinnect backend shutting down")
     await forex_rate_service.stop()
     await gateway_inbox.stop()
+    await ewallet_orchestrator.stop()
     await paymongo_client.close()
     await event_dispatcher.stop()
     await serial_manager.shutdown()

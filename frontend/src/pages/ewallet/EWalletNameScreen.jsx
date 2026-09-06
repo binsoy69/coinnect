@@ -32,7 +32,7 @@ export default function EWalletNameScreen() {
   };
 
   const handleBack = () => {
-    navigate(getEWalletRoute(ROUTES.EWALLET_FEE, ewallet.serviceType));
+    navigate(getEWalletRoute(ROUTES.EWALLET_AMOUNT, ewallet.serviceType));
   };
 
   return (

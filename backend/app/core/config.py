@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     mock_delay: float = 1.0
 
     # Server
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8000
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
     environment: str = "development"
@@ -131,6 +131,8 @@ class Settings(BaseSettings):
 
     # Storage slot capacity
     storage_slot_capacity: int = 100
+    # Calibrate actual tube limits before enabling production coin intake.
+    coin_storage_capacities: dict[str, int] = Field(default_factory=dict)
 
     # Stepper slot positions
     slot_1_position: int = 0

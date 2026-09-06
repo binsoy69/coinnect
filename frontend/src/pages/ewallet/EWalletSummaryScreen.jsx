@@ -1,76 +1,35 @@
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import EWalletTransactionCard from "../../components/ewallet/EWalletTransactionCard";
-import { ROUTES, getEWalletRoute } from "../../constants/routes";
 import { useEWallet } from "../../context/EWalletContext";
-import { isCashOut } from "../../constants/ewalletData";
+import { ROUTES } from "../../constants/routes";
 
 export default function EWalletSummaryScreen() {
+  const { ewallet, resetTransaction } = useEWallet();
   const navigate = useNavigate();
-  const { ewallet, getEWalletConfig } = useEWallet();
-  const config = getEWalletConfig();
-
-  if (!config) {
-    navigate(ROUTES.EWALLET);
-    return null;
-  }
-
-  const handleBack = () => {
-    navigate(ROUTES.EWALLET);
-  };
-
-  const handleProceed = () => {
-    if (requiresClaim || ewallet.backendState?.state === "FAILED") {
-      navigate(ROUTES.HOME);
-      return;
-    }
-    navigate(getEWalletRoute(ROUTES.EWALLET_SUCCESS, ewallet.serviceType));
-  };
-
-  const requiresClaim = ewallet.backendState?.state === "CLAIM_REQUIRED";
-
-  return (
-    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-8">
-      <EWalletTransactionCard
-        serviceName={config.displayName}
-        mobileNumber={ewallet.mobileNumber}
-        accountName={ewallet.accountName}
-        totalInserted={
-          isCashOut(ewallet.serviceType)
-            ? ewallet.totalDue
-            : ewallet.totalInserted
-        }
-        fee={ewallet.fee}
-        transferAmount={ewallet.transferAmount}
-        totalDue={ewallet.totalDue}
-        onBack={handleBack}
-        onProceed={handleProceed}
-        proceedLabel={
-          requiresClaim || ewallet.backendState?.state === "FAILED"
-            ? "Exit"
-            : "Proceed"
-        }
-        provider={config.provider}
-      />
-      {requiresClaim && (
-        <div className="mt-6 max-w-md w-full bg-amber-100 border border-amber-400 rounded-xl p-5 text-center">
-          <h2 className="font-bold text-amber-900 text-xl">
-            Operator assistance required
-          </h2>
-          <p className="text-amber-800 mt-2">
-            Claim ticket:{" "}
-            <strong>{ewallet.backendState?.claim_ticket_code}</strong>
-          </p>
-          {ewallet.backendState?.shortfall != null && (
-            <p className="text-amber-800 mt-2">
-              Shortfall owed:{" "}
-              <strong>₱{ewallet.backendState.shortfall}</strong>
-            </p>
-          )}
-          <p className="text-sm text-amber-700 mt-2">
-            Keep this reference and contact the kiosk operator.
-          </p>
-        </div>
-      )}
-    </div>
-  );
+  const state = ewallet.backendState;
+  const retained = state?.state === "ABANDONED_RETAINED";
+  const cancelled = state?.state === "CANCELLED";
+  useEffect(() => {
+    if (!retained && !cancelled) return;
+    const timer = setTimeout(() => { resetTransaction(); navigate(ROUTES.HOME); }, 8000);
+    return () => clearTimeout(timer);
+  }, [retained, cancelled, resetTransaction, navigate]);
+  if (!state) return null;
+  const title = state.state === "COMPLETE" ? "Transaction complete"
+    : retained ? "Session expired" : cancelled ? "Transaction cancelled" : "Operator assistance required";
+  return <main className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-8">
+    <section className="w-full max-w-2xl rounded-xl bg-white p-8 space-y-4">
+      <h1 className="text-3xl font-bold">{title}</h1>
+      <p>Reference: {state.transaction_id}</p>
+      {retained ? <p>₱{state.retained_amount} was retained after partial-payment inactivity. No wallet credit or claim ticket was issued.</p> : <>
+        <p>Total: ₱{state.amount} · Fee: ₱{state.fee} · Fee refunded/owed: ₱{state.refunded_fee || 0}</p>
+        <p>Cash accepted: ₱{state.inserted_amount} · Wallet credited: ₱{state.wallet_credited || 0}</p>
+        <p>Cash dispensed: ₱{state.dispensed_amount} · Change returned: ₱{state.change_dispensed || 0}</p>
+      </>}
+      {state.claim_ticket_code && <p className="font-bold">Claim reference: {state.claim_ticket_code}</p>}
+      {state.claims?.map(claim => <p key={claim.claim_ticket_code}>₱{claim.amount} · {claim.status === "PROVISIONAL" ? "Pending verification — amount is provisional" : "Operator settlement required"}</p>)}
+      {state.error_message && <p role="status">{state.error_message}</p>}
+      <button className="rounded-lg bg-gray-900 text-white px-8 py-4" onClick={() => { resetTransaction(); navigate(ROUTES.HOME); }}>Finish</button>
+    </section>
+  </main>;
 }

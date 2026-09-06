@@ -8,7 +8,7 @@
 // Coinnect Mega #2 firmware: coin accept/dispense + security + RFID.
 // Serial protocol: newline-delimited JSON at 115200 baud.
 
-static const char *FIRMWARE_VERSION = "3.0.0";
+static const char *FIRMWARE_VERSION = "3.1.0-mega";
 static const char *CONTROLLER_ID = "COIN_SECURITY";
 
 // MFRC522 RFID reader pins.
@@ -85,6 +85,67 @@ static volatile bool coinAcceptorEnabled = false;
 static const char *coinSorterPosition = "CENTER";
 static int coinSessionTotal = 0;
 
+enum CoinSessionState {
+  COIN_SESSION_IDLE = 0,
+  COIN_SESSION_ACTIVE = 1,
+  COIN_SESSION_CLOSING = 2,
+  COIN_SESSION_CLOSED = 3,
+  COIN_SESSION_UNCERTAIN = 4
+};
+
+static CoinSessionState coinSessionState = COIN_SESSION_IDLE;
+static uint32_t currentSessionId = 0;
+static uint16_t sessionSequence = 0;
+static uint16_t sessionCount1 = 0;
+static uint16_t sessionCount5 = 0;
+static uint16_t sessionCount10 = 0;
+static uint16_t sessionCount20 = 0;
+
+static unsigned long sessionDrainStartMs = 0;
+static unsigned long sessionLastPulseMs = 0;
+static unsigned long COIN_SESSION_MIN_DRAIN_MS = 500;
+static unsigned long COIN_SESSION_QUIET_MS = 150;
+static unsigned long COIN_SESSION_MAX_DRAIN_MS = 3000;
+
+
+static bool sessionBounded = false;
+struct __attribute__((packed)) IntakeJournal {
+  uint16_t magic;
+  uint32_t revision;
+  uint32_t sid;
+  uint16_t counts[4];
+  uint8_t state;
+  uint16_t checksum;
+};
+static uint32_t intakeRevision = 0;
+uint16_t intakeCRC(const IntakeJournal &r) {
+  uint16_t c = 0xFFFF;
+  const uint8_t *p = (const uint8_t *)&r;
+  for (uint8_t i=0; i<sizeof(r)-2; ++i) { c ^= p[i]; for(uint8_t j=0;j<8;++j)c=(c>>1)^((c&1)?0xA001:0); }
+  return c;
+}
+void persistIntake() {
+  IntakeJournal r = {};
+  r.magic=0xC017; r.revision=++intakeRevision; r.sid=currentSessionId;
+  r.counts[0]=sessionCount1; r.counts[1]=sessionCount5;
+  r.counts[2]=sessionCount10; r.counts[3]=sessionCount20; r.state=coinSessionState;
+  r.checksum=intakeCRC(r);
+  EEPROM.put(EEPROM.length()-128+(r.revision%2)*sizeof(r),r);
+}
+void loadIntake() {
+  for(uint8_t i=0;i<2;++i) {
+    IntakeJournal r;
+    EEPROM.get(EEPROM.length()-128+i*sizeof(r),r);
+    if(r.magic==0xC017 && r.checksum==intakeCRC(r) && r.revision>intakeRevision) {
+      intakeRevision=r.revision; currentSessionId=r.sid;
+      sessionCount1=r.counts[0]; sessionCount5=r.counts[1];
+      sessionCount10=r.counts[2]; sessionCount20=r.counts[3];
+      coinSessionState=(r.state==COIN_SESSION_IDLE || r.state==COIN_SESSION_CLOSED)
+        ? (CoinSessionState)r.state : COIN_SESSION_UNCERTAIN;
+    }
+  }
+}
+
 static volatile uint8_t coinPulseCount = 0;
 static volatile unsigned long lastCoinPulseMs = 0;
 static volatile unsigned long lastCoinInterruptMs = 0;
@@ -134,6 +195,8 @@ static const uint32_t JOURNAL_MAGIC = 0x434E4A32UL;
 static OperationJournalRecord journalRecord = {};
 static int journalSlot = -1;
 
+uint16_t journalCrc(const OperationJournalRecord &record);
+bool findOperation(const char *operationId, OperationJournalRecord &found);
 uint16_t journalCrc(const OperationJournalRecord &record) {
   const uint8_t *bytes = reinterpret_cast<const uint8_t *>(&record);
   uint16_t crc = 0xFFFF;
@@ -146,7 +209,7 @@ uint16_t journalCrc(const OperationJournalRecord &record) {
 
 void loadOperationJournal() {
   bool corrupt = false;
-  const int slots = EEPROM.length() / sizeof(OperationJournalRecord);
+  const int slots = (EEPROM.length() - 128) / sizeof(OperationJournalRecord);
   for (int slot = 0; slot < slots; slot++) {
     OperationJournalRecord candidate;
     EEPROM.get(slot * sizeof(OperationJournalRecord), candidate);
@@ -172,7 +235,7 @@ void persistOperation(uint8_t state, const char *operationId, int dispensed) {
   next.state = state;
   next.dispensed = dispensed;
   next.crc = journalCrc(next);
-  const int slots = EEPROM.length() / sizeof(OperationJournalRecord);
+  const int slots = (EEPROM.length() - 128) / sizeof(OperationJournalRecord);
   journalSlot = (journalSlot + 1) % slots;
   EEPROM.put(journalSlot * sizeof(OperationJournalRecord), next);
   journalRecord = next;
@@ -190,7 +253,7 @@ bool isValidOperationId(const char *value) {
 
 bool findOperation(const char *operationId, OperationJournalRecord &found) {
   bool matched = false;
-  const int slots = EEPROM.length() / sizeof(OperationJournalRecord);
+  const int slots = (EEPROM.length() - 128) / sizeof(OperationJournalRecord);
   for (int slot = 0; slot < slots; slot++) {
     OperationJournalRecord candidate;
     EEPROM.get(slot * sizeof(OperationJournalRecord), candidate);
@@ -205,7 +268,7 @@ bool findOperation(const char *operationId, OperationJournalRecord &found) {
 }
 
 void clearCorruptJournalSlots() {
-  const int slots = EEPROM.length() / sizeof(OperationJournalRecord);
+  const int slots = (EEPROM.length() - 128) / sizeof(OperationJournalRecord);
   for (int slot = 0; slot < slots; slot++) {
     OperationJournalRecord candidate;
     EEPROM.get(slot * sizeof(OperationJournalRecord), candidate);
@@ -317,6 +380,7 @@ const char *sorterPositionForDenom(int denom) {
 }
 
 void setCoinSorterPosition(const char *position) {
+  if (!coinSorterServo.attached()) coinSorterServo.attach(COIN_SORTER_SERVO_PIN);
   coinSorterPosition = position;
   coinSorterServo.write(sorterAngleForPosition(position));
   sorterMoving = true;
@@ -334,7 +398,7 @@ void clearCoinPulseTrain() {
 void setCoinAcceptorEnabled(bool enabled) {
   coinAcceptorEnabled = enabled;
   digitalWrite(COIN_ACCEPTOR_ENABLE_PIN, enabled ? HIGH : LOW);
-  if (!enabled) {
+  if (!enabled && coinSessionState == COIN_SESSION_IDLE) {
     clearCoinPulseTrain();
   }
 }
@@ -379,7 +443,7 @@ void handleTamper(const char *sensor) {
 }
 
 void coinPulseISR() {
-  if (!coinAcceptorEnabled) {
+  if (!coinAcceptorEnabled && coinSessionState != COIN_SESSION_CLOSING && coinSessionState != COIN_SESSION_ACTIVE) {
     return;
   }
   const unsigned long now = millis();
@@ -464,11 +528,32 @@ void serviceCoinHold() {
   }
 }
 
+void serviceCoinSessionDrain() {
+  if (coinSessionState != COIN_SESSION_CLOSING) {
+    return;
+  }
+  const unsigned long now = millis();
+  const unsigned long elapsed = now - sessionDrainStartMs;
+  const unsigned long sinceLastPulse = now - sessionLastPulseMs;
+
+  noInterrupts();
+  const bool inFlightPulses = (coinPulseCount > 0);
+  interrupts();
+
+  if (!inFlightPulses && !sorterMoving && !coinHoldActive && elapsed >= COIN_SESSION_MIN_DRAIN_MS && sinceLastPulse >= COIN_SESSION_QUIET_MS) {
+    coinSessionState = COIN_SESSION_CLOSED;
+    persistIntake();
+  } else if (elapsed >= COIN_SESSION_MAX_DRAIN_MS) {
+    coinSessionState = COIN_SESSION_UNCERTAIN;
+  }
+}
+
+
 void serviceCoinPulseTrain() {
   uint8_t pulses = 0;
   const unsigned long now = millis();
 
-  if (!coinAcceptorEnabled) {
+  if (!coinAcceptorEnabled && coinSessionState != COIN_SESSION_CLOSING && coinSessionState != COIN_SESSION_ACTIVE) {
     clearCoinPulseTrain();
     return;
   }
@@ -488,24 +573,43 @@ void serviceCoinPulseTrain() {
 
   const int denom = (int)pulses;
   if (!isValidCoinDenom(denom)) {
+    if (coinSessionState != COIN_SESSION_IDLE) {
+      coinSessionState = COIN_SESSION_UNCERTAIN;
+      coinAcceptorShouldBeEnabled = false;
+      setCoinAcceptorEnabled(false);
+    }
     return;
   }
 
   coinSessionTotal += denom;
+  sessionLastPulseMs = now;
   
   // Disable acceptor physically during sorting
   coinAcceptorEnabled = false;
   digitalWrite(COIN_ACCEPTOR_ENABLE_PIN, LOW);
-  clearCoinPulseTrain();
+  if (coinSessionState == COIN_SESSION_IDLE) clearCoinPulseTrain();
 
   // Move sorter to denomination position non-blockingly
   const char *targetPos = sorterPositionForDenom(denom);
-  coinSorterPosition = targetPos;
-  coinSorterServo.write(sorterAngleForPosition(targetPos));
-  sorterMoving = true;
-  sorterMoveStartMs = now;
+  if (!tamperLatched) setCoinSorterPosition(targetPos);
 
-  sendCoinInEvent(denom);
+  if (coinSessionState == COIN_SESSION_ACTIVE || coinSessionState == COIN_SESSION_CLOSING) {
+    sessionSequence++;
+    uint16_t curCount = 0;
+    if (denom == 1) { sessionCount1++; curCount = sessionCount1; }
+    else if (denom == 5) { sessionCount5++; curCount = sessionCount5; }
+    else if (denom == 10) { sessionCount10++; curCount = sessionCount10; }
+    else if (denom == 20) { sessionCount20++; curCount = sessionCount20; }
+    if (sessionBounded) {
+      coinAcceptorShouldBeEnabled = false;
+      coinSessionState = COIN_SESSION_CLOSING;
+      sessionDrainStartMs = now;
+    }
+    persistIntake();
+    sendCoinSessionPulseEvent(currentSessionId, sessionSequence, denom, curCount);
+  } else {
+    sendCoinInEvent(denom);
+  }
 
   coinHoldActive = true;
   coinHoldStartMs = now;
@@ -639,6 +743,7 @@ void handleVersion() {
 }
 
 void handleReset() {
+  if (coinSessionState != COIN_SESSION_IDLE) { sendError("LOCKED_OUT"); return; }
   noInterrupts();
   coinPulseCount = 0;
   shockAFlag = false;
@@ -710,6 +815,10 @@ void handleCoinDispense(JsonDocument &cmdDoc) {
   if (dispenseDispenserIndex < 0) {
     sendError("INVALID_DENOM");
     return;
+  }
+  const uint8_t dispenserPins[] = {SERVO_PHP_1_PIN, SERVO_PHP_5_PIN, SERVO_PHP_10_PIN, SERVO_PHP_20_PIN};
+  if (!coinDispensers[dispenseDispenserIndex].servo->attached()) {
+    coinDispensers[dispenseDispenserIndex].servo->attach(dispenserPins[dispenseDispenserIndex]);
   }
 
   persistOperation(1, operationId, 0);
@@ -818,6 +927,7 @@ void handleCoinChange(JsonDocument &cmdDoc) {
 }
 
 void handleCoinReset() {
+  if (coinSessionState != COIN_SESSION_IDLE) { sendError("LOCKED_OUT"); return; }
   const int previousTotal = coinSessionTotal;
   coinSessionTotal = 0;
 
@@ -833,6 +943,123 @@ void handleCoinReset() {
   sendDocument(doc);
 }
 
+void sendCoinSessionPulseEvent(uint32_t sid, uint16_t seq, int denom, uint16_t count) {
+  StaticJsonDocument<128> doc;
+  doc["event"] = "COIN_SESSION_PULSE";
+  doc["sid"] = sid;
+  doc["seq"] = seq;
+  doc["denom"] = denom;
+  doc["count"] = count;
+  sendDocument(doc);
+}
+
+
+void handleCoinSessionStart(JsonDocument &cmdDoc) {
+  if (tamperLatched) {
+    sendError("LOCKED_OUT");
+    return;
+  }
+  if (!cmdDoc.containsKey("sid")) {
+    sendError("INVALID_PARAM");
+    return;
+  }
+
+  const unsigned long grace = cmdDoc["grace_ms"] | 500UL;
+  const unsigned long timeout = cmdDoc["timeout_ms"] | 3000UL;
+  const unsigned long quiet = cmdDoc["quiet_ms"] | 150UL;
+  if (grace < 500 || timeout < grace || timeout > 10000 || quiet < 150 || quiet > timeout) {
+    sendError("INVALID_PARAM");
+    return;
+  }
+  COIN_SESSION_MIN_DRAIN_MS = grace;
+  COIN_SESSION_MAX_DRAIN_MS = timeout;
+  COIN_SESSION_QUIET_MS = quiet;
+  const uint32_t requestedSid = cmdDoc["sid"].as<uint32_t>();
+  if (!requestedSid || requestedSid < currentSessionId ||
+      (requestedSid != currentSessionId && coinSessionState != COIN_SESSION_IDLE && coinSessionState != COIN_SESSION_CLOSED)) {
+    sendError("LOCKED_OUT");
+    return;
+  }
+  if (requestedSid == currentSessionId) {
+    if (coinSessionState != COIN_SESSION_ACTIVE) {
+      sendError("LOCKED_OUT");
+      return;
+    }
+    cmdDoc.clear();
+    cmdDoc["status"] = "OK";
+    cmdDoc["sid"] = currentSessionId;
+    cmdDoc["session_state"] = "ACTIVE";
+    sendDocument(cmdDoc);
+    return;
+  }
+  sessionBounded = cmdDoc.containsKey("max_value");
+  currentSessionId = requestedSid;
+  sessionSequence = 0;
+  sessionCount1 = 0;
+  sessionCount5 = 0;
+  sessionCount10 = 0;
+  sessionCount20 = 0;
+  coinSessionTotal = 0;
+  coinSessionState = COIN_SESSION_ACTIVE;
+  persistIntake();
+
+  coinAcceptorShouldBeEnabled = true;
+  setCoinAcceptorEnabled(true);
+
+  cmdDoc.clear();
+  cmdDoc["status"] = "OK";
+  cmdDoc["sid"] = currentSessionId;
+  cmdDoc["session_state"] = "ACTIVE";
+  sendDocument(cmdDoc);
+}
+
+
+void handleCoinSessionStop(JsonDocument &cmdDoc) {
+  if (cmdDoc.containsKey("sid") && cmdDoc["sid"].as<uint32_t>() != currentSessionId) {
+    sendError("INVALID_PARAM");
+    return;
+  }
+
+  coinAcceptorShouldBeEnabled = false;
+  setCoinAcceptorEnabled(false);
+
+  const unsigned long now = millis();
+  if (coinSessionState == COIN_SESSION_ACTIVE) {
+    sessionDrainStartMs = now;
+    sessionLastPulseMs = now;
+    coinSessionState = COIN_SESSION_CLOSING;
+  }
+
+  cmdDoc.clear();
+  cmdDoc["status"] = "OK";
+  cmdDoc["sid"] = currentSessionId;
+  cmdDoc["session_state"] = (coinSessionState == COIN_SESSION_CLOSED) ? "CLOSED" : "CLOSING";
+  sendDocument(cmdDoc);
+}
+
+
+void handleCoinSessionStatus(JsonDocument &cmdDoc) {
+  const int denom = cmdDoc["denom"] | 0;
+  if (!isValidCoinDenom(denom)) {
+    sendError("INVALID_DENOM");
+    return;
+  }
+  const char *stateStr = "IDLE";
+  if (coinSessionState == COIN_SESSION_ACTIVE) stateStr = "ACTIVE";
+  else if (coinSessionState == COIN_SESSION_CLOSING) stateStr = "CLOSING";
+  else if (coinSessionState == COIN_SESSION_CLOSED) stateStr = "CLOSED";
+  else if (coinSessionState == COIN_SESSION_UNCERTAIN) stateStr = "UNCERTAIN";
+  uint16_t count = denom == 1 ? sessionCount1 : denom == 5 ? sessionCount5 : denom == 10 ? sessionCount10 : sessionCount20;
+  cmdDoc.clear();
+  cmdDoc["status"] = "OK";
+  cmdDoc["sid"] = currentSessionId;
+  cmdDoc["session_state"] = stateStr;
+  cmdDoc["denom"] = denom;
+  cmdDoc["count"] = count;
+  sendDocument(cmdDoc);
+}
+
+
 void handleCoinAcceptorEnable(JsonDocument &cmdDoc) {
   if (!cmdDoc["enabled"].is<bool>()) {
     sendError("INVALID_PARAM");
@@ -840,7 +1067,7 @@ void handleCoinAcceptorEnable(JsonDocument &cmdDoc) {
   }
 
   const bool enabled = cmdDoc["enabled"];
-  if (enabled && tamperLatched) {
+  if (enabled && (tamperLatched || coinSessionState == COIN_SESSION_UNCERTAIN || coinSessionState == COIN_SESSION_CLOSING || coinSessionState == COIN_SESSION_CLOSED)) {
     sendError("LOCKED_OUT");
     return;
   }
@@ -919,7 +1146,22 @@ void dispatchCommand(const String &line) {
   currentCommandId = cmdDoc["id"] | -1;
 
   const char *cmd = cmdDoc["cmd"] | "";
-  if (strcmp(cmd, "PING") == 0) {
+  if (strcmp(cmd, "CAPABILITIES") == 0) {
+    cmdDoc.clear(); cmdDoc["status"]="OK"; cmdDoc["converter_protocol"]=2; sendDocument(cmdDoc);
+  } else if (strcmp(cmd, "EMERGENCY_CLEAR") == 0) {
+    tamperLatched=false; cmdDoc.clear(); cmdDoc["status"]="OK"; sendDocument(cmdDoc);
+  } else if (strcmp(cmd, "EMERGENCY_STOP") == 0) {
+    tamperLatched=true;
+    if (dispenseActive && dispenseOperationId[0]) persistOperation(4, dispenseOperationId, dispenseActualCount);
+    dispenseActive=false; sorterMoving=false; coinHoldActive=false;
+    coinAcceptorShouldBeEnabled=false; setCoinAcceptorEnabled(false);
+    coinSorterServo.detach();
+    for (uint8_t i=0; i<COIN_DISPENSER_COUNT; ++i) coinDispensers[i].servo->detach();
+    if (coinSessionState==COIN_SESSION_ACTIVE) {
+      coinSessionState=COIN_SESSION_CLOSING; sessionDrainStartMs=millis(); sessionLastPulseMs=millis(); persistIntake();
+    }
+    cmdDoc.clear(); cmdDoc["status"]="OK"; cmdDoc["stopped"]=true; sendDocument(cmdDoc);
+  } else if (strcmp(cmd, "PING") == 0) {
     handlePing();
   } else if (strcmp(cmd, "VERSION") == 0) {
     handleVersion();
@@ -935,6 +1177,21 @@ void dispatchCommand(const String &line) {
     handleCoinChange(cmdDoc);
   } else if (strcmp(cmd, "COIN_RESET") == 0) {
     handleCoinReset();
+  } else if (strcmp(cmd, "COIN_CAPABILITIES") == 0) {
+    cmdDoc.clear(); cmdDoc["status"]="OK"; cmdDoc["managed_intake"]=true; cmdDoc["bounded_intake"]=true; sendDocument(cmdDoc);
+  } else if (strcmp(cmd, "COIN_SESSION_RECONCILE") == 0) {
+    const uint32_t requestedSid = cmdDoc["sid"].as<uint32_t>();
+    if (coinAcceptorEnabled || sorterMoving || coinHoldActive || coinSessionState == COIN_SESSION_ACTIVE || coinSessionState == COIN_SESSION_CLOSING || (requestedSid != currentSessionId && !(coinSessionState == COIN_SESSION_IDLE && requestedSid > currentSessionId))) { sendError("LOCKED_OUT"); }
+    else { currentSessionId=requestedSid; clearCoinPulseTrain(); coinSessionState=COIN_SESSION_CLOSED; persistIntake(); cmdDoc.clear(); cmdDoc["status"]="OK"; sendDocument(cmdDoc); }
+  } else if (strcmp(cmd, "COIN_SESSION_ACK") == 0) {
+    if (cmdDoc["sid"].as<uint32_t>() != currentSessionId || coinSessionState != COIN_SESSION_CLOSED) { sendError("LOCKED_OUT"); }
+    else { coinSessionState=COIN_SESSION_IDLE; persistIntake(); cmdDoc.clear(); cmdDoc["status"]="OK"; sendDocument(cmdDoc); }
+  } else if (strcmp(cmd, "COIN_SESSION_START") == 0) {
+    handleCoinSessionStart(cmdDoc);
+  } else if (strcmp(cmd, "COIN_SESSION_STOP") == 0) {
+    handleCoinSessionStop(cmdDoc);
+  } else if (strcmp(cmd, "COIN_SESSION_STATUS") == 0) {
+    handleCoinSessionStatus(cmdDoc);
   } else if (strcmp(cmd, "COIN_ACCEPTOR_ENABLE") == 0) {
     handleCoinAcceptorEnable(cmdDoc);
   } else if (strcmp(cmd, "COIN_STATUS") == 0) {
@@ -998,6 +1255,7 @@ void setupSecurityPins() {
 }
 
 void setup() {
+  loadIntake();
   Serial.begin(115200);
   inputLine.reserve(256);
 
@@ -1049,6 +1307,7 @@ void loop() {
   serviceSorter();
   serviceCoinHold();
   serviceCoinPulseTrain();
+  serviceCoinSessionDrain();
   serviceDispense();
   serviceRFID();
   handleSerialInput();

@@ -547,3 +547,20 @@ async def test_failed_recovery_acknowledgement_records_inconsistency(
         await orchestrator.recover_started_operations()
 
     assert machine_status.snapshot().consumables.inventory_consistent is False
+
+
+@pytest.mark.asyncio
+async def test_wallet_recovery_uses_completed_execution_even_if_source_update_was_lost(persistent_orchestrator):
+    from app.models.db_models import EWalletTransactionRecord
+    orchestrator, factory = persistent_orchestrator
+    async with factory() as session:
+        session.add(EWalletTransactionRecord(id="wallet-recovery", provider="gcash", direction="cash-out", state="DISPENSING", amount=115, fee=15, transfer_amount=100, total_due=115))
+        session.add(DispenseExecution(id="execution", source_kind="EWALLET", transaction_id="wallet-recovery", state="COMPLETE", plan={}, requested_amount=100, confirmed_amount=100))
+        session.add(PhysicalOperation(id="operation", execution_id="execution", transaction_id="wallet-recovery", sequence=0, controller="BILL", denomination="PHP_100", requested_count=1, denomination_value=100, confirmed_count=1, state="COMPLETED", inventory_reconciled=True))
+        await session.commit()
+    await orchestrator.recover_started_operations()
+    async with factory() as session:
+        record = await session.get(EWalletTransactionRecord, "wallet-recovery")
+        assert record.state == "COMPLETE"
+        assert record.dispensed_amount == 100
+        assert record.change_dispensed == 0

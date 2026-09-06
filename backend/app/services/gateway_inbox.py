@@ -36,7 +36,15 @@ class GatewayInboxWorker:
 
     async def _run(self) -> None:
         while self._running:
-            event_id = await self._lease_next()
+            try:
+                await self._recover_expired_leases()
+                event_id = await self._lease_next()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Gateway inbox lease failed; retrying")
+                await asyncio.sleep(1)
+                continue
             if event_id is None:
                 await asyncio.sleep(1)
                 continue
@@ -51,7 +59,10 @@ class GatewayInboxWorker:
                 raise
             except Exception as exc:
                 logger.error("Gateway inbox event %s failed: %s", event_id, exc, exc_info=True)
-                await self._schedule_retry(event_id, str(exc))
+                try:
+                    await self._schedule_retry(event_id, str(exc))
+                except Exception:
+                    logger.exception("Gateway retry scheduling failed; lease recovery will retry")
 
     async def _lease_next(self) -> str | None:
         now = datetime.utcnow()

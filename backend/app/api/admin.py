@@ -83,7 +83,7 @@ async def get_claims(
     session_factory = request.app.state.db_session_factory
     
     from sqlalchemy import select
-    from app.models.db_models import ClaimRecord, TransactionRecord, EWalletTransactionRecord
+    from app.models.db_models import ClaimRecord, TransactionRecord, EWalletTransactionRecord, EWalletIntake, EWalletCoinSession, PhysicalOperation
     
     claims = []
     
@@ -93,14 +93,10 @@ async def get_claims(
                 select(ClaimRecord).where(ClaimRecord.status != "RESOLVED")
             )
         ).scalars().all()
-        if unified:
-            return {
-                "claims": sorted(
-                    [request.app.state.claim_service.serialize(claim) for claim in unified],
-                    key=lambda item: item["created_at"],
-                    reverse=True,
-                )
-            }
+        claims.extend(request.app.state.claim_service.serialize(claim) for claim in unified)
+        all_unified = (await session.execute(select(ClaimRecord))).scalars().all()
+        represented = {claim.claim_ticket_code for claim in all_unified}
+        represented_transactions = {(claim.source_kind, claim.transaction_id) for claim in all_unified}
         # Query standard transaction claims (unresolved errors with claim tickets)
         stmt_std = select(TransactionRecord).where(
             TransactionRecord.state == "ERROR",
@@ -109,6 +105,8 @@ async def get_claims(
         )
         res_std = await session.execute(stmt_std)
         for tx in res_std.scalars().all():
+            if tx.claim_ticket_code in represented or ("STANDARD", tx.id) in represented_transactions:
+                continue
             shortfall = tx.total_due - tx.dispensed_amount
             claims.append({
                 "claim_ticket_code": tx.claim_ticket_code,
@@ -134,7 +132,10 @@ async def get_claims(
         )
         res_ew = await session.execute(stmt_ew)
         for tx in res_ew.scalars().all():
-            shortfall = tx.amount - tx.dispensed_amount
+            if tx.claim_ticket_code in represented or ("EWALLET", tx.id) in represented_transactions:
+                continue
+            shortfall = (max(0, tx.inserted_amount - tx.wallet_credited - (tx.fee if tx.wallet_credited else 0) - tx.change_dispensed)
+                         if tx.direction == "cash-in" else max(0, tx.amount - tx.dispensed_amount))
             claims.append({
                 "claim_ticket_code": tx.claim_ticket_code,
                 "transaction_id": tx.id,
@@ -142,7 +143,7 @@ async def get_claims(
                 "amount": tx.amount,
                 "inserted_amount": tx.inserted_amount,
                 "dispensed_amount": tx.dispensed_amount,
-                "shortfall": shortfall if shortfall > 0 else tx.transfer_amount,
+                "shortfall": shortfall,
                 "error_code": tx.error_code,
                 "error_message": tx.error_message,
                 "created_at": tx.created_at.isoformat(),
@@ -154,7 +155,59 @@ async def get_claims(
             
     # Sort claims by created_at descending
     claims.sort(key=lambda c: c["created_at"], reverse=True)
-    return {"claims": claims}
+    async with session_factory() as session:
+        retained = (await session.execute(select(EWalletTransactionRecord).where(
+            EWalletTransactionRecord.state == "ABANDONED_RETAINED"
+        ).order_by(EWalletTransactionRecord.created_at.desc()))).scalars().all()
+        bill_ops = (await session.execute(select(EWalletIntake).where(EWalletIntake.state == "PREPARED"))).scalars().all()
+        coin_ops = (await session.execute(select(EWalletCoinSession).where(EWalletCoinSession.state == "UNCERTAIN"))).scalars().all()
+        payouts = (await session.execute(select(PhysicalOperation).where(PhysicalOperation.state.in_({"AMBIGUOUS", "STARTED"})))).scalars().all()
+    return {"claims": claims, "retained_cash": [{"transaction_id": row.id,
+        "amount": row.retained_amount, "created_at": row.created_at.isoformat()} for row in retained],
+        "intake_operations": [{"id": row.id, "transaction_id": row.transaction_id, "value": row.value, "medium": "BILL"} for row in bill_ops]
+          + [{"id": row.sid, "transaction_id": row.transaction_id, "counts": row.counts, "medium": "COIN"} for row in coin_ops]
+          + [{"id": row.id, "transaction_id": row.transaction_id, "medium": "PAYOUT", "denomination": row.denomination, "requested_count": row.requested_count} for row in payouts]}
+
+
+class EWalletIntakeResolution(BaseModel):
+    medium: str
+    retained: bool = False
+    counts: dict[str, int] = Field(default_factory=dict)
+    notes: str = Field(min_length=5, max_length=1000)
+
+
+@router.post("/ewallet/intakes/{operation_id}/reconcile")
+async def reconcile_ewallet_intake(operation_id: str, body: EWalletIntakeResolution,
+    request: Request, authorization: str | None = Header(default=None)):
+    admin = require_admin_session(request, authorization)
+    orchestrator = request.app.state.ewallet_orchestrator
+    if orchestrator.has_active_transaction:
+        raise HTTPException(409, detail="Close the customer session before reconciliation")
+    notes = f"{admin.session_id}: {body.notes}"
+    try:
+        if body.medium == "BILL":
+            return await orchestrator.reconcile_intake(operation_id, body.retained, notes)
+        if body.medium != "COIN" or set(body.counts) != {"1", "5", "10", "20"} or any(type(v) is not int or not 0 <= v <= 1000 for v in body.counts.values()):
+            raise ValueError("Enter confirmed counts for PHP 1, 5, 10, and 20")
+        return await orchestrator.reconcile_coin_session(int(operation_id), body.counts, notes)
+    except Exception as exc:
+        raise HTTPException(409, detail=str(exc)) from exc
+
+
+@router.post("/ewallet/{transaction_id}/reconcile")
+async def reconcile_ewallet_payment(transaction_id: str, request: Request,
+    authorization: str | None = Header(default=None)):
+    require_admin_session(request, authorization)
+    orchestrator = request.app.state.ewallet_orchestrator
+    record = await orchestrator._record(transaction_id)
+    try:
+        if record.direction == "cash-out":
+            return await orchestrator._verify_and_dispense_cash_out(transaction_id)
+        if not record.gateway_batch_transfer_id:
+            raise ValueError("No verified transfer identifiers; inspect the gateway by transaction reference")
+        return await orchestrator._verify_and_complete_cash_in(transaction_id)
+    except Exception as exc:
+        raise HTTPException(409, detail=str(exc)) from exc
 
 
 @router.post("/claims/{claim_ticket_code}/resolve", status_code=status.HTTP_200_OK)
@@ -180,12 +233,21 @@ async def resolve_claim(
             )
         ).scalar_one_or_none()
         if claim:
+            if claim.status == "PROVISIONAL":
+                raise HTTPException(status_code=409, detail="Reconcile the uncertain outcome before settling this claim")
             if claim.resolved_at is not None:
                 raise HTTPException(status_code=400, detail="Claim has already been resolved")
             claim.status = "RESOLVED"
             claim.resolved_at = datetime.utcnow()
             claim.resolution_notes = body.resolution_notes
             claim.resolved_by = admin.session_id
+            model = EWalletTransactionRecord if claim.source_kind == "EWALLET" else TransactionRecord
+            source = await session.get(model, claim.transaction_id)
+            if source:
+                source.resolved_at = claim.resolved_at
+                source.resolved_by = admin.session_id
+                source.resolution_notes = body.resolution_notes
+                source.state = "RESOLVED"
             await session.commit()
             return {"status": "success", "message": f"Claim {claim_ticket_code} resolved successfully"}
         # 1. Look in TransactionRecord
@@ -303,14 +365,28 @@ async def reconcile_physical_operation(
         if claim:
             claim.confirmed_dispensed_amount = confirmed
             claim.ambiguous_amount = ambiguous
-            from app.models.db_models import TransactionRecord
+            from app.models.db_models import TransactionRecord, EWalletTransactionRecord
             converter = await session.get(TransactionRecord, operation.transaction_id)
+            wallet = await session.get(EWalletTransactionRecord, operation.transaction_id) if execution.source_kind.startswith("EWALLET") else None
             obligation = converter.inserted_amount if converter else execution.requested_amount
+            if wallet and wallet.resolved_at is None:
+                if execution.source_kind == "EWALLET_CHANGE":
+                    wallet.change_dispensed = confirmed
+                    obligation = max(0, wallet.inserted_amount - wallet.wallet_credited - (wallet.fee if wallet.wallet_credited else 0))
+                else:
+                    wallet.dispensed_amount = confirmed
+                    obligation = wallet.transfer_amount if confirmed >= wallet.transfer_amount else wallet.amount
+                    wallet.refunded_fee = wallet.fee if confirmed < wallet.transfer_amount else 0
             claim.amount = max(0, obligation - confirmed)
             if claim.amount == 0 and not ambiguous:
                 claim.status = "RESOLVED"
                 claim.resolved_at = datetime.utcnow()
                 claim.resolved_by = admin.session_id
+                if wallet and wallet.resolved_at is None:
+                    wallet.state = "RESOLVED"
+                    wallet.resolved_at = claim.resolved_at
+                    wallet.resolved_by = admin.session_id
+                    wallet.resolution_notes = body.resolution_notes
             else:
                 claim.status = "PROVISIONAL" if ambiguous else "OPEN"
             claim.resolution_notes = body.resolution_notes

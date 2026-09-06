@@ -71,6 +71,10 @@ export default function AdminInventoryScreen() {
   // New claims state
   const [activeTab, setActiveTab] = useState("reconciliation"); // "reconciliation" | "claims"
   const [claims, setClaims] = useState([]);
+  const [retainedCash, setRetainedCash] = useState([]);
+  const [intakeOperations, setIntakeOperations] = useState([]);
+  const [intakeResolution, setIntakeResolution] = useState(null);
+  const [intakeError, setIntakeError] = useState("");
   const [loadingClaims, setLoadingClaims] = useState(false);
   const [resolvingClaim, setResolvingClaim] = useState(null);
   const [resolutionNotes, setResolutionNotes] = useState("");
@@ -109,7 +113,15 @@ export default function AdminInventoryScreen() {
     setLoadingClaims(true);
     try {
       const data = await request("/admin/claims");
-      setClaims(data?.claims || []);
+      setRetainedCash(data?.retained_cash || []);
+      setIntakeOperations(data?.intake_operations || []);
+      setClaims((data?.claims || []).map(claim => ({ ...claim,
+        type: claim.type || (claim.source_kind === "EWALLET" ? "ewallet" : claim.source_kind?.toLowerCase()) || "transaction",
+        shortfall: claim.shortfall ?? claim.amount,
+        dispensed_amount: claim.dispensed_amount ?? claim.confirmed_dispensed_amount,
+        error_code: claim.error_code || claim.reason_code,
+        error_message: claim.error_message || claim.reason_message,
+      })));
     } catch (err) {
       console.error("Failed to load claims", err);
     } finally {
@@ -175,6 +187,26 @@ export default function AdminInventoryScreen() {
     } finally {
       setResolvingSaving(false);
     }
+  };
+
+  const reconcileIntake = async () => {
+    setIntakeError("");
+    try {
+      const payout = intakeResolution.medium === "PAYOUT";
+      await request(payout ? `/admin/physical-operations/${intakeResolution.id}/reconcile` : `/admin/ewallet/intakes/${intakeResolution.id}/reconcile`, {
+        method: "POST", body: JSON.stringify(payout ? { actual_dispensed_count: intakeResolution.actual_dispensed_count, resolution_notes: intakeResolution.notes } : intakeResolution),
+      });
+      setIntakeResolution(null);
+      await loadClaims();
+    } catch (err) { setIntakeError(err.message); }
+  };
+
+  const reconcilePayment = async (claim) => {
+    setError("");
+    try {
+      await request(`/admin/ewallet/${claim.transaction_id}/reconcile`, { method: "POST" });
+      await loadClaims();
+    } catch (err) { setError(err.message); }
   };
 
   const load = useCallback(async () => {
@@ -477,11 +509,34 @@ export default function AdminInventoryScreen() {
                 </p>
               </div>
 
+              {retainedCash.length > 0 && <section className="rounded-xl border border-amber-300 bg-amber-50 p-5">
+                <h3 className="font-bold">Abandoned cash retained — separate from fees and claims</h3>
+                <p>Total: ₱{retainedCash.reduce((sum, row) => sum + row.amount, 0)}</p>
+                {retainedCash.map(row => <p key={row.transaction_id}>{row.transaction_id}: ₱{row.amount}</p>)}
+              </section>}
+              {intakeOperations.map(operation => <section key={`${operation.medium}:${operation.id}`} className="rounded-xl border border-amber-300 p-5">
+                <p>Uncertain {operation.medium.toLowerCase()} intake · {operation.transaction_id}</p>
+                <button type="button" className="min-h-11 font-bold underline" onClick={() => {
+                  setIntakeResolution({ ...operation, actual_dispensed_count: 0, retained: false, counts: { "1": 0, "5": 0, "10": 0, "20": 0, ...operation.counts }, notes: "" });
+                  setIntakeError("");
+                }}>Record physical inspection</button>
+              </section>)}
+              {intakeResolution && <section className="rounded-xl border-2 border-amber-500 p-5 space-y-3">
+                <h3 className="font-bold">Confirm physical cash movement</h3>
+                <p>Inspect the cash path and storage before recording the result. Previously confirmed credits cannot be removed.</p>
+                {intakeResolution.medium === "PAYOUT" ? <label className="flex gap-3">Confirmed {intakeResolution.denomination} pieces dispensed (requested {intakeResolution.requested_count})<input type="number" min="0" max={intakeResolution.requested_count} value={intakeResolution.actual_dispensed_count} onChange={e => setIntakeResolution({ ...intakeResolution, actual_dispensed_count: Number(e.target.value) })} /></label>
+                  : intakeResolution.medium === "BILL" ? <label className="flex gap-3"><input type="checkbox" checked={intakeResolution.retained} onChange={e => setIntakeResolution({ ...intakeResolution, retained: e.target.checked })} />The ₱{intakeResolution.value} bill was stored</label>
+                  : [1, 5, 10, 20].map(denom => <label key={denom} className="flex gap-3">₱{denom} total coins in this session<input type="number" min="0" max="1000" value={intakeResolution.counts[denom]} onChange={e => setIntakeResolution({ ...intakeResolution, counts: { ...intakeResolution.counts, [denom]: Number(e.target.value) } })} /></label>)}
+                <label className="block">Inspection notes<textarea className="block w-full border p-2" value={intakeResolution.notes} onChange={e => setIntakeResolution({ ...intakeResolution, notes: e.target.value })} /></label>
+                {intakeError && <p role="alert">{intakeError}</p>}
+                <button type="button" className="min-h-11 font-bold underline mr-5" disabled={intakeResolution.notes.length < 5} onClick={reconcileIntake}>Save verified counts</button>
+                <button type="button" className="min-h-11 underline" onClick={() => setIntakeResolution(null)}>Cancel inspection</button>
+              </section>}
               {loadingClaims ? (
                 <p className="text-gray-500 font-semibold">Loading active claims…</p>
               ) : (!claims || claims.length === 0) ? (
                 <div className="rounded-card border border-gray-200 bg-white p-8 text-center text-gray-500 font-semibold shadow-sm">
-                  No active claim tickets found. Kiosk balances are verified!
+                  No active claim tickets found.
                 </div>
               ) : (
                 <div className="grid gap-6">
@@ -567,13 +622,14 @@ export default function AdminInventoryScreen() {
                         <button
                           type="button"
                           onClick={() => {
+                            if (claim.status === "PROVISIONAL") { reconcilePayment(claim); return; }
                             setResolvingClaim(claim.claim_ticket_code);
                             setResolutionNotes("");
                             setResolvingError("");
                           }}
                           className="flex min-h-11 items-center gap-2 rounded-button bg-coinnect-primary px-5 font-bold text-white hover:bg-coinnect-primary-dark"
                         >
-                          Resolve Claim
+                          {claim.status === "PROVISIONAL" ? "Verify payment status" : "Resolve Claim"}
                         </button>
                       </div>
                     </article>

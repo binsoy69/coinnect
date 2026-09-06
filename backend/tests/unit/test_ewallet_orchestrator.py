@@ -91,17 +91,14 @@ async def test_cashout_creates_qr_but_does_not_dispense(ewallet_dependencies):
 
 
 @pytest.mark.asyncio
-async def test_inventory_reconciliation_is_advisory_for_ewallet_by_default(
+async def test_inventory_reconciliation_always_blocks_ewallet(
     ewallet_dependencies,
 ):
     orchestrator, _, _, _ = ewallet_dependencies
     orchestrator._status.set_inventory_consistent(False)
 
-    tx = await orchestrator.start_transaction(
-        provider="maya", direction="cash-out", amount=105
-    )
-
-    assert tx["state"] == "WAITING_FOR_PAYMENT"
+    with pytest.raises(EWalletTransactionError, match="reconciliation"):
+        await orchestrator.start_transaction(provider="maya", direction="cash-out", amount=105)
 
 
 @pytest.mark.asyncio
@@ -276,6 +273,7 @@ async def test_transfer_webhook_is_reconciled_before_completion(
                 "reference_number": tx["transaction_id"],
                 "amount": pending["transfer_amount"] * 100,
                 "currency": "PHP",
+                "destination_account": {"number": "09181234567", "bic": "PAPHPHM1XXX"},
             }
         ],
     }
@@ -301,7 +299,7 @@ async def test_cash_in_coin_acceptor_control(ewallet_dependencies):
     mock_coin_controller = AsyncMock()
     orchestrator._coin_controller = mock_coin_controller
 
-    # 1. Starting cash-in should enable coin acceptor
+    # Starting cash-in leaves legacy intake disabled; the coin screen starts a managed session.
     tx = await orchestrator.start_transaction(
         provider="maya",
         direction="cash-in",
@@ -309,7 +307,7 @@ async def test_cash_in_coin_acceptor_control(ewallet_dependencies):
         account_name="Test User",
         amount=105,
     )
-    mock_coin_controller.set_coin_acceptor_enabled.assert_awaited_once_with(True)
+    mock_coin_controller.set_coin_acceptor_enabled.assert_not_awaited()
     mock_coin_controller.reset_mock()
 
     # 2. Reaching CASH_ACCEPTED should disable coin acceptor
@@ -317,11 +315,11 @@ async def test_cash_in_coin_acceptor_control(ewallet_dependencies):
     mock_coin_controller.set_coin_acceptor_enabled.assert_not_called()
     
     await orchestrator.record_cash_insert(tx["transaction_id"], 5)
-    mock_coin_controller.set_coin_acceptor_enabled.assert_awaited_once_with(False)
+    assert (await orchestrator.get_transaction(tx["transaction_id"]))["state"] == "DISBURSEMENT_PENDING"
     mock_coin_controller.reset_mock()
 
     # Clear active transaction manually to allow starting tx2
-    await orchestrator._clear_active()
+    await orchestrator._clear_active(tx["transaction_id"])
     mock_coin_controller.reset_mock()
 
     # 3. Cancelling/Clearing active transaction should disable coin acceptor
@@ -332,7 +330,7 @@ async def test_cash_in_coin_acceptor_control(ewallet_dependencies):
         account_name="Test User",
         amount=50,
     )
-    mock_coin_controller.set_coin_acceptor_enabled.assert_awaited_once_with(True)
+    mock_coin_controller.set_coin_acceptor_enabled.assert_not_awaited()
     mock_coin_controller.reset_mock()
 
     await orchestrator.cancel_transaction(tx2["transaction_id"])

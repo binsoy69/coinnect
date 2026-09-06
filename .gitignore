@@ -28,6 +28,9 @@ downloads/
 eggs/
 .eggs/
 lib/
+!frontend/src/lib/
+frontend/src/lib/*
+!frontend/src/lib/ewalletApi.js
 lib64/
 parts/
 sdist/

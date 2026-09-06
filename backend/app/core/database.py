@@ -4,6 +4,11 @@ Uses SQLAlchemy async with aiosqlite for non-blocking database access.
 """
 
 import logging
+import asyncio
+import sqlite3
+from pathlib import Path
+from datetime import datetime
+from sqlalchemy import event
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import (
@@ -20,12 +25,37 @@ _engine = None
 _session_factory = None
 
 
+def _backup_before_wallet_migration(database: str | None) -> None:
+    """Use SQLite's backup API so committed WAL data is included in the copy."""
+    if not database or database == ":memory:" or not Path(database).is_file():
+        return
+    with sqlite3.connect(database) as source:
+        columns = {row[1] for row in source.execute("PRAGMA table_info(ewallet_transactions)")}
+        intake_columns = {row[1] for row in source.execute("PRAGMA table_info(ewallet_intakes)")}
+        if not columns or ("gateway_work" in columns and "resolution_notes" in intake_columns):
+            return
+        destination = f"{database}.{datetime.utcnow():%Y%m%dT%H%M%S%f}.pre-ewallet.backup"
+        # Exclusive creation prevents an existing backup being overwritten.
+        with open(destination, "xb"):
+            pass
+        with sqlite3.connect(destination) as backup:
+            source.backup(backup)
+        logger.info("Saved pre-migration database backup: %s", destination)
+
+
 def get_engine():
     """Get or create the async engine singleton."""
     global _engine
     if _engine is None:
         settings = get_settings()
         _engine = create_async_engine(settings.db_url, echo=False)
+        @event.listens_for(_engine.sync_engine, "connect")
+        def durable_sqlite(connection, _):
+            cursor = connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=FULL")
+            cursor.execute("PRAGMA busy_timeout=5000")
+            cursor.close()
     return _engine
 
 
@@ -47,6 +77,7 @@ async def init_db() -> None:
     from app.models.db_models import Base
 
     engine = get_engine()
+    await asyncio.to_thread(_backup_before_wallet_migration, engine.url.database)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -56,6 +87,31 @@ async def init_db() -> None:
                 return {row[1] for row in result.fetchall()}
 
             transaction_columns = table_columns("transactions")
+            ewallet_columns = table_columns("ewallet_transactions")
+            for name in ("ewallet_intakes", "ewallet_coin_sessions"):
+                if "resolution_notes" not in table_columns(name):
+                    sync_conn.execute(text(f"ALTER TABLE {name} ADD COLUMN resolution_notes VARCHAR"))
+            additions = {
+                "version": "INTEGER NOT NULL DEFAULT 1",
+                "session_id": "VARCHAR", "request_key": "VARCHAR",
+                "policy_version": "VARCHAR", "deadline": "DATETIME",
+                "heartbeat_at": "DATETIME", "submission_at": "DATETIME",
+                "customer_present": "BOOLEAN NOT NULL DEFAULT 0",
+                "change_due": "INTEGER NOT NULL DEFAULT 0",
+                "change_dispensed": "INTEGER NOT NULL DEFAULT 0",
+                "retained_amount": "INTEGER NOT NULL DEFAULT 0",
+                "refunded_fee": "INTEGER NOT NULL DEFAULT 0",
+                "wallet_credited": "INTEGER NOT NULL DEFAULT 0",
+                "intake_counts": "JSON NOT NULL DEFAULT '{}'",
+                "gateway_work": "JSON NOT NULL DEFAULT '{}'",
+            }
+            for column, definition in additions.items():
+                if column not in ewallet_columns:
+                    sync_conn.execute(text(f"ALTER TABLE ewallet_transactions ADD COLUMN {column} {definition}"))
+            if "wallet_credited" not in ewallet_columns:
+                sync_conn.execute(text("UPDATE ewallet_transactions SET wallet_credited = transfer_amount WHERE direction = 'cash-in' AND state = 'COMPLETE'"))
+                sync_conn.execute(text("UPDATE ewallet_transactions SET state = 'CLAIM_REQUIRED' WHERE direction = 'cash-in' AND state IN ('FAILED', 'CANCELLED') AND inserted_amount > 0 AND resolved_at IS NULL"))
+            sync_conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_ewallet_request_key ON ewallet_transactions (request_key)"))
             if transaction_columns and "selected_dispense_counts" not in transaction_columns:
                 logger.info("Migrating schema: adding selected_dispense_counts to transactions table")
                 sync_conn.execute(text("ALTER TABLE transactions ADD COLUMN selected_dispense_counts JSON"))

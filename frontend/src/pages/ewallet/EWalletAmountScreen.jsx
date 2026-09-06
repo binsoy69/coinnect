@@ -9,29 +9,32 @@ import { isCashOut } from "../../constants/ewalletData";
 
 export default function EWalletAmountScreen() {
   const navigate = useNavigate();
-  const { ewallet, setAmount, getEWalletConfig, getProviderStyles } =
+  const { ewallet, obtainQuote, getEWalletConfig, getProviderStyles } =
     useEWallet();
   const config = getEWalletConfig();
   const styles = getProviderStyles();
   const [value, setValue] = useState("");
+  const [error, setError] = useState("");
+  const [checking, setChecking] = useState(false);
 
   if (!config) {
     navigate(ROUTES.EWALLET);
     return null;
   }
 
-  const handleSubmit = (amountStr) => {
+  const handleSubmit = async (amountStr) => {
+    if (checking) return;
     const amount = parseInt(amountStr, 10);
-    if (amount > 0) {
-      setAmount(amount);
-      navigate(getEWalletRoute(ROUTES.EWALLET_CONFIRM, ewallet.serviceType));
-    }
+    setChecking(true);
+    try {
+      await obtainQuote(amount);
+      navigate(getEWalletRoute(isCashOut(ewallet.serviceType) ? ROUTES.EWALLET_CONFIRM : ROUTES.EWALLET_NAME, ewallet.serviceType));
+    } catch (failure) { setError(failure.message); }
+    finally { setChecking(false); }
   };
 
   const handleBack = () => {
-    const previousRoute = isCashOut(ewallet.serviceType)
-      ? ROUTES.EWALLET_FEE
-      : ROUTES.EWALLET_MOBILE;
+    const previousRoute = ROUTES.EWALLET_FEE;
     navigate(getEWalletRoute(previousRoute, ewallet.serviceType));
   };
 
@@ -70,11 +73,13 @@ export default function EWalletAmountScreen() {
             value={value}
             onChange={setValue}
             onSubmit={handleSubmit}
-            maxLength={4}
+            maxLength={5}
             placeholder="0000"
-            submitLabel="Pay"
+            submitLabel={checking ? "Checking inventory…" : "Check availability"}
             colorClass={`coinnect-${ewallet.provider}`}
           />
+          <p className="mt-4 text-center">Enter the total you will pay. The fee is deducted from this amount.</p>
+          {error && <p role="alert" className="mt-4 text-center text-red-700">{error}</p>}
         </motion.div>
       </div>
     </PageLayout>
