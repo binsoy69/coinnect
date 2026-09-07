@@ -79,6 +79,8 @@ export default function AdminInventoryScreen() {
   const [intakeOperations, setIntakeOperations] = useState([]);
   const [intakeResolution, setIntakeResolution] = useState(null);
   const [intakeError, setIntakeError] = useState("");
+  const [intakeSaving, setIntakeSaving] = useState(false);
+  const [intakeSuccess, setIntakeSuccess] = useState("");
   const [loadingClaims, setLoadingClaims] = useState(false);
   const [resolvingClaim, setResolvingClaim] = useState(null);
   const [resolutionNotes, setResolutionNotes] = useState("");
@@ -197,16 +199,55 @@ export default function AdminInventoryScreen() {
     }
   };
 
-  const reconcileIntake = async () => {
+  const focusInspection = useCallback((element) => {
+    if (element) {
+      element.focus({ preventScroll: true });
+      element.scrollIntoView?.({ block: "center" });
+    }
+  }, []);
+
+  const openInspection = (operation) => {
+    setIntakeSuccess("");
+    setIntakeResolution({ ...operation, actual_dispensed_count: 0, retained: false,
+      counts: { "1": 0, "5": 0, "10": 0, "20": 0, ...operation.counts }, notes: "" });
     setIntakeError("");
+  };
+
+  const inspectClaim = (claim) => {
+    const operation = intakeOperations.find(item => item.transaction_id === claim.transaction_id);
+    if (operation) {
+      setError("");
+      openInspection(operation);
+    } else {
+      setError("No pending physical operation was found for this claim. Refresh the claims list; if it remains provisional, its recovery records need review before settlement.");
+    }
+  };
+
+  const reconcileIntake = async () => {
+    if (intakeSaving) return;
+    setIntakeError("");
+    const notes = intakeResolution.notes.trim();
+    if (notes.length < 5) {
+      setIntakeError("Enter inspection notes with at least 5 characters before saving.");
+      return;
+    }
+    const payout = intakeResolution.medium === "PAYOUT";
+    if (payout && (!Number.isInteger(intakeResolution.actual_dispensed_count)
+      || intakeResolution.actual_dispensed_count < 0
+      || intakeResolution.actual_dispensed_count > intakeResolution.requested_count)) {
+      setIntakeError(`Enter a whole number from 0 to ${intakeResolution.requested_count} for the pieces dispensed.`);
+      return;
+    }
+    setIntakeSaving(true);
     try {
-      const payout = intakeResolution.medium === "PAYOUT";
       await request(payout ? `/admin/physical-operations/${intakeResolution.id}/reconcile` : `/admin/ewallet/intakes/${intakeResolution.id}/reconcile`, {
-        method: "POST", body: JSON.stringify(payout ? { actual_dispensed_count: intakeResolution.actual_dispensed_count, resolution_notes: intakeResolution.notes } : intakeResolution),
+        method: "POST", body: JSON.stringify(payout ? { actual_dispensed_count: intakeResolution.actual_dispensed_count, resolution_notes: notes } : { ...intakeResolution, notes }),
       });
       setIntakeResolution(null);
+      setIntakeSuccess("Physical inspection saved. Review the updated claim for any remaining amount owed.");
       await loadClaims();
     } catch (err) { setIntakeError(err.message); }
+    finally { setIntakeSaving(false); }
   };
 
   const reconcilePayment = async (claim) => {
@@ -505,6 +546,8 @@ export default function AdminInventoryScreen() {
 
           {activeTab === "claims" && (
             <div className="space-y-6">
+              {intakeSuccess && <p role="status" className="font-semibold text-green-800">{intakeSuccess}</p>}
+              {error && <p role="alert" className="font-semibold text-red-700">{error}</p>}
               {forexIntakes.map(intake => <ForexIntakeReview key={intake.id} intake={intake} request={request} reload={loadClaims} />)}
               {forexAudit.length > 0 && <details className="rounded-xl border border-amber-300 p-4"><summary>Legacy forex records requiring review ({forexAudit.length})</summary>
                 <p>Do not settle legacy scalar totals. Review per-currency physical evidence first.</p>
@@ -529,22 +572,21 @@ export default function AdminInventoryScreen() {
                 {retainedCash.map(row => <p key={row.transaction_id}>{row.transaction_id}: ₱{row.amount}</p>)}
               </section>}
               {intakeOperations.map(operation => <section key={`${operation.medium}:${operation.id}`} className="rounded-xl border border-amber-300 p-5">
-                <p>Uncertain {operation.medium.toLowerCase()} intake · {operation.transaction_id}</p>
-                <button type="button" className="min-h-11 font-bold underline" onClick={() => {
-                  setIntakeResolution({ ...operation, actual_dispensed_count: 0, retained: false, counts: { "1": 0, "5": 0, "10": 0, "20": 0, ...operation.counts }, notes: "" });
-                  setIntakeError("");
-                }}>Record physical inspection</button>
+                <p>Uncertain {operation.medium === "PAYOUT" ? "payout" : `${operation.medium.toLowerCase()} intake`} · {operation.transaction_id}</p>
+                <button type="button" className="min-h-11 font-bold underline" onClick={() => openInspection(operation)}>Record physical inspection</button>
               </section>)}
-              {intakeResolution && <section className="rounded-xl border-2 border-amber-500 p-5 space-y-3">
+              {intakeResolution && <section key={intakeResolution.id} tabIndex={-1} ref={focusInspection} className="rounded-xl border-2 border-amber-500 p-5 space-y-3">
                 <h3 className="font-bold">Confirm physical cash movement</h3>
+                <p>Transaction: {intakeResolution.transaction_id}</p>
                 <p>Inspect the cash path and storage before recording the result. Previously confirmed credits cannot be removed.</p>
                 {intakeResolution.medium === "PAYOUT" ? <label className="flex gap-3">Confirmed {intakeResolution.denomination} pieces dispensed (requested {intakeResolution.requested_count})<input type="number" min="0" max={intakeResolution.requested_count} value={intakeResolution.actual_dispensed_count} onChange={e => setIntakeResolution({ ...intakeResolution, actual_dispensed_count: Number(e.target.value) })} /></label>
                   : intakeResolution.medium === "BILL" ? <label className="flex gap-3"><input type="checkbox" checked={intakeResolution.retained} onChange={e => setIntakeResolution({ ...intakeResolution, retained: e.target.checked })} />The ₱{intakeResolution.value} bill was stored</label>
                   : [1, 5, 10, 20].map(denom => <label key={denom} className="flex gap-3">₱{denom} total coins in this session<input type="number" min="0" max="1000" value={intakeResolution.counts[denom]} onChange={e => setIntakeResolution({ ...intakeResolution, counts: { ...intakeResolution.counts, [denom]: Number(e.target.value) } })} /></label>)}
                 <label className="block">Inspection notes<textarea className="block w-full border p-2" value={intakeResolution.notes} onChange={e => setIntakeResolution({ ...intakeResolution, notes: e.target.value })} /></label>
+                <p className="text-sm">Required: describe what you inspected and found (at least 5 characters).</p>
                 {intakeError && <p role="alert">{intakeError}</p>}
-                <button type="button" className="min-h-11 font-bold underline mr-5" disabled={intakeResolution.notes.length < 5} onClick={reconcileIntake}>Save verified counts</button>
-                <button type="button" className="min-h-11 underline" onClick={() => setIntakeResolution(null)}>Cancel inspection</button>
+                <button type="button" className="min-h-11 font-bold underline mr-5 disabled:opacity-50" disabled={intakeSaving} onClick={reconcileIntake}>{intakeSaving ? "Saving verified counts…" : "Save verified counts"}</button>
+                <button type="button" className="min-h-11 underline" disabled={intakeSaving} onClick={() => setIntakeResolution(null)}>Cancel inspection</button>
               </section>}
               {loadingClaims ? (
                 <p className="text-gray-500 font-semibold">Loading active claims…</p>
@@ -635,8 +677,8 @@ export default function AdminInventoryScreen() {
                       <div className="flex justify-end pt-2 border-t border-gray-100">
                         <button
                           type="button"
-                          disabled={claim.status === "PROVISIONAL" && claim.source_kind !== "EWALLET"}
                           onClick={() => {
+                            if (claim.status === "PROVISIONAL" && claim.source_kind !== "EWALLET") { inspectClaim(claim); return; }
                             if (claim.status === "PROVISIONAL") { reconcilePayment(claim); return; }
                             setResolvingClaim(claim.claim_ticket_code);
                             setResolutionNotes("");
@@ -645,7 +687,7 @@ export default function AdminInventoryScreen() {
                           className="flex min-h-11 items-center gap-2 rounded-button bg-coinnect-primary px-5 font-bold text-white hover:bg-coinnect-primary-dark"
                         >
                           {claim.status === "PROVISIONAL"
-                            ? claim.source_kind === "EWALLET" ? "Verify payment status" : "Verify physical counts above first"
+                            ? claim.source_kind === "EWALLET" ? "Verify payment status" : "Review physical counts"
                             : "Resolve Claim"}
                         </button>
                       </div>

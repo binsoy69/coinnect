@@ -24,7 +24,7 @@ function response(body, ok = true) {
   return { ok, status: ok ? 200 : 401, json: async () => body };
 }
 
-test.each(["STANDARD", "EWALLET"])("routes provisional %s claims to the appropriate review", async (sourceKind) => {
+test.each(["STANDARD", "EWALLET", "MISSING"])("routes provisional %s claims to the appropriate review", async (sourceKind) => {
   sessionStorage.setItem("coinnect_admin_token", "admin-token");
   const user = userEvent.setup();
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
@@ -32,15 +32,30 @@ test.each(["STANDARD", "EWALLET"])("routes provisional %s claims to the appropri
     if (url.endsWith("/admin/claims")) return response({ claims: [{
       claim_ticket_code: "REVIEW123", transaction_id: "tx-review", source_kind: sourceKind,
       status: "PROVISIONAL", amount: 100, created_at: "2026-09-07T05:00:00",
-    }] });
+    }], intake_operations: [{ id: "payout-review", transaction_id: sourceKind === "MISSING" ? "unrelated-tx" : "tx-review", medium: "PAYOUT",
+      denomination: "PHP_5", requested_count: 1 }] });
     return response({ adjustments: [], records: [], items: [] });
   });
   render(<MemoryRouter><AdminInventoryScreen /></MemoryRouter>);
   await user.click(await screen.findByRole("button", { name: /Claims Resolution/ }));
-  if (sourceKind === "STANDARD") {
-    const button = await screen.findByRole("button", { name: "Verify physical counts above first" });
-    expect(button).toBeDisabled();
+  if (sourceKind === "MISSING") {
+    await user.click(await screen.findByRole("button", { name: "Review physical counts" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("No pending physical operation was found");
+    expect(screen.queryByText("Confirm physical cash movement")).not.toBeInTheDocument();
+  } else if (sourceKind === "STANDARD") {
+    const button = await screen.findByRole("button", { name: "Review physical counts" });
     await user.click(button);
+    expect(screen.getByText("Confirm physical cash movement")).toBeInTheDocument();
+    expect(screen.getByLabelText("Confirmed PHP_5 pieces dispensed (requested 1)")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save verified counts" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter inspection notes with at least 5 characters");
+    expect(fetchMock.mock.calls.some(([url]) => url.endsWith("/payout-review/reconcile"))).toBe(false);
+    await user.type(screen.getByLabelText("Inspection notes"), "Verified one coin");
+    await user.click(screen.getByRole("button", { name: "Save verified counts" }));
+    expect(fetchMock.mock.calls.some(([url, options]) =>
+      url.endsWith("/admin/physical-operations/payout-review/reconcile") && options.method === "POST"
+    )).toBe(true);
+    expect(screen.getByRole("status")).toHaveTextContent("Physical inspection saved");
     expect(fetchMock.mock.calls.some(([url]) => url.includes("/ewallet/"))).toBe(false);
   } else {
     await user.click(await screen.findByRole("button", { name: "Verify payment status" }));
