@@ -24,6 +24,32 @@ function response(body, ok = true) {
   return { ok, status: ok ? 200 : 401, json: async () => body };
 }
 
+test.each(["STANDARD", "EWALLET"])("routes provisional %s claims to the appropriate review", async (sourceKind) => {
+  sessionStorage.setItem("coinnect_admin_token", "admin-token");
+  const user = userEvent.setup();
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+    if (url.endsWith("/inventory/")) return response(inventory);
+    if (url.endsWith("/admin/claims")) return response({ claims: [{
+      claim_ticket_code: "REVIEW123", transaction_id: "tx-review", source_kind: sourceKind,
+      status: "PROVISIONAL", amount: 100, created_at: "2026-09-07T05:00:00",
+    }] });
+    return response({ adjustments: [], records: [], items: [] });
+  });
+  render(<MemoryRouter><AdminInventoryScreen /></MemoryRouter>);
+  await user.click(await screen.findByRole("button", { name: /Claims Resolution/ }));
+  if (sourceKind === "STANDARD") {
+    const button = await screen.findByRole("button", { name: "Verify physical counts above first" });
+    expect(button).toBeDisabled();
+    await user.click(button);
+    expect(fetchMock.mock.calls.some(([url]) => url.includes("/ewallet/"))).toBe(false);
+  } else {
+    await user.click(await screen.findByRole("button", { name: "Verify payment status" }));
+    expect(fetchMock.mock.calls.some(([url, options]) =>
+      url.endsWith("/admin/ewallet/tx-review/reconcile") && options.method === "POST"
+    )).toBe(true);
+  }
+});
+
 
 test("edits inventory, reviews changes, and saves an absolute count", async () => {
   sessionStorage.setItem("coinnect_admin_token", "admin-token");

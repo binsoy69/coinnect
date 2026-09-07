@@ -207,8 +207,8 @@ async def reconcile_ewallet_payment(transaction_id: str, request: Request,
     authorization: str | None = Header(default=None)):
     require_admin_session(request, authorization)
     orchestrator = request.app.state.ewallet_orchestrator
-    record = await orchestrator._record(transaction_id)
     try:
+        record = await orchestrator._record(transaction_id)
         if record.direction == "cash-out":
             return await orchestrator._verify_and_dispense_cash_out(transaction_id)
         if not record.gateway_batch_transfer_id:
@@ -425,7 +425,16 @@ async def reconcile_physical_operation(
         if operation.controller == "BILL"
         else request.app.state.coin_controller
     )
-    await controller.acknowledge_operation(operation.id)
+    from app.core.errors import HardwareError
+
+    try:
+        await controller.acknowledge_operation(operation.id)
+    except HardwareError as exc:
+        # The operator's verified counts are already committed. A controller
+        # reset or cleared journal can leave nothing to acknowledge.
+        if exc.code != "NOT_FOUND":
+            raise HTTPException(503, detail=f"Reconciliation saved, but controller acknowledgement failed: {exc}") from exc
+        logger.info("Reconciled operation %s is no longer in the controller journal", operation.id)
     return {
         "operation_id": operation.id,
         "state": "RECONCILED",

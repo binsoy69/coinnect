@@ -26,13 +26,15 @@ JSON documents and can exhaust the Uno's 2 KB SRAM, causing valid commands to
 produce empty `{}` serial responses. The sketch includes a compile-time guard
 against building the Uno firmware with ArduinoJson 7.
 
-The Uno firmware sizes command parsing and replies with `JSON_OBJECT_SIZE(6)`,
-covering the largest five-field message plus its transport command ID. Do not
-increase that capacity without checking compiler stack-usage output: the
-production sketch leaves about 599 bytes for all local variables and interrupt
-frames. Firmware 3.0.6 reduced `dispatchCommand()` from 261 to 147 bytes of
-static stack allocation to prevent the serial buffers from being overwritten
-during UUID-bearing recovery replies.
+Uno firmware 3.1.1 keeps JSON field names in flash with `F()` rather than in
+permanent SRAM. ArduinoJson copies those keys into the active response document;
+`COMMAND_JSON_CAPACITY` reserves six fields plus 80 bytes for those copies.
+With Arduino AVR Boards 1.8.8 and ArduinoJson 6.21.6, the build uses 1,106 bytes
+of global SRAM, leaving 942 bytes for the stack and interrupts (3.1.0 left only
+566). The previous build's serial corruption is reproducible in the AVR
+simulator below. Do not increase document sizes without rechecking memory use.
+An overflowing response now returns `ERROR/RESPONSE_OVERFLOW` with its command
+ID instead of sending a partial success response.
 
 The Uno also has a 64-byte hardware serial receive ring while operation-ID
 commands can exceed 100 bytes. The backend therefore resynchronizes and paces
@@ -87,9 +89,25 @@ python scripts/firmware_smoke.py --skip-bill --coin-port /dev/coinnect_coin --it
 
 The safe probe verifies command IDs and operation IDs, rejects malformed UTF-8
 or JSON with the raw bytes included in the error, queries unknown operation
-status/acknowledgement, and repeatedly confirms the coin acceptor is disabled.
+status/acknowledgement, verifies converter protocol 2, checks `PONG` after each
+recovery reply, and repeatedly confirms the coin acceptor is disabled.
 If the controller reports an operation requiring reconciliation, the probe
 stops before continuing; resolve that operation through the backend first.
+
+### Uno serial regression without hardware
+
+The simulator runs the actual compiled HEX with 2 KB SRAM, timer interrupts,
+UART and erased EEPROM. RFID register reads are stubbed; this does not replace
+the physical smoke test. The original 3.1.0 build fails with malformed JSON;
+3.1.1 passes the repeated recovery, capability, ping and status checks.
+
+From the repository root (Linux/Raspberry Pi):
+
+```bash
+arduino-cli compile --fqbn arduino:avr:uno --build-path /tmp/coinnect-uno firmware/uno_coin_security
+npm install --prefix /tmp/coinnect-avr-test avr8js@0.21.1 --no-audit --no-fund
+NODE_PATH=/tmp/coinnect-avr-test/node_modules node scripts/test_uno_serial.cjs /tmp/coinnect-uno/uno_coin_security.ino.hex
+```
 
 Run actuator checks only after wiring is verified:
 

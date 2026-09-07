@@ -18,7 +18,7 @@
 // Coinnect Uno firmware: coin accept/dispense + security + RFID.
 // Serial protocol: newline-delimited JSON at 115200 baud.
 
-static const char *FIRMWARE_VERSION = "3.1.0-uno";
+static const char *FIRMWARE_VERSION = "3.1.1-uno";
 static const char *CONTROLLER_ID = "COIN_SECURITY";
 
 // MFRC522 RFID reader pins.
@@ -90,8 +90,10 @@ static const uint8_t COIN_DISPENSER_COUNT =
 // The largest supported command is 122 bytes including its newline. A
 // 128-byte buffer preserves bounded headroom without wasting scarce Uno SRAM.
 static const size_t SERIAL_INPUT_CAPACITY = 128;
-// Five request/response fields plus the transport-level command ID.
-static const size_t COMMAND_JSON_CAPACITY = JSON_OBJECT_SIZE(6) + 64;
+// Keep JSON keys in flash with F(): ordinary literals occupy permanent SRAM.
+// ArduinoJson copies flash keys into the active document, so reserve room for
+// six fields and 80 bytes of keys (COIN_STATUS needs 70, including the ID).
+static const size_t COMMAND_JSON_CAPACITY = JSON_OBJECT_SIZE(6) + 80;
 static char inputLine[SERIAL_INPUT_CAPACITY];
 static size_t inputLength = 0;
 static bool inputOverflow = false;
@@ -329,7 +331,18 @@ static long currentCommandId = -1;
 
 void sendDocument(JsonDocument &doc) {
   if (currentCommandId >= 0) {
-    doc["id"] = currentCommandId;
+    doc[F("id")] = currentCommandId;
+  }
+  // Never present a truncated document as a successful hardware response.
+  // Write directly from flash so this fallback needs no second JSON document.
+  if (doc.overflowed()) {
+    Serial.print(F("{\"status\":\"ERROR\",\"code\":\"RESPONSE_OVERFLOW\""));
+    if (currentCommandId >= 0) {
+      Serial.print(F(",\"id\":"));
+      Serial.print(currentCommandId);
+    }
+    Serial.println(F("}"));
+    return;
   }
   serializeJson(doc, Serial);
   Serial.println();
@@ -337,54 +350,54 @@ void sendDocument(JsonDocument &doc) {
 
 void sendReadyEvent() {
   StaticJsonDocument<128> doc;
-  doc["event"] = "READY";
-  doc["version"] = FIRMWARE_VERSION;
-  doc["controller"] = CONTROLLER_ID;
-  doc["reset_cause"] = MCUSR;
+  doc[F("event")] = "READY";
+  doc[F("version")] = FIRMWARE_VERSION;
+  doc[F("controller")] = CONTROLLER_ID;
+  doc[F("reset_cause")] = MCUSR;
   sendDocument(doc);
 }
 
 void sendDoorStateEvent() {
   StaticJsonDocument<96> doc;
-  doc["event"] = "DOOR_STATE";
-  doc["locked"] = doorLocked;
+  doc[F("event")] = "DOOR_STATE";
+  doc[F("locked")] = doorLocked;
   sendDocument(doc);
 }
 
 void sendTamperEvent(const char *sensor) {
   StaticJsonDocument<96> doc;
-  doc["event"] = "TAMPER";
-  doc["sensor"] = sensor;
+  doc[F("event")] = "TAMPER";
+  doc[F("sensor")] = sensor;
   sendDocument(doc);
 }
 
 void sendCoinInEvent(int denom) {
   StaticJsonDocument<128> doc;
-  doc["event"] = "COIN_IN";
-  doc["denom"] = denom;
-  doc["total"] = coinSessionTotal;
+  doc[F("event")] = "COIN_IN";
+  doc[F("denom")] = denom;
+  doc[F("total")] = coinSessionTotal;
   sendDocument(doc);
 }
 
 void sendCoinSessionPulseEvent(uint32_t sid, uint16_t seq, int denom, uint16_t count) {
   StaticJsonDocument<128> doc;
-  doc["event"] = "COIN_SESSION_PULSE";
-  doc["sid"] = sid;
-  doc["seq"] = seq;
-  doc["denom"] = denom;
-  doc["count"] = count;
+  doc[F("event")] = "COIN_SESSION_PULSE";
+  doc[F("sid")] = sid;
+  doc[F("seq")] = seq;
+  doc[F("denom")] = denom;
+  doc[F("count")] = count;
   sendDocument(doc);
 }
 
 void sendError(const char *code, int dispensed = -1, const char *operationId = NULL) {
   StaticJsonDocument<128> doc;
-  doc["status"] = "ERROR";
-  doc["code"] = code;
+  doc[F("status")] = "ERROR";
+  doc[F("code")] = code;
   if (dispensed >= 0) {
-    doc["dispensed"] = dispensed;
+    doc[F("dispensed")] = dispensed;
   }
   if (operationId && operationId[0]) {
-    doc["operation_id"] = operationId;
+    doc[F("operation_id")] = operationId;
   }
   sendDocument(doc);
 }
@@ -392,13 +405,13 @@ void sendError(const char *code, int dispensed = -1, const char *operationId = N
 void sendCommandError(JsonDocument &doc, const char *code, int dispensed = -1,
                       const char *operationId = NULL) {
   doc.clear();
-  doc["status"] = "ERROR";
-  doc["code"] = code;
+  doc[F("status")] = "ERROR";
+  doc[F("code")] = code;
   if (dispensed >= 0) {
-    doc["dispensed"] = dispensed;
+    doc[F("dispensed")] = dispensed;
   }
   if (operationId && operationId[0]) {
-    doc["operation_id"] = operationId;
+    doc[F("operation_id")] = operationId;
   }
   sendDocument(doc);
 }
@@ -406,19 +419,19 @@ void sendCommandError(JsonDocument &doc, const char *code, int dispensed = -1,
 void sendCommandParseError(JsonDocument &doc, const char *detail,
                            size_t receivedBytes) {
   doc.clear();
-  doc["status"] = "ERROR";
-  doc["code"] = "PARSE_ERROR";
-  doc["detail"] = detail;
-  doc["received_bytes"] = receivedBytes;
+  doc[F("status")] = "ERROR";
+  doc[F("code")] = "PARSE_ERROR";
+  doc[F("detail")] = detail;
+  doc[F("received_bytes")] = receivedBytes;
   sendDocument(doc);
 }
 
 void sendParseError(const char *detail, size_t receivedBytes) {
   StaticJsonDocument<128> doc;
-  doc["status"] = "ERROR";
-  doc["code"] = "PARSE_ERROR";
-  doc["detail"] = detail;
-  doc["received_bytes"] = receivedBytes;
+  doc[F("status")] = "ERROR";
+  doc[F("code")] = "PARSE_ERROR";
+  doc[F("detail")] = detail;
+  doc[F("received_bytes")] = receivedBytes;
   sendDocument(doc);
 }
 
@@ -804,12 +817,12 @@ void serviceDispense() {
             disp.servo->write(disp.pushToResetFirst ? SERVO_RESET_DEG : SERVO_PUSH_DEG);
           } else if (changeState >= 4 || nextDenom == -1) {
             StaticJsonDocument<160> doc;
-            doc["status"] = "OK";
-            JsonObject breakdown = doc.createNestedObject("breakdown");
-            if (changeC20 > 0) breakdown["20"] = changeC20;
-            if (changeC10 > 0) breakdown["10"] = changeC10;
-            if (changeC5 > 0) breakdown["5"] = changeC5;
-            if (changeC1 > 0) breakdown["1"] = changeC1;
+            doc[F("status")] = "OK";
+            JsonObject breakdown = doc.createNestedObject(F("breakdown"));
+            if (changeC20 > 0) breakdown[F("20")] = changeC20;
+            if (changeC10 > 0) breakdown[F("10")] = changeC10;
+            if (changeC5 > 0) breakdown[F("5")] = changeC5;
+            if (changeC1 > 0) breakdown[F("1")] = changeC1;
             sendDocument(doc);
             detachActiveDispenser();
             dispenseActive = false;
@@ -818,9 +831,9 @@ void serviceDispense() {
           persistOperation(2, dispenseOperationId, dispenseActualCount);
           currentCommandId = dispenseCommandId;
           StaticJsonDocument<160> doc;
-          doc["status"] = "OK";
-          doc["dispensed"] = dispenseActualCount;
-          doc["operation_id"] = dispenseOperationId;
+          doc[F("status")] = "OK";
+          doc[F("dispensed")] = dispenseActualCount;
+          doc[F("operation_id")] = dispenseOperationId;
           sendDocument(doc);
           currentCommandId = -1;
           detachActiveDispenser();
@@ -879,16 +892,16 @@ void calculateCoinBreakdown(int amount, int &c20, int &c10, int &c5, int &c1) {
 
 void handlePing(JsonDocument &doc) {
   doc.clear();
-  doc["status"] = "OK";
-  doc["message"] = "PONG";
+  doc[F("status")] = "OK";
+  doc[F("message")] = "PONG";
   sendDocument(doc);
 }
 
 void handleVersion(JsonDocument &doc) {
   doc.clear();
-  doc["status"] = "OK";
-  doc["version"] = FIRMWARE_VERSION;
-  doc["controller"] = CONTROLLER_ID;
+  doc[F("status")] = "OK";
+  doc[F("version")] = FIRMWARE_VERSION;
+  doc[F("controller")] = CONTROLLER_ID;
   sendDocument(doc);
 }
 
@@ -916,7 +929,7 @@ void handleReset(JsonDocument &doc) {
   dispenseActive = false; // Abort any active coin dispensing
 
   doc.clear();
-  doc["status"] = "OK";
+  doc[F("status")] = "OK";
   sendDocument(doc);
 }
 
@@ -925,9 +938,9 @@ void handleCoinDispense(JsonDocument &cmdDoc) {
     sendCommandError(cmdDoc, "BUSY");
     return;
   }
-  const int denom = cmdDoc["denom"] | 0;
-  const int count = cmdDoc["count"] | 0;
-  const char *operationId = cmdDoc["operation_id"] | "";
+  const int denom = cmdDoc[F("denom")] | 0;
+  const int count = cmdDoc[F("count")] | 0;
+  const char *operationId = cmdDoc[F("operation_id")] | "";
   if (!isValidOperationId(operationId)) {
     sendCommandError(cmdDoc, "INVALID_PARAM", -1, operationId);
     return;
@@ -937,11 +950,11 @@ void handleCoinDispense(JsonDocument &cmdDoc) {
   int16_t priorDispensed = 0;
   if (findOperation(operationId, priorState, priorDispensed)) {
     if (priorState == 2) {
-      cmdDoc.remove("cmd");
-      cmdDoc.remove("denom");
-      cmdDoc.remove("count");
-      cmdDoc["status"] = "OK";
-      cmdDoc["dispensed"] = priorDispensed;
+      cmdDoc.remove(F("cmd"));
+      cmdDoc.remove(F("denom"));
+      cmdDoc.remove(F("count"));
+      cmdDoc[F("status")] = "OK";
+      cmdDoc[F("dispensed")] = priorDispensed;
       sendDocument(cmdDoc);
     } else {
       sendCommandError(cmdDoc, "RECOVERY_REQUIRED", priorDispensed, operationId);
@@ -985,7 +998,7 @@ void handleCoinDispense(JsonDocument &cmdDoc) {
 }
 
 void handleOperationStatus(JsonDocument &cmdDoc) {
-  const char *operationId = cmdDoc["operation_id"] | "";
+  const char *operationId = cmdDoc[F("operation_id")] | "";
   if (!isValidOperationId(operationId)) {
     sendCommandError(cmdDoc, "INVALID_PARAM", -1, operationId);
     return;
@@ -997,24 +1010,24 @@ void handleOperationStatus(JsonDocument &cmdDoc) {
       journalRecord.state == 4 && journalRecord.operationId[0] == '\0';
   const bool operationFound =
       findOperation(operationId, priorState, priorDispensed);
-  cmdDoc.remove("cmd");
-  cmdDoc["status"] = "OK";
+  cmdDoc.remove(F("cmd"));
+  cmdDoc[F("status")] = "OK";
   if (journalIsAmbiguous) {
-    cmdDoc["operation_status"] = "AMBIGUOUS";
+    cmdDoc[F("operation_status")] = "AMBIGUOUS";
   } else if (!operationFound) {
-    cmdDoc["operation_status"] = "NOT_FOUND";
+    cmdDoc[F("operation_status")] = "NOT_FOUND";
   } else {
-    cmdDoc["operation_status"] =
+    cmdDoc[F("operation_status")] =
         priorState == 1 ? "STARTED" :
         priorState == 2 ? "COMPLETED" :
         priorState == 3 ? "FAILED" : "AMBIGUOUS";
-    cmdDoc["dispensed"] = priorDispensed;
+    cmdDoc[F("dispensed")] = priorDispensed;
   }
   sendDocument(cmdDoc);
 }
 
 void handleOperationAck(JsonDocument &cmdDoc) {
-  const char *operationId = cmdDoc["operation_id"] | "";
+  const char *operationId = cmdDoc[F("operation_id")] | "";
   if (!isValidOperationId(operationId)) {
     sendCommandError(cmdDoc, "INVALID_PARAM", -1, operationId);
     return;
@@ -1025,8 +1038,8 @@ void handleOperationAck(JsonDocument &cmdDoc) {
   }
   clearCorruptJournalSlots();
   persistOperation(0, "", 0);
-  cmdDoc.remove("cmd");
-  cmdDoc["status"] = "OK";
+  cmdDoc.remove(F("cmd"));
+  cmdDoc[F("status")] = "OK";
   sendDocument(cmdDoc);
 }
 
@@ -1035,7 +1048,7 @@ void handleCoinChange(JsonDocument &cmdDoc) {
     sendCommandError(cmdDoc, "BUSY");
     return;
   }
-  const int amount = cmdDoc["amount"] | 0;
+  const int amount = cmdDoc[F("amount")] | 0;
   if (amount < 1) {
     sendCommandError(cmdDoc, "INVALID_COUNT");
     return;
@@ -1086,8 +1099,8 @@ void handleCoinChange(JsonDocument &cmdDoc) {
   } else {
     // Nothing to dispense
     cmdDoc.clear();
-    cmdDoc["status"] = "OK";
-    cmdDoc.createNestedObject("breakdown");
+    cmdDoc[F("status")] = "OK";
+    cmdDoc.createNestedObject(F("breakdown"));
     sendDocument(cmdDoc);
     dispenseActive = false;
   }
@@ -1116,8 +1129,8 @@ void handleEmergencyStop(JsonDocument &cmdDoc) {
   }
 
   cmdDoc.clear();
-  cmdDoc["status"] = "OK";
-  cmdDoc["stopped"] = true;
+  cmdDoc[F("status")] = "OK";
+  cmdDoc[F("stopped")] = true;
   sendDocument(cmdDoc);
 }
 
@@ -1140,8 +1153,8 @@ void handleCoinReset(JsonDocument &doc) {
   detachActiveDispenser();
 
   doc.clear();
-  doc["status"] = "OK";
-  doc["previous_total"] = previousTotal;
+  doc[F("status")] = "OK";
+  doc[F("previous_total")] = previousTotal;
   sendDocument(doc);
 }
 
@@ -1150,14 +1163,14 @@ void handleCoinSessionStart(JsonDocument &cmdDoc) {
     sendCommandError(cmdDoc, "LOCKED_OUT");
     return;
   }
-  if (!cmdDoc.containsKey("sid")) {
+  if (!cmdDoc.containsKey(F("sid"))) {
     sendCommandError(cmdDoc, "INVALID_PARAM");
     return;
   }
 
-  const unsigned long grace = cmdDoc["grace_ms"] | 500UL;
-  const unsigned long timeout = cmdDoc["timeout_ms"] | 3000UL;
-  const unsigned long quiet = cmdDoc["quiet_ms"] | 150UL;
+  const unsigned long grace = cmdDoc[F("grace_ms")] | 500UL;
+  const unsigned long timeout = cmdDoc[F("timeout_ms")] | 3000UL;
+  const unsigned long quiet = cmdDoc[F("quiet_ms")] | 150UL;
   if (grace < 500 || timeout < grace || timeout > 10000 || quiet < 150 || quiet > timeout) {
     sendCommandError(cmdDoc, "INVALID_PARAM");
     return;
@@ -1165,7 +1178,7 @@ void handleCoinSessionStart(JsonDocument &cmdDoc) {
   COIN_SESSION_MIN_DRAIN_MS = grace;
   COIN_SESSION_MAX_DRAIN_MS = timeout;
   COIN_SESSION_QUIET_MS = quiet;
-  const uint32_t requestedSid = cmdDoc["sid"].as<uint32_t>();
+  const uint32_t requestedSid = cmdDoc[F("sid")].as<uint32_t>();
   if (!requestedSid || requestedSid < currentSessionId ||
       (requestedSid != currentSessionId && coinSessionState != COIN_SESSION_IDLE && coinSessionState != COIN_SESSION_CLOSED)) {
     sendCommandError(cmdDoc, "LOCKED_OUT");
@@ -1177,13 +1190,13 @@ void handleCoinSessionStart(JsonDocument &cmdDoc) {
       return;
     }
     cmdDoc.clear();
-    cmdDoc["status"] = "OK";
-    cmdDoc["sid"] = currentSessionId;
-    cmdDoc["session_state"] = "ACTIVE";
+    cmdDoc[F("status")] = "OK";
+    cmdDoc[F("sid")] = currentSessionId;
+    cmdDoc[F("session_state")] = "ACTIVE";
     sendDocument(cmdDoc);
     return;
   }
-  sessionBounded = cmdDoc.containsKey("max_value");
+  sessionBounded = cmdDoc.containsKey(F("max_value"));
   currentSessionId = requestedSid;
   sessionSequence = 0;
   sessionCount1 = 0;
@@ -1198,14 +1211,14 @@ void handleCoinSessionStart(JsonDocument &cmdDoc) {
   setCoinAcceptorEnabled(true);
 
   cmdDoc.clear();
-  cmdDoc["status"] = "OK";
-  cmdDoc["sid"] = currentSessionId;
-  cmdDoc["session_state"] = "ACTIVE";
+  cmdDoc[F("status")] = "OK";
+  cmdDoc[F("sid")] = currentSessionId;
+  cmdDoc[F("session_state")] = "ACTIVE";
   sendDocument(cmdDoc);
 }
 
 void handleCoinSessionStop(JsonDocument &cmdDoc) {
-  if (cmdDoc.containsKey("sid") && cmdDoc["sid"].as<uint32_t>() != currentSessionId) {
+  if (cmdDoc.containsKey(F("sid")) && cmdDoc[F("sid")].as<uint32_t>() != currentSessionId) {
     sendCommandError(cmdDoc, "INVALID_PARAM");
     return;
   }
@@ -1221,14 +1234,14 @@ void handleCoinSessionStop(JsonDocument &cmdDoc) {
   }
 
   cmdDoc.clear();
-  cmdDoc["status"] = "OK";
-  cmdDoc["sid"] = currentSessionId;
-  cmdDoc["session_state"] = (coinSessionState == COIN_SESSION_CLOSED) ? "CLOSED" : "CLOSING";
+  cmdDoc[F("status")] = "OK";
+  cmdDoc[F("sid")] = currentSessionId;
+  cmdDoc[F("session_state")] = (coinSessionState == COIN_SESSION_CLOSED) ? "CLOSED" : "CLOSING";
   sendDocument(cmdDoc);
 }
 
 void handleCoinSessionStatus(JsonDocument &cmdDoc) {
-  const int denom = cmdDoc["denom"] | 0;
+  const int denom = cmdDoc[F("denom")] | 0;
   if (!isValidCoinDenom(denom)) {
     sendCommandError(cmdDoc, "INVALID_DENOM");
     return;
@@ -1240,21 +1253,21 @@ void handleCoinSessionStatus(JsonDocument &cmdDoc) {
   else if (coinSessionState == COIN_SESSION_UNCERTAIN) stateStr = "UNCERTAIN";
   uint16_t count = denom == 1 ? sessionCount1 : denom == 5 ? sessionCount5 : denom == 10 ? sessionCount10 : sessionCount20;
   cmdDoc.clear();
-  cmdDoc["status"] = "OK";
-  cmdDoc["sid"] = currentSessionId;
-  cmdDoc["session_state"] = stateStr;
-  cmdDoc["denom"] = denom;
-  cmdDoc["count"] = count;
+  cmdDoc[F("status")] = "OK";
+  cmdDoc[F("sid")] = currentSessionId;
+  cmdDoc[F("session_state")] = stateStr;
+  cmdDoc[F("denom")] = denom;
+  cmdDoc[F("count")] = count;
   sendDocument(cmdDoc);
 }
 
 void handleCoinAcceptorEnable(JsonDocument &cmdDoc) {
-  if (!cmdDoc["enabled"].is<bool>()) {
+  if (!cmdDoc[F("enabled")].is<bool>()) {
     sendCommandError(cmdDoc, "INVALID_PARAM");
     return;
   }
 
-  const bool enabled = cmdDoc["enabled"];
+  const bool enabled = cmdDoc[F("enabled")];
   if (enabled && (tamperLatched || coinSessionState == COIN_SESSION_UNCERTAIN || coinSessionState == COIN_SESSION_CLOSING || coinSessionState == COIN_SESSION_CLOSED)) {
     sendCommandError(cmdDoc, "LOCKED_OUT");
     return;
@@ -1266,25 +1279,25 @@ void handleCoinAcceptorEnable(JsonDocument &cmdDoc) {
   // Preserve the parsed fields and add the response status in place. Avoiding
   // a clear/rebuild keeps strings linked to the input buffer and lowers stack
   // pressure while HardwareSerial is transmitting.
-  cmdDoc.remove("cmd");
-  cmdDoc["status"] = "OK";
-  cmdDoc["enabled"] = (bool)coinAcceptorEnabled;
+  cmdDoc.remove(F("cmd"));
+  cmdDoc[F("status")] = "OK";
+  cmdDoc[F("enabled")] = (bool)coinAcceptorEnabled;
   sendDocument(cmdDoc);
 }
 
 
 void handleCoinStatus(JsonDocument &doc) {
   doc.clear();
-  doc["status"] = "OK";
-  doc["acceptor_enabled"] = (bool)coinAcceptorEnabled;
-  doc["sorter_position"] = coinSorterPosition;
-  doc["sorter_angle"] = sorterAngleForPosition(coinSorterPosition);
-  doc["session_total"] = coinSessionTotal;
+  doc[F("status")] = "OK";
+  doc[F("acceptor_enabled")] = (bool)coinAcceptorEnabled;
+  doc[F("sorter_position")] = coinSorterPosition;
+  doc[F("sorter_angle")] = sorterAngleForPosition(coinSorterPosition);
+  doc[F("session_total")] = coinSessionTotal;
   sendDocument(doc);
 }
 
 void handleCoinSorterPosition(JsonDocument &cmdDoc) {
-  const char *position = cmdDoc["position"] | "";
+  const char *position = cmdDoc[F("position")] | "";
   if (!isValidSorterPosition(position)) {
     sendCommandError(cmdDoc, "INVALID_PARAM");
     return;
@@ -1293,9 +1306,9 @@ void handleCoinSorterPosition(JsonDocument &cmdDoc) {
   setCoinSorterPosition(position);
 
   cmdDoc.clear();
-  cmdDoc["status"] = "OK";
-  cmdDoc["sorter_position"] = coinSorterPosition;
-  cmdDoc["sorter_angle"] = sorterAngleForPosition(coinSorterPosition);
+  cmdDoc[F("status")] = "OK";
+  cmdDoc[F("sorter_position")] = coinSorterPosition;
+  cmdDoc[F("sorter_angle")] = sorterAngleForPosition(coinSorterPosition);
   sendDocument(cmdDoc);
 }
 
@@ -1303,8 +1316,8 @@ void handleSecurityLock(JsonDocument &doc) {
   securityArmed = true; // Armed/listening
   lockDoor(true);
   doc.clear();
-  doc["status"] = "OK";
-  doc["locked"] = true;
+  doc[F("status")] = "OK";
+  doc[F("locked")] = true;
   sendDocument(doc);
 }
 
@@ -1312,16 +1325,16 @@ void handleSecurityUnlock(JsonDocument &doc) {
   securityArmed = false; // Disarmed/not listening
   unlockDoor(true);
   doc.clear();
-  doc["status"] = "OK";
-  doc["locked"] = false;
+  doc[F("status")] = "OK";
+  doc[F("locked")] = false;
   sendDocument(doc);
 }
 
 void handleSecurityStatus(JsonDocument &doc) {
   doc.clear();
-  doc["status"] = "OK";
-  doc["locked"] = doorLocked;
-  doc["tamper_a"] = tamperLatched;
+  doc[F("status")] = "OK";
+  doc[F("locked")] = doorLocked;
+  doc[F("tamper_a")] = tamperLatched;
   sendDocument(doc);
 }
 
@@ -1338,26 +1351,26 @@ void dispatchCommand(char *line) {
     return;
   }
 
-  currentCommandId = cmdDoc["id"] | -1;
+  currentCommandId = cmdDoc[F("id")] | -1;
 
-  const char *cmd = cmdDoc["cmd"] | "";
+  const char *cmd = cmdDoc[F("cmd")] | "";
   if (strcmp_P(cmd, PSTR("COIN_SESSION_RECONCILE")) == 0) {
-    const uint32_t requestedSid = cmdDoc["sid"].as<uint32_t>();
+    const uint32_t requestedSid = cmdDoc[F("sid")].as<uint32_t>();
     if (coinAcceptorEnabled || sorterMoving || coinHoldActive || coinSessionState == COIN_SESSION_ACTIVE || coinSessionState == COIN_SESSION_CLOSING || (requestedSid != currentSessionId && !(coinSessionState == COIN_SESSION_IDLE && requestedSid > currentSessionId))) {
       sendCommandError(cmdDoc, "LOCKED_OUT");
     } else {
       currentSessionId = requestedSid; clearCoinPulseTrain(); coinSessionState = COIN_SESSION_CLOSED; persistIntake();
-      cmdDoc.clear(); cmdDoc["status"] = "OK"; sendDocument(cmdDoc);
+      cmdDoc.clear(); cmdDoc[F("status")] = "OK"; sendDocument(cmdDoc);
     }
   } else if (strcmp_P(cmd, PSTR("CAPABILITIES")) == 0) {
     cmdDoc.clear();
-    cmdDoc["status"] = "OK";
-    cmdDoc["converter_protocol"] = 2;
+    cmdDoc[F("status")] = "OK";
+    cmdDoc[F("converter_protocol")] = 2;
     sendDocument(cmdDoc);
   } else if (strcmp_P(cmd, PSTR("EMERGENCY_CLEAR")) == 0) {
     tamperLatched = false;
     cmdDoc.clear();
-    cmdDoc["status"] = "OK";
+    cmdDoc[F("status")] = "OK";
     sendDocument(cmdDoc);
   } else if (strcmp_P(cmd, PSTR("PING")) == 0) {
     handlePing(cmdDoc);
@@ -1390,10 +1403,10 @@ void dispatchCommand(char *line) {
   } else if (strcmp_P(cmd, PSTR("SECURITY_STATUS")) == 0) {
     handleSecurityStatus(cmdDoc);
   } else if (strcmp_P(cmd, PSTR("COIN_CAPABILITIES")) == 0) {
-    cmdDoc.clear(); cmdDoc["status"]="OK"; cmdDoc["managed_intake"]=true; cmdDoc["bounded_intake"]=true; sendDocument(cmdDoc);
+    cmdDoc.clear(); cmdDoc[F("status")]="OK"; cmdDoc[F("managed_intake")]=true; cmdDoc[F("bounded_intake")]=true; sendDocument(cmdDoc);
   } else if (strcmp_P(cmd, PSTR("COIN_SESSION_ACK")) == 0) {
-    if (cmdDoc["sid"].as<uint32_t>() != currentSessionId || coinSessionState != COIN_SESSION_CLOSED) { sendCommandError(cmdDoc, "LOCKED_OUT"); }
-    else { coinSessionState=COIN_SESSION_IDLE; persistIntake(); cmdDoc.clear(); cmdDoc["status"]="OK"; sendDocument(cmdDoc); }
+    if (cmdDoc[F("sid")].as<uint32_t>() != currentSessionId || coinSessionState != COIN_SESSION_CLOSED) { sendCommandError(cmdDoc, "LOCKED_OUT"); }
+    else { coinSessionState=COIN_SESSION_IDLE; persistIntake(); cmdDoc.clear(); cmdDoc[F("status")]="OK"; sendDocument(cmdDoc); }
   } else if (strcmp_P(cmd, PSTR("COIN_SESSION_START")) == 0) {
     handleCoinSessionStart(cmdDoc);
   } else if (strcmp_P(cmd, PSTR("COIN_SESSION_STOP")) == 0) {
@@ -1504,8 +1517,8 @@ void serviceRFID() {
   uidStr[offset] = '\0';
 
   StaticJsonDocument<128> doc;
-  doc["event"] = "RFID";
-  doc["uid"] = uidStr;
+  doc[F("event")] = "RFID";
+  doc[F("uid")] = uidStr;
   sendDocument(doc);
 
   mfrc522.PICC_HaltA();

@@ -635,6 +635,7 @@ export default function AdminInventoryScreen() {
                       <div className="flex justify-end pt-2 border-t border-gray-100">
                         <button
                           type="button"
+                          disabled={claim.status === "PROVISIONAL" && claim.source_kind !== "EWALLET"}
                           onClick={() => {
                             if (claim.status === "PROVISIONAL") { reconcilePayment(claim); return; }
                             setResolvingClaim(claim.claim_ticket_code);
@@ -643,7 +644,9 @@ export default function AdminInventoryScreen() {
                           }}
                           className="flex min-h-11 items-center gap-2 rounded-button bg-coinnect-primary px-5 font-bold text-white hover:bg-coinnect-primary-dark"
                         >
-                          {claim.status === "PROVISIONAL" ? "Verify payment status" : "Resolve Claim"}
+                          {claim.status === "PROVISIONAL"
+                            ? claim.source_kind === "EWALLET" ? "Verify payment status" : "Verify physical counts above first"
+                            : "Resolve Claim"}
                         </button>
                       </div>
                     </article>

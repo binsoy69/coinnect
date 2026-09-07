@@ -180,6 +180,11 @@ def check_coin(args: argparse.Namespace) -> None:
             require_ok(probe.command(payload), payload["cmd"])
 
         for iteration in range(1, args.iterations + 1):
+            capabilities = probe.command({"cmd": "CAPABILITIES"})
+            require_ok(capabilities, "CAPABILITIES")
+            if capabilities.get("converter_protocol") != 2:
+                raise RuntimeError(f"Expected converter protocol 2: {capabilities}")
+
             operation_id = str(uuid.uuid4())
             status = probe.command(
                 {"cmd": "DISPENSE_OPERATION_STATUS", "operation_id": operation_id}
@@ -195,6 +200,13 @@ def check_coin(args: argparse.Namespace) -> None:
                 {"cmd": "DISPENSE_OPERATION_ACK", "operation_id": operation_id}
             )
             require_error(acknowledgement, "DISPENSE_OPERATION_ACK", "NOT_FOUND")
+
+            # Check a short reply after UUID recovery replies: stack corruption
+            # can damage later responses even when the long reply succeeded.
+            pong = probe.command({"cmd": "PING"})
+            require_ok(pong, "PING")
+            if pong.get("message") != "PONG":
+                raise RuntimeError(f"Expected intact PONG on iteration {iteration}: {pong}")
 
             disabled = probe.command(
                 {"cmd": "COIN_ACCEPTOR_ENABLE", "enabled": False}
