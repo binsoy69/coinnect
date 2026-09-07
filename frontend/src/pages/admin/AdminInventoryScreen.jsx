@@ -69,6 +69,9 @@ export default function AdminInventoryScreen() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const [recoveryMessage, setRecoveryMessage] = useState("");
+  const [recoveryError, setRecoveryError] = useState("");
 
   // New claims state
   const [activeTab, setActiveTab] = useState("reconciliation"); // "reconciliation" | "claims"
@@ -354,6 +357,21 @@ export default function AdminInventoryScreen() {
     }
   };
 
+  const recoverTamper = async () => {
+    if (recovering) return;
+    setRecovering(true);
+    setRecoveryMessage("");
+    setRecoveryError("");
+    try {
+      await request("/admin/tamper-recovery", { method: "POST" });
+      setRecoveryMessage("Tamper recovery completed. Security is re-armed. Exit admin to return to customer operation.");
+    } catch (err) {
+      setRecoveryError(err.message);
+    } finally {
+      setRecovering(false);
+    }
+  };
+
   const logout = async () => {
     try {
       await request("/admin/session", { method: "DELETE" });
@@ -392,6 +410,7 @@ export default function AdminInventoryScreen() {
           <button
             type="button"
             onClick={logout}
+            disabled={recovering}
             className="flex min-h-12 items-center gap-2 rounded-button border border-white/30 px-5 font-semibold hover:bg-white/10"
           >
             <LogOut className="h-5 w-5" />
@@ -402,6 +421,16 @@ export default function AdminInventoryScreen() {
 
       <div className="mx-auto grid max-w-7xl gap-8 px-5 py-8 lg:grid-cols-[1fr_340px] lg:px-10">
         <div className="space-y-9">
+          <section className="rounded-xl border border-amber-300 bg-amber-50 p-5 space-y-3" aria-labelledby="tamper-recovery-heading">
+            <h2 id="tamper-recovery-heading" className="text-xl font-bold">Tamper recovery</h2>
+            <p>Inspect the machine, reconcile uncertain cash movements, and close the cabinet before recovery. This clears emergency stops, homes the bill sorter, and locks and re-arms security.</p>
+            <button type="button" onClick={recoverTamper} disabled={recovering}
+              className="min-h-12 rounded-button bg-coinnect-primary px-5 font-bold text-white hover:bg-coinnect-primary-dark disabled:opacity-50">
+              {recovering ? "Recovering…" : "Recover from tamper"}
+            </button>
+            {recoveryMessage && <p role="status" className="font-semibold text-green-800">{recoveryMessage}</p>}
+            {recoveryError && <p role="alert" className="font-semibold text-red-700">{recoveryError}</p>}
+          </section>
           {/* Tabs Navigation */}
           <div className="flex border-b border-gray-200 gap-4 mb-6">
             <button

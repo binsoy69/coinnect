@@ -24,6 +24,34 @@ function response(body, ok = true) {
   return { ok, status: ok ? 200 : 401, json: async () => body };
 }
 
+test.each([200, 409, 503])("tamper recovery displays the server outcome (%s)", async (status) => {
+  sessionStorage.setItem("coinnect_admin_token", "admin-token");
+  const user = userEvent.setup();
+  let finishRecovery;
+  const pendingRecovery = new Promise(resolve => { finishRecovery = resolve; });
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+    if (url.endsWith("/inventory/")) return response(inventory);
+    if (url.endsWith("/admin/tamper-recovery")) return pendingRecovery;
+    return response({ adjustments: [] });
+  });
+  render(<MemoryRouter><AdminInventoryScreen /></MemoryRouter>);
+  await user.click(await screen.findByRole("button", { name: "Recover from tamper" }));
+  expect(screen.getByRole("button", { name: "Recovering…" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Exit admin" })).toBeDisabled();
+  const [, options] = fetchMock.mock.calls.find(([url]) => url.endsWith("/admin/tamper-recovery"));
+  expect(options.method).toBe("POST");
+  expect(options.headers.Authorization).toBe("Bearer admin-token");
+  const detail = status === 409 ? "Reconcile physical operations first" : "Hardware recovery failed; lockdown remains active";
+  finishRecovery({ ok: status === 200, status, json: async () => ({ detail }) });
+  if (status === 200) {
+    expect(await screen.findByRole("status")).toHaveTextContent("Tamper recovery completed");
+  } else {
+    expect(await screen.findByRole("alert")).toHaveTextContent(detail);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  }
+  expect(screen.getByRole("button", { name: "Recover from tamper" })).toBeEnabled();
+});
+
 test.each(["STANDARD", "EWALLET", "MISSING"])("routes provisional %s claims to the appropriate review", async (sourceKind) => {
   sessionStorage.setItem("coinnect_admin_token", "admin-token");
   const user = userEvent.setup();
