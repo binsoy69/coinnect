@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
+import { AlertTriangle } from "lucide-react";
 import Button from "../common/Button";
-import WarningIcon from "../feedback/WarningIcon";
 
 const REJECTION_MESSAGES = {
   STORAGE_FULL: {
@@ -87,7 +87,7 @@ export default function RejectionModal({
         >
           {/* Warning Icon */}
           <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mb-4 text-red-600">
-            <WarningIcon className="w-10 h-10" />
+            <AlertTriangle className="w-8 h-8" />
           </div>
 
           {/* Title */}
