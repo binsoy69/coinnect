@@ -94,6 +94,60 @@ test.each(["STANDARD", "EWALLET", "MISSING"])("routes provisional %s claims to t
 });
 
 
+test("reconciles converter uncertain bill intake to /admin/converter-reconciliation/bills/:id", async () => {
+  sessionStorage.setItem("coinnect_admin_token", "admin-token");
+  const user = userEvent.setup();
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+    if (url.endsWith("/inventory/")) return response(inventory);
+    if (url.endsWith("/admin/claims")) return response({
+      claims: [{
+        claim_ticket_code: "XL100AG9",
+        transaction_id: "tx-conv-1",
+        source_kind: "STANDARD",
+        status: "PROVISIONAL",
+        amount: 100,
+        shortfall: 100,
+        created_at: "2026-09-07T05:00:00",
+      }],
+      intake_operations: [{
+        id: "bill-op-1",
+        transaction_id: "tx-conv-1",
+        medium: "BILL",
+        source: "CONVERTER",
+        value: 100,
+        denomination: "PHP_100",
+      }],
+      retained_cash: [],
+    });
+    return response({ adjustments: [], records: [], items: [] });
+  });
+
+  render(<MemoryRouter><AdminInventoryScreen /></MemoryRouter>);
+  await user.click(await screen.findByRole("button", { name: /Claims Resolution/ }));
+
+  const reviewBtn = await screen.findByRole("button", { name: "Review physical counts" });
+  await user.click(reviewBtn);
+
+  expect(screen.getByText("Confirm physical cash movement")).toBeInTheDocument();
+  expect(screen.getByText("The ₱100 bill was stored")).toBeInTheDocument();
+
+  const checkbox = screen.getByRole("checkbox");
+  await user.click(checkbox);
+
+  await user.type(screen.getByLabelText("Inspection notes"), "Technician verified bill in box");
+  await user.click(screen.getByRole("button", { name: "Save verified counts" }));
+
+  expect(fetchMock.mock.calls.some(([url, options]) =>
+    url.endsWith("/admin/converter-reconciliation/bills/bill-op-1") &&
+    options.method === "POST" &&
+    JSON.parse(options.body).retained === true &&
+    JSON.parse(options.body).denomination === "PHP_100" &&
+    JSON.parse(options.body).notes === "Technician verified bill in box"
+  )).toBe(true);
+
+  expect(await screen.findByRole("status")).toHaveTextContent("Physical inspection saved");
+});
+
 test("edits inventory, reviews changes, and saves an absolute count", async () => {
   sessionStorage.setItem("coinnect_admin_token", "admin-token");
   const user = userEvent.setup();

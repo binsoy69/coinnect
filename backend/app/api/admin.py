@@ -83,7 +83,16 @@ async def get_claims(
     session_factory = request.app.state.db_session_factory
     
     from sqlalchemy import select
-    from app.models.db_models import ClaimRecord, TransactionRecord, EWalletTransactionRecord, EWalletIntake, EWalletCoinSession, PhysicalOperation
+    from app.models.db_models import (
+        ClaimRecord,
+        TransactionRecord,
+        EWalletTransactionRecord,
+        EWalletIntake,
+        EWalletCoinSession,
+        PhysicalOperation,
+        ConverterIntakeOperation,
+        ConverterCoinSession,
+    )
     
     claims = []
     
@@ -170,11 +179,15 @@ async def get_claims(
         bill_ops = (await session.execute(select(EWalletIntake).where(EWalletIntake.state == "PREPARED"))).scalars().all()
         coin_ops = (await session.execute(select(EWalletCoinSession).where(EWalletCoinSession.state == "UNCERTAIN"))).scalars().all()
         payouts = (await session.execute(select(PhysicalOperation).where(PhysicalOperation.state.in_({"AMBIGUOUS", "STARTED"})))).scalars().all()
+        conv_bill_ops = (await session.execute(select(ConverterIntakeOperation).where(ConverterIntakeOperation.state.in_(["PREPARED", "UNCERTAIN"])))).scalars().all()
+        conv_coin_ops = (await session.execute(select(ConverterCoinSession).where(ConverterCoinSession.state != "CLOSED"))).scalars().all()
     return {"claims": claims, "retained_cash": [{"transaction_id": row.id,
         "amount": row.retained_amount, "created_at": row.created_at.isoformat()} for row in retained],
-        "intake_operations": [{"id": row.id, "transaction_id": row.transaction_id, "value": row.value, "medium": "BILL"} for row in bill_ops]
-          + [{"id": row.sid, "transaction_id": row.transaction_id, "counts": row.counts, "medium": "COIN"} for row in coin_ops]
-          + [{"id": row.id, "transaction_id": row.transaction_id, "medium": "PAYOUT", "denomination": row.denomination, "requested_count": row.requested_count} for row in payouts]}
+        "intake_operations": [{"id": row.id, "transaction_id": row.transaction_id, "value": row.value, "medium": "BILL", "source": "EWALLET"} for row in bill_ops]
+          + [{"id": row.sid, "sid": row.sid, "transaction_id": row.transaction_id, "counts": row.counts, "medium": "COIN", "source": "EWALLET"} for row in coin_ops]
+          + [{"id": row.id, "transaction_id": row.transaction_id, "medium": "PAYOUT", "denomination": row.denomination, "requested_count": row.requested_count} for row in payouts]
+          + [{"id": row.id, "transaction_id": row.transaction_id, "value": row.value, "denomination": row.denomination, "medium": "BILL", "source": "CONVERTER"} for row in conv_bill_ops]
+          + [{"id": row.session_id, "sid": row.session_id, "transaction_id": row.transaction_id, "counts": {str(d): getattr(row, f"cursor_php_{d}") for d in (1, 5, 10, 20)}, "medium": "COIN", "source": "CONVERTER"} for row in conv_coin_ops]}
 
 
 class EWalletIntakeResolution(BaseModel):

@@ -123,9 +123,9 @@ export default function AdminInventoryScreen() {
     try {
       const data = await request("/admin/claims");
       const audit = await request("/admin/forex-audit");
-      setForexAudit(audit.records || []);
+      setForexAudit(audit?.records || []);
       const pending = await request("/admin/forex-intakes");
-      setForexIntakes(pending.items || []);
+      setForexIntakes(pending?.items || []);
       setRetainedCash(data?.retained_cash || []);
       setIntakeOperations(data?.intake_operations || []);
       setClaims((data?.claims || []).map(claim => ({ ...claim,
@@ -211,8 +211,15 @@ export default function AdminInventoryScreen() {
 
   const openInspection = (operation) => {
     setIntakeSuccess("");
-    setIntakeResolution({ ...operation, actual_dispensed_count: 0, retained: false,
-      counts: { "1": 0, "5": 0, "10": 0, "20": 0, ...operation.counts }, notes: "" });
+    setError("");
+    setIntakeResolution({
+      ...operation,
+      actual_dispensed_count: 0,
+      retained: false,
+      denomination: operation.denomination || "",
+      counts: { "1": 0, "5": 0, "10": 0, "20": 0, ...operation.counts },
+      notes: "",
+    });
     setIntakeError("");
   };
 
@@ -241,10 +248,41 @@ export default function AdminInventoryScreen() {
       setIntakeError(`Enter a whole number from 0 to ${intakeResolution.requested_count} for the pieces dispensed.`);
       return;
     }
+    if (intakeResolution.source === "CONVERTER" && intakeResolution.medium === "BILL" && intakeResolution.retained) {
+      if (intakeResolution.denomination === "UNKNOWN" || !intakeResolution.denomination) {
+        setIntakeError("Identify the retained bill denomination before saving.");
+        return;
+      }
+    }
     setIntakeSaving(true);
     try {
-      await request(payout ? `/admin/physical-operations/${intakeResolution.id}/reconcile` : `/admin/ewallet/intakes/${intakeResolution.id}/reconcile`, {
-        method: "POST", body: JSON.stringify(payout ? { actual_dispensed_count: intakeResolution.actual_dispensed_count, resolution_notes: notes } : { ...intakeResolution, notes }),
+      let endpoint;
+      let body;
+      if (payout) {
+        endpoint = `/admin/physical-operations/${intakeResolution.id}/reconcile`;
+        body = { actual_dispensed_count: intakeResolution.actual_dispensed_count, resolution_notes: notes };
+      } else if (intakeResolution.source === "CONVERTER") {
+        if (intakeResolution.medium === "BILL") {
+          endpoint = `/admin/converter-reconciliation/bills/${intakeResolution.id}`;
+          body = {
+            retained: Boolean(intakeResolution.retained),
+            denomination: intakeResolution.denomination || null,
+            notes,
+          };
+        } else {
+          endpoint = `/admin/converter-reconciliation/coins/${intakeResolution.id}`;
+          body = {
+            counts: intakeResolution.counts,
+            notes,
+          };
+        }
+      } else {
+        endpoint = `/admin/ewallet/intakes/${intakeResolution.id}/reconcile`;
+        body = { ...intakeResolution, notes };
+      }
+      await request(endpoint, {
+        method: "POST",
+        body: JSON.stringify(body),
       });
       setIntakeResolution(null);
       setIntakeSuccess("Physical inspection saved. Review the updated claim for any remaining amount owed.");
@@ -608,9 +646,45 @@ export default function AdminInventoryScreen() {
                 <h3 className="font-bold">Confirm physical cash movement</h3>
                 <p>Transaction: {intakeResolution.transaction_id}</p>
                 <p>Inspect the cash path and storage before recording the result. Previously confirmed credits cannot be removed.</p>
-                {intakeResolution.medium === "PAYOUT" ? <label className="flex gap-3">Confirmed {intakeResolution.denomination} pieces dispensed (requested {intakeResolution.requested_count})<input type="number" min="0" max={intakeResolution.requested_count} value={intakeResolution.actual_dispensed_count} onChange={e => setIntakeResolution({ ...intakeResolution, actual_dispensed_count: Number(e.target.value) })} /></label>
-                  : intakeResolution.medium === "BILL" ? <label className="flex gap-3"><input type="checkbox" checked={intakeResolution.retained} onChange={e => setIntakeResolution({ ...intakeResolution, retained: e.target.checked })} />The ₱{intakeResolution.value} bill was stored</label>
-                  : [1, 5, 10, 20].map(denom => <label key={denom} className="flex gap-3">₱{denom} total coins in this session<input type="number" min="0" max="1000" value={intakeResolution.counts[denom]} onChange={e => setIntakeResolution({ ...intakeResolution, counts: { ...intakeResolution.counts, [denom]: Number(e.target.value) } })} /></label>)}
+                {intakeResolution.medium === "PAYOUT" ? (
+                  <label className="flex gap-3">
+                    Confirmed {intakeResolution.denomination} pieces dispensed (requested {intakeResolution.requested_count})
+                    <input type="number" min="0" max={intakeResolution.requested_count} value={intakeResolution.actual_dispensed_count} onChange={e => setIntakeResolution({ ...intakeResolution, actual_dispensed_count: Number(e.target.value) })} />
+                  </label>
+                ) : intakeResolution.medium === "BILL" ? (
+                  <div className="space-y-2">
+                    <label className="flex gap-3 items-center">
+                      <input type="checkbox" checked={intakeResolution.retained} onChange={e => setIntakeResolution({ ...intakeResolution, retained: e.target.checked })} />
+                      {intakeResolution.value > 0 ? `The ₱${intakeResolution.value} bill was stored` : "A bill was stored in the cash box"}
+                    </label>
+                    {intakeResolution.retained && (!intakeResolution.denomination || intakeResolution.denomination === "UNKNOWN") && (
+                      <label className="flex gap-3 items-center">
+                        <span>Retained denomination:</span>
+                        <select
+                          aria-label="Retained denomination"
+                          value={intakeResolution.denomination === "UNKNOWN" ? "" : intakeResolution.denomination}
+                          onChange={e => setIntakeResolution({ ...intakeResolution, denomination: e.target.value })}
+                          className="border p-1 rounded"
+                        >
+                          <option value="">Select denomination</option>
+                          <option value="PHP_20">PHP 20</option>
+                          <option value="PHP_50">PHP 50</option>
+                          <option value="PHP_100">PHP 100</option>
+                          <option value="PHP_200">PHP 200</option>
+                          <option value="PHP_500">PHP 500</option>
+                          <option value="PHP_1000">PHP 1000</option>
+                        </select>
+                      </label>
+                    )}
+                  </div>
+                ) : (
+                  [1, 5, 10, 20].map(denom => (
+                    <label key={denom} className="flex gap-3">
+                      ₱{denom} total coins in this session
+                      <input type="number" min="0" max="1000" value={intakeResolution.counts[denom] ?? 0} onChange={e => setIntakeResolution({ ...intakeResolution, counts: { ...intakeResolution.counts, [denom]: Number(e.target.value) } })} />
+                    </label>
+                  ))
+                )}
                 <label className="block">Inspection notes<textarea className="block w-full border p-2" value={intakeResolution.notes} onChange={e => setIntakeResolution({ ...intakeResolution, notes: e.target.value })} /></label>
                 <p className="text-sm">Required: describe what you inspected and found (at least 5 characters).</p>
                 {intakeError && <p role="alert">{intakeError}</p>}

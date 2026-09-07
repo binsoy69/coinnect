@@ -6,7 +6,13 @@ from httpx import ASGITransport, AsyncClient
 from app.api.admin import router as admin_router
 from app.services.admin_session import AdminSessionService
 from app.services.operation_mode import OperationModeManager
-from app.models.db_models import TransactionRecord, EWalletTransactionRecord, TransactionState
+from app.models.db_models import (
+    TransactionRecord,
+    EWalletTransactionRecord,
+    TransactionState,
+    ConverterIntakeOperation,
+    ConverterCoinSession,
+)
 
 
 @pytest.fixture
@@ -145,3 +151,49 @@ async def test_resolve_standard_and_ewallet_claims(claims_app, db_session_factor
         assert tx_ew_db.resolution_notes == "Triggered manual Gcash payout."
         assert tx_ew_db.resolved_at is not None
         assert tx_ew_db.resolved_by is not None
+
+
+async def test_converter_intakes_included_in_admin_claims(claims_app, db_session_factory):
+    async with db_session_factory() as session:
+        session.add(ConverterIntakeOperation(
+            id="op-bill-1",
+            transaction_id="tx-conv-bill",
+            denomination="PHP_100",
+            value=100,
+            state="UNCERTAIN",
+        ))
+        session.add(ConverterCoinSession(
+            session_id=42,
+            transaction_id="tx-conv-coin",
+            state="ACTIVE",
+            cursor_php_1=2,
+            cursor_php_5=3,
+            cursor_php_10=4,
+            cursor_php_20=5,
+        ))
+        await session.commit()
+
+    transport = ASGITransport(app=claims_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        token = _login(claims_app)
+        headers = {"Authorization": f"Bearer {token}"}
+        res = await client.get("/api/v1/admin/claims", headers=headers)
+        assert res.status_code == 200
+        data = res.json()
+        intake_ops = data["intake_operations"]
+
+        bill_op = next((op for op in intake_ops if op.get("id") == "op-bill-1"), None)
+        assert bill_op is not None
+        assert bill_op["transaction_id"] == "tx-conv-bill"
+        assert bill_op["medium"] == "BILL"
+        assert bill_op["source"] == "CONVERTER"
+        assert bill_op["value"] == 100
+        assert bill_op["denomination"] == "PHP_100"
+
+        coin_op = next((op for op in intake_ops if op.get("sid") == 42 or op.get("id") == 42), None)
+        assert coin_op is not None
+        assert coin_op["transaction_id"] == "tx-conv-coin"
+        assert coin_op["medium"] == "COIN"
+        assert coin_op["source"] == "CONVERTER"
+        assert coin_op["counts"] == {"1": 2, "5": 3, "10": 4, "20": 5}
+
