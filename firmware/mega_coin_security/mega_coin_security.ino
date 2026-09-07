@@ -1,3 +1,4 @@
+#include <TamperFilter.h>
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <Servo.h>
@@ -8,7 +9,7 @@
 // Coinnect Mega #2 firmware: coin accept/dispense + security + RFID.
 // Serial protocol: newline-delimited JSON at 115200 baud.
 
-static const char *FIRMWARE_VERSION = "3.1.0-mega";
+static const char *FIRMWARE_VERSION = "3.2.0-mega";
 static const char *CONTROLLER_ID = "COIN_SECURITY";
 
 // MFRC522 RFID reader pins.
@@ -52,7 +53,6 @@ static const unsigned long COIN_SORTER_HOLD_MS = 500;
 // Pulse train interpretation: value pulses. 1/5/10/20 pulses map to PHP value.
 static const unsigned long COIN_PULSE_DEBOUNCE_MS = 15;
 static const unsigned long COIN_TRAIN_DONE_MS = 150;
-static const unsigned long TAMPER_DEBOUNCE_MS = 250;
 
 Servo servoPhp1;
 Servo servoPhp5;
@@ -80,7 +80,7 @@ static const uint8_t COIN_DISPENSER_COUNT =
 static String inputLine;
 static bool doorLocked = true;
 static bool tamperLatched = false;
-static bool securityArmed = false; // Starts disarmed/not listening on boot
+static volatile bool securityArmed = false; // Starts disarmed/not listening on boot
 static volatile bool coinAcceptorEnabled = false;
 static const char *coinSorterPosition = "CENTER";
 static int coinSessionTotal = 0;
@@ -150,10 +150,7 @@ static volatile uint8_t coinPulseCount = 0;
 static volatile unsigned long lastCoinPulseMs = 0;
 static volatile unsigned long lastCoinInterruptMs = 0;
 
-static volatile bool shockAFlag = false;
-static volatile bool shockBFlag = false;
-static volatile unsigned long lastShockAMs = 0;
-static volatile unsigned long lastShockBMs = 0;
+static volatile TamperFilter tamperFilter;
 
 static long currentCommandId = -1;
 
@@ -433,6 +430,7 @@ void blinkTamperLed() {
 }
 
 void handleTamper(const char *sensor) {
+  if (tamperLatched) return;
   tamperLatched = true;
   coinAcceptorShouldBeEnabled = false;
   setCoinAcceptorEnabled(false);
@@ -457,50 +455,28 @@ void coinPulseISR() {
 }
 
 void shockAISR() {
-  const unsigned long now = millis();
-  if (now - lastShockAMs >= TAMPER_DEBOUNCE_MS) {
-    shockAFlag = true;
-    lastShockAMs = now;
-  }
+  if (securityArmed) tamperFilter.pulse(0, millis());
 }
 
 void shockBISR() {
-  const unsigned long now = millis();
-  if (now - lastShockBMs >= TAMPER_DEBOUNCE_MS) {
-    shockBFlag = true;
-    lastShockBMs = now;
-  }
+  if (securityArmed) tamperFilter.pulse(1, millis());
+}
+
+// Change listening state and clear history atomically with respect to both ISRs.
+void setSecurityArmed(bool armed) {
+  noInterrupts();
+  securityArmed = armed;
+  tamperFilter.clear();
+  interrupts();
 }
 
 void serviceTamperEvents() {
-  if (!securityArmed) {
-    noInterrupts();
-    shockAFlag = false;
-    shockBFlag = false;
-    interrupts();
-    return;
-  }
-
-  bool a = false;
-  bool b = false;
-
   noInterrupts();
-  if (shockAFlag) {
-    a = true;
-    shockAFlag = false;
-  }
-  if (shockBFlag) {
-    b = true;
-    shockBFlag = false;
-  }
+  if (!securityArmed) tamperFilter.clear();
+  tamperFilter.expire(millis());
+  const uint8_t confirmed = tamperFilter.confirmed;
   interrupts();
-
-  if (a) {
-    handleTamper("A");
-  }
-  if (b) {
-    handleTamper("B");
-  }
+  if (confirmed && !tamperLatched) handleTamper(confirmed == 1 ? "A" : "B");
 }
 
 void serviceSorter() {
@@ -746,13 +722,12 @@ void handleReset() {
   if (coinSessionState != COIN_SESSION_IDLE) { sendError("LOCKED_OUT"); return; }
   noInterrupts();
   coinPulseCount = 0;
-  shockAFlag = false;
-  shockBFlag = false;
+  tamperFilter.clear();
   interrupts();
 
   coinSessionTotal = 0;
   tamperLatched = false;
-  securityArmed = true; // Armed during initialization/reconciliation
+  setSecurityArmed(true); // Armed during initialization/reconciliation
   coinAcceptorShouldBeEnabled = false;
   setCoinAcceptorEnabled(false);
   setCoinSorterPosition("CENTER");
@@ -1108,8 +1083,29 @@ void handleCoinSorterPosition(JsonDocument &cmdDoc) {
   sendDocument(doc);
 }
 
+void handleSecurityConfig(JsonDocument &doc) {
+  if (!doc["sustain_ms"].is<uint32_t>() || !doc["max_gap_ms"].is<uint32_t>()) {
+    sendError("INVALID_PARAM"); return;
+  }
+  const uint32_t sustain = doc["sustain_ms"].as<uint32_t>();
+  const uint32_t gap = doc["max_gap_ms"].as<uint32_t>();
+  if (gap < 250 || gap >= sustain || sustain > 60000) {
+    sendError("INVALID_PARAM"); return;
+  }
+  noInterrupts();
+  tamperFilter.sustainMs = sustain;
+  tamperFilter.maxGapMs = gap;
+  tamperFilter.clear();
+  interrupts();
+  doc.clear();
+  doc["status"] = "OK";
+  doc["sustain_ms"] = sustain;
+  doc["max_gap_ms"] = gap;
+  sendDocument(doc);
+}
+
 void handleSecurityLock() {
-  securityArmed = true; // Armed/listening
+  setSecurityArmed(true); // Armed/listening
   lockDoor(true);
   StaticJsonDocument<96> doc;
   doc["status"] = "OK";
@@ -1118,7 +1114,7 @@ void handleSecurityLock() {
 }
 
 void handleSecurityUnlock() {
-  securityArmed = false; // Disarmed/not listening
+  setSecurityArmed(false); // Disarmed/not listening
   unlockDoor(true);
   StaticJsonDocument<96> doc;
   doc["status"] = "OK";
@@ -1149,7 +1145,7 @@ void dispatchCommand(const String &line) {
   if (strcmp(cmd, "CAPABILITIES") == 0) {
     cmdDoc.clear(); cmdDoc["status"]="OK"; cmdDoc["converter_protocol"]=2; sendDocument(cmdDoc);
   } else if (strcmp(cmd, "EMERGENCY_CLEAR") == 0) {
-    tamperLatched=false; cmdDoc.clear(); cmdDoc["status"]="OK"; sendDocument(cmdDoc);
+    tamperLatched=false; setSecurityArmed(securityArmed); cmdDoc.clear(); cmdDoc["status"]="OK"; sendDocument(cmdDoc);
   } else if (strcmp(cmd, "EMERGENCY_STOP") == 0) {
     tamperLatched=true;
     if (dispenseActive && dispenseOperationId[0]) persistOperation(4, dispenseOperationId, dispenseActualCount);
@@ -1198,6 +1194,8 @@ void dispatchCommand(const String &line) {
     handleCoinStatus();
   } else if (strcmp(cmd, "COIN_SORTER_POSITION") == 0) {
     handleCoinSorterPosition(cmdDoc);
+  } else if (strcmp(cmd, "SECURITY_CONFIG") == 0) {
+    handleSecurityConfig(cmdDoc);
   } else if (strcmp(cmd, "SECURITY_LOCK") == 0) {
     handleSecurityLock();
   } else if (strcmp(cmd, "SECURITY_UNLOCK") == 0) {

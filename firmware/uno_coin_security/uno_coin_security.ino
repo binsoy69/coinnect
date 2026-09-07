@@ -1,3 +1,4 @@
+#include <TamperFilter.h>
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <Servo.h>
@@ -18,7 +19,7 @@
 // Coinnect Uno firmware: coin accept/dispense + security + RFID.
 // Serial protocol: newline-delimited JSON at 115200 baud.
 
-static const char *FIRMWARE_VERSION = "3.1.1-uno";
+static const char *FIRMWARE_VERSION = "3.2.0-uno";
 static const char *CONTROLLER_ID = "COIN_SECURITY";
 
 // MFRC522 RFID reader pins.
@@ -62,7 +63,6 @@ static const unsigned long COIN_SORTER_HOLD_MS = 500;
 // Pulse train interpretation: value pulses. 1/5/10/20 pulses map to PHP value.
 static const unsigned long COIN_PULSE_DEBOUNCE_MS = 15;
 static const unsigned long COIN_TRAIN_DONE_MS = 150;
-static const unsigned long TAMPER_DEBOUNCE_MS = 250;
 
 Servo servoPhp1;
 Servo servoPhp5;
@@ -103,7 +103,7 @@ static const unsigned long SERIAL_ACTIVITY_GUARD_MS = 100;
 static const unsigned long RFID_POLL_INTERVAL_MS = 50;
 static bool doorLocked = true;
 static bool tamperLatched = false;
-static bool securityArmed = false; // Starts disarmed/not listening on boot
+static volatile bool securityArmed = false; // Starts disarmed/not listening on boot
 static volatile bool coinAcceptorEnabled = false;
 static const char *coinSorterPosition = "CENTER";
 static int coinSessionTotal = 0;
@@ -173,10 +173,7 @@ static volatile uint8_t coinPulseCount = 0;
 static volatile unsigned long lastCoinPulseMs = 0;
 static volatile unsigned long lastCoinInterruptMs = 0;
 
-static volatile bool shockAFlag = false;
-static volatile bool shockBFlag = false;
-static volatile unsigned long lastShockAMs = 0;
-static volatile unsigned long lastShockBMs = 0;
+static volatile TamperFilter tamperFilter;
 
 // Tamper indication must never block the serial or dispense state machines.
 static bool tamperBlinkActive = false;
@@ -608,54 +605,28 @@ void coinPulseISR() {
 }
 
 void shockAISR() {
-  const unsigned long now = millis();
-  if (now - lastShockAMs >= TAMPER_DEBOUNCE_MS) {
-    shockAFlag = true;
-    lastShockAMs = now;
-  }
+  if (securityArmed) tamperFilter.pulse(0, millis());
 }
 
 void shockBISR() {
-  const unsigned long now = millis();
-  if (now - lastShockBMs >= TAMPER_DEBOUNCE_MS) {
-    shockBFlag = true;
-    lastShockBMs = now;
-  }
+  if (securityArmed) tamperFilter.pulse(1, millis());
+}
+
+// Change listening state and clear history atomically with respect to both ISRs.
+void setSecurityArmed(bool armed) {
+  noInterrupts();
+  securityArmed = armed;
+  tamperFilter.clear();
+  interrupts();
 }
 
 void serviceTamperEvents() {
-  if (!securityArmed) {
-    noInterrupts();
-    shockAFlag = false;
-    shockBFlag = false;
-    interrupts();
-    return;
-  }
-
-  bool a = false;
-  bool b = false;
-
   noInterrupts();
-  if (shockAFlag) {
-    a = true;
-    shockAFlag = false;
-  }
-  if (shockBFlag) {
-    b = true;
-    shockBFlag = false;
-  }
+  if (!securityArmed) tamperFilter.clear();
+  tamperFilter.expire(millis());
+  const uint8_t confirmed = tamperFilter.confirmed;
   interrupts();
-
-  if (tamperLatched) {
-    return;
-  }
-
-  if (a) {
-    handleTamper("A");
-  }
-  if (b && !tamperLatched) {
-    handleTamper("B");
-  }
+  if (confirmed && !tamperLatched) handleTamper(confirmed == 1 ? "A" : "B");
 }
 
 void serviceSorter() {
@@ -909,14 +880,13 @@ void handleReset(JsonDocument &doc) {
   if (coinSessionState != COIN_SESSION_IDLE) { sendCommandError(doc, "LOCKED_OUT"); return; }
   noInterrupts();
   coinPulseCount = 0;
-  shockAFlag = false;
-  shockBFlag = false;
+  tamperFilter.clear();
   interrupts();
 
   coinSessionTotal = 0;
   tamperLatched = false;
   tamperBlinkActive = false;
-  securityArmed = true; // Armed during initialization/reconciliation
+  setSecurityArmed(true); // Armed during initialization/reconciliation
   coinAcceptorShouldBeEnabled = false;
   setCoinAcceptorEnabled(false);
   setCoinSorterPosition("CENTER");
@@ -1312,8 +1282,29 @@ void handleCoinSorterPosition(JsonDocument &cmdDoc) {
   sendDocument(cmdDoc);
 }
 
+void handleSecurityConfig(JsonDocument &doc) {
+  if (!doc[F("sustain_ms")].is<uint32_t>() || !doc[F("max_gap_ms")].is<uint32_t>()) {
+    sendCommandError(doc, "INVALID_PARAM"); return;
+  }
+  const uint32_t sustain = doc[F("sustain_ms")].as<uint32_t>();
+  const uint32_t gap = doc[F("max_gap_ms")].as<uint32_t>();
+  if (gap < 250 || gap >= sustain || sustain > 60000) {
+    sendCommandError(doc, "INVALID_PARAM"); return;
+  }
+  noInterrupts();
+  tamperFilter.sustainMs = sustain;
+  tamperFilter.maxGapMs = gap;
+  tamperFilter.clear();
+  interrupts();
+  doc.clear();
+  doc[F("status")] = "OK";
+  doc[F("sustain_ms")] = sustain;
+  doc[F("max_gap_ms")] = gap;
+  sendDocument(doc);
+}
+
 void handleSecurityLock(JsonDocument &doc) {
-  securityArmed = true; // Armed/listening
+  setSecurityArmed(true); // Armed/listening
   lockDoor(true);
   doc.clear();
   doc[F("status")] = "OK";
@@ -1322,7 +1313,7 @@ void handleSecurityLock(JsonDocument &doc) {
 }
 
 void handleSecurityUnlock(JsonDocument &doc) {
-  securityArmed = false; // Disarmed/not listening
+  setSecurityArmed(false); // Disarmed/not listening
   unlockDoor(true);
   doc.clear();
   doc[F("status")] = "OK";
@@ -1369,6 +1360,7 @@ void dispatchCommand(char *line) {
     sendDocument(cmdDoc);
   } else if (strcmp_P(cmd, PSTR("EMERGENCY_CLEAR")) == 0) {
     tamperLatched = false;
+    setSecurityArmed(securityArmed);
     cmdDoc.clear();
     cmdDoc[F("status")] = "OK";
     sendDocument(cmdDoc);
@@ -1396,6 +1388,8 @@ void dispatchCommand(char *line) {
     handleCoinStatus(cmdDoc);
   } else if (strcmp_P(cmd, PSTR("COIN_SORTER_POSITION")) == 0) {
     handleCoinSorterPosition(cmdDoc);
+  } else if (strcmp_P(cmd, PSTR("SECURITY_CONFIG")) == 0) {
+    handleSecurityConfig(cmdDoc);
   } else if (strcmp_P(cmd, PSTR("SECURITY_LOCK")) == 0) {
     handleSecurityLock(cmdDoc);
   } else if (strcmp_P(cmd, PSTR("SECURITY_UNLOCK")) == 0) {

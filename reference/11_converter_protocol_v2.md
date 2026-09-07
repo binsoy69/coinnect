@@ -61,7 +61,7 @@ Firmware: Arduino AVR core, ArduinoJson **6.21.6**, AccelStepper, Servo, MFRC522
 
 ```text
 arduino-cli compile --fqbn arduino:avr:mega firmware/mega_bill
-arduino-cli compile --fqbn arduino:avr:uno firmware/uno_coin_security
+arduino-cli compile --libraries firmware/libraries --fqbn arduino:avr:uno firmware/uno_coin_security
 ```
 
 Before enabling customer cash, manually verify: each denomination's pulse count; STOP halfway through a train; final counts after a lost event; repeated STOP/START; rejected malformed trains; tamper during positioning, storage, and each dispenser; no resumed motion after stop; home/re-arm failures stay blocked; partial payout plus fee refund; printed provisional and final claims; reconnect/reload on intake, summary, and reapproval; and the 60+30-second inactivity flow. Do not infer physical payout accuracy from mock tests or a successful compile.

@@ -152,6 +152,12 @@ Firmware reads the SW-420 module `DO` pin, which idles LOW and rises HIGH when
 vibration is detected. This active-high configuration means a disconnected or
 broken wire will idle LOW and not cause a false alarm.
 
+Production firmware requires accepted pulses across either sensor spanning
+3000 ms before lockdown, restarting after any gap greater than 750 ms. Each
+sensor has 250 ms debounce. A single edge or held HIGH cannot qualify alone.
+The Pi configures timing through `SECURITY_CONFIG`; see the communication
+protocol. Example snippets below illustrate wiring, not the production filter.
+
 ### 6.3.2 Shock Sensor Wiring
 
 ```

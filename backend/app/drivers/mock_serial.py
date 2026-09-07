@@ -192,6 +192,7 @@ class MockSerial:
             "COIN_SESSION_START": self._handle_coin_session_start,
             "COIN_SESSION_STOP": self._handle_coin_session_stop,
             "COIN_SESSION_STATUS": self._handle_coin_session_status,
+            "SECURITY_CONFIG": self._handle_security_config,
             "SECURITY_LOCK": self._handle_security_lock,
             "SECURITY_UNLOCK": self._handle_security_unlock,
             "SECURITY_STATUS": self._handle_security_status,
@@ -392,6 +393,14 @@ class MockSerial:
             "count_20": c20,
             "total_amount": tot,
         }]
+
+    def _handle_security_config(self, cmd: dict) -> List[dict]:
+        sustain = cmd.get("sustain_ms")
+        gap = cmd.get("max_gap_ms")
+        if (type(sustain) is not int or type(gap) is not int
+                or not 250 <= gap < sustain <= 60000):
+            return [{"status": "ERROR", "code": "INVALID_PARAM"}]
+        return [{"status": "OK", "sustain_ms": sustain, "max_gap_ms": gap}]
 
     def _handle_security_lock(self, cmd: dict) -> List[dict]:
         self._locked = True

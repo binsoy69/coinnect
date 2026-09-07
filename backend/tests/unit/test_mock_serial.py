@@ -286,3 +286,20 @@ class TestMockSerialRealisticState:
         mock.write((json.dumps({"cmd": "SORT_STATUS"}) + "\n").encode())
         resp = json.loads(mock.readline().decode())
         assert resp["homed"] is False
+
+
+@pytest.mark.parametrize("sustain,gap,valid", [
+    (3000, 750, True), (60000, 59999, True),
+    (3000, 3000, False), (3000, 249, False), (60001, 750, False),
+    ("3000", 750, False), (True, 750, False), (3000.5, 750, False),
+])
+def test_security_config_mock(sustain, gap, valid):
+    mock = MockSerial(port="MOCK_COIN", mock_delay=0)
+    mock.write((json.dumps({
+        "cmd": "SECURITY_CONFIG", "sustain_ms": sustain, "max_gap_ms": gap, "id": 42,
+    }) + "\n").encode())
+    response = json.loads(mock.readline())
+    if valid:
+        assert response == {"status": "OK", "sustain_ms": sustain, "max_gap_ms": gap, "id": 42}
+    else:
+        assert response["code"] == "INVALID_PARAM"

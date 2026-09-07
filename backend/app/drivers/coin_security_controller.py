@@ -156,8 +156,24 @@ class CoinSecurityController:
         )
         return self._parse_or_raise(raw, CoinSorterPositionResponse)
 
+    async def configure_security(self) -> None:
+        """Apply Pi-owned thresholds and verify the controller's acknowledgement."""
+        settings = self._serial._settings
+        expected = {
+            "sustain_ms": settings.tamper_sustain_ms,
+            "max_gap_ms": settings.tamper_max_gap_ms,
+        }
+        raw = await self._serial.send_coin_command({"cmd": "SECURITY_CONFIG", **expected})
+        self._parse_or_raise(raw, EmergencyStopResponse)
+        if raw.get("status") != "OK" or any(
+            type(raw.get(key)) is not int or raw[key] != value
+            for key, value in expected.items()
+        ):
+            raise HardwareError(code="INVALID_RESPONSE")
+
     async def security_lock(self) -> SecurityLockResponse:
         """Engage the solenoid door lock."""
+        await self.configure_security()
         raw = await self._serial.send_coin_command({"cmd": "SECURITY_LOCK"})
         return self._parse_or_raise(raw, SecurityLockResponse)
 
@@ -198,7 +214,9 @@ class CoinSecurityController:
         self._parse_or_raise(raw, EmergencyStopResponse)
 
     async def reset(self) -> None:
-        await self._serial.send_coin_command({"cmd": "RESET"})
+        await self.configure_security()
+        raw = await self._serial.send_coin_command({"cmd": "RESET"})
+        self._parse_or_raise(raw, EmergencyStopResponse)
 
     @staticmethod
     def _parse_or_raise(raw: dict, success_model):

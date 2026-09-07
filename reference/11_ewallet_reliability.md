@@ -122,8 +122,8 @@ the UI and database retain its reference. Provisional tickets say awaiting verif
 
 From `backend`: `python -B -m pytest -p no:cacheprovider -q`.
 From `frontend`: `npm test`, `npm run lint`, `npm run build`.
-Firmware: `arduino-cli compile --fqbn arduino:avr:uno firmware/uno_coin_security`
-and `arduino-cli compile --fqbn arduino:avr:mega firmware/mega_coin_security`.
+Firmware: `arduino-cli compile --libraries firmware/libraries --fqbn arduino:avr:uno firmware/uno_coin_security`
+and `arduino-cli compile --libraries firmware/libraries --fqbn arduino:avr:mega firmware/mega_coin_security`.
 
 Regression coverage includes cash conservation, duplicate/concurrent credits,
 PHP 1/19/20 change and oversized rejection, exact-stock planning, durable holds,

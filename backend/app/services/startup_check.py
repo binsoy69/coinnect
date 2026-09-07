@@ -93,6 +93,7 @@ class StartupCheckService:
                         await controller.verify_converter_protocol()
                         if name == "arduino_coin":
                             await controller.verify_intake_capabilities()
+                            await controller.configure_security()
                     except Exception as exc:
                         errors[name] = f"Converter firmware upgrade required: {exc}"
 

@@ -116,6 +116,7 @@ async def test_startup_checks_all_success(
 
     errors = await service.run_checks()
     assert len(errors) == 0
+    mock_coin_controller.configure_security.assert_awaited_once()
 
     snap = machine_status.snapshot()
     assert snap.startup_checks.performed is True
@@ -172,3 +173,20 @@ async def test_startup_checks_failures(
     assert snap.startup_checks.performed is True
     assert snap.startup_checks.has_errors is True
     assert snap.startup_checks.errors["arduino_bill"] == "Bill controller connection failed: Serial Timeout"
+
+
+@pytest.mark.anyio
+async def test_security_configuration_failure_is_startup_error(
+    test_settings, mock_serial_manager, mock_bill_controller, mock_coin_controller,
+    mock_camera, mock_receipt_service, mock_authenticator, machine_status, ws_manager,
+):
+    mock_coin_controller.configure_security.side_effect = ValueError("threshold acknowledgement mismatch")
+    service = StartupCheckService(
+        settings=test_settings, serial_manager=mock_serial_manager,
+        bill_controller=mock_bill_controller, coin_controller=mock_coin_controller,
+        camera=mock_camera, receipt_service=mock_receipt_service,
+        authenticator=mock_authenticator, machine_status=machine_status, ws_manager=ws_manager,
+    )
+    errors = await service.run_checks()
+    assert "threshold acknowledgement mismatch" in errors["arduino_coin"]
+    assert machine_status.snapshot().startup_checks.has_errors

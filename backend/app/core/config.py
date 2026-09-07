@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import AliasChoices, BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -47,6 +47,25 @@ class Settings(BaseSettings):
     coin_dispense_timeout_base: float = 5.0
     dispense_ui_delay: float = 1.0
     block_dispensing_on_inventory_inconsistency: bool = False
+
+    # Sustained shock qualification (pushed to the coin/security controller).
+    tamper_sustain_ms: int = Field(default=3000, ge=251, le=60000)
+    tamper_max_gap_ms: int = Field(default=750, ge=250, le=59999)
+
+    @field_validator("tamper_sustain_ms", "tamper_max_gap_ms", mode="before")
+    @classmethod
+    def validate_tamper_integer(cls, value):
+        if type(value) is int:
+            return value
+        if isinstance(value, str) and value.strip().isascii() and value.strip().isdigit():
+            return int(value.strip())
+        raise ValueError("Tamper timing must be an integer number of milliseconds")
+
+    @model_validator(mode="after")
+    def validate_tamper_timing(self):
+        if self.tamper_max_gap_ms >= self.tamper_sustain_ms:
+            raise ValueError("TAMPER_MAX_GAP_MS must be less than TAMPER_SUSTAIN_MS")
+        return self
 
     # Consumables thresholds
     low_bill_threshold: int = 10

@@ -42,7 +42,7 @@ The Raspberry Pi communicates with **two Arduino Mega controllers** via separate
 | DISPENSE, DISPENSE_STATUS, DISPENSE_OPERATION_STATUS, DISPENSE_OPERATION_ACK | #1 (Bill) | /dev/ttyUSB0 |
 | COIN_DISPENSE, COIN_CHANGE, COIN_RESET, COIN_STATUS, DISPENSE_OPERATION_STATUS, DISPENSE_OPERATION_ACK | #2 (Coin & Security) | /dev/ttyACM0 |
 | COIN_ACCEPTOR_ENABLE, COIN_SORTER_POSITION     | #2 (Coin & Security) | /dev/ttyACM0     |
-| SECURITY_LOCK, SECURITY_UNLOCK, SECURITY_STATUS | #2 (Coin & Security) | /dev/ttyACM0     |
+| SECURITY_CONFIG, SECURITY_LOCK, SECURITY_UNLOCK, SECURITY_STATUS | #2 (Coin & Security) | /dev/ttyACM0     |
 | PING, VERSION, RESET                            | Both                 | Individual ports |
 
 ---
@@ -119,9 +119,23 @@ is active HIGH and defaults disabled.
 
 | Command         | Request                     | Response                                         |
 | --------------- | --------------------------- | ------------------------------------------------ |
+| SECURITY_CONFIG | `{"cmd":"SECURITY_CONFIG","sustain_ms":3000,"max_gap_ms":750}` | `{"status":"OK","sustain_ms":3000,"max_gap_ms":750}` |
 | SECURITY_LOCK   | `{"cmd":"SECURITY_LOCK"}`   | `{"status":"OK","locked":true}`                  |
 | SECURITY_UNLOCK | `{"cmd":"SECURITY_UNLOCK"}` | `{"status":"OK","locked":false}`                 |
 | SECURITY_STATUS | `{"cmd":"SECURITY_STATUS"}` | `{"status":"OK","locked":true,"tamper_a":false}` |
+
+`SECURITY_CONFIG` requires JSON integers satisfying
+`250 <= max_gap_ms < sustain_ms <= 60000`; invalid input returns `INVALID_PARAM`
+without applying changes. Pi defaults are 3000/750 ms, pushed and verified on
+initialization and before arming. Changes clear pending history, never a latch.
+Overrides are RAM-only.
+
+`TAMPER` means confirmed sustained vibration: pulses across either sensor must
+span `sustain_ms`, with no gap greater than `max_gap_ms`. Each sensor has 250 ms
+debounce. A single edge or held HIGH cannot qualify. A new accepted edge must
+confirm the sequence; only one event is emitted per latch. Arm/disarm, RESET
+and EMERGENCY_CLEAR discard pending history. EMERGENCY_STOP remains immediate.
+Uno pins remain D3/A0; Mega pins remain D19/D20.
 
 *Note: The `tamper_a` status field is set if either Shock Sensor A or Shock Sensor B is triggered, representing the global latched tamper state.*
 

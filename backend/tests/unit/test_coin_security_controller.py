@@ -11,6 +11,8 @@ def mock_serial_manager():
     manager._settings = MagicMock()
     manager._settings.coin_dispense_timeout_factor = 0.8
     manager._settings.coin_dispense_timeout_base = 5.0
+    manager._settings.tamper_sustain_ms = 3000
+    manager._settings.tamper_max_gap_ms = 750
     return manager
 
 
@@ -132,9 +134,10 @@ class TestCoinSorterPosition:
 
 class TestSecurityLock:
     async def test_lock(self, controller, mock_serial_manager):
-        mock_serial_manager.send_coin_command.return_value = {
-            "status": "OK", "locked": True
-        }
+        mock_serial_manager.send_coin_command.side_effect = [
+            {"status": "OK", "sustain_ms": 3000, "max_gap_ms": 750},
+            {"status": "OK", "locked": True},
+        ]
         resp = await controller.security_lock()
         assert resp.locked is True
 
@@ -170,3 +173,57 @@ class TestSystem:
         }
         resp = await controller.version()
         assert resp.controller == "COIN_SECURITY"
+
+
+@pytest.mark.parametrize("response", [
+    {"status": "ERROR", "code": "UNKNOWN_CMD"},
+    {"status": "OK", "sustain_ms": 2000, "max_gap_ms": 750},
+    {"status": "OK", "sustain_ms": "3000", "max_gap_ms": 750},
+    {"status": "OK"},
+])
+@pytest.mark.parametrize("action", ["security_lock", "reset"])
+async def test_configuration_failure_prevents_arming(controller, mock_serial_manager, response, action):
+    mock_serial_manager.send_coin_command.return_value = response
+    with pytest.raises(HardwareError):
+        await getattr(controller, action)()
+    mock_serial_manager.send_coin_command.assert_awaited_once_with(
+        {"cmd": "SECURITY_CONFIG", "sustain_ms": 3000, "max_gap_ms": 750}
+    )
+
+
+async def test_reset_configures_before_arming(controller, mock_serial_manager):
+    mock_serial_manager.send_coin_command.side_effect = [
+        {"status": "OK", "sustain_ms": 3000, "max_gap_ms": 750}, {"status": "OK"}
+    ]
+    await controller.reset()
+    assert [c.args[0]["cmd"] for c in mock_serial_manager.send_coin_command.await_args_list] == [
+        "SECURITY_CONFIG", "RESET"
+    ]
+
+
+@pytest.mark.parametrize("sustain,gap", [(250, 250), (3000, 3000), (3000, 249), (60001, 750), (3000.0, 750), (True, 750)])
+def test_invalid_tamper_settings(sustain, gap):
+    from app.core.config import Settings
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, tamper_sustain_ms=sustain, tamper_max_gap_ms=gap)
+
+
+async def test_custom_security_thresholds(controller, mock_serial_manager):
+    mock_serial_manager._settings.tamper_sustain_ms = 5000
+    mock_serial_manager._settings.tamper_max_gap_ms = 1000
+    mock_serial_manager.send_coin_command.return_value = {
+        "status": "OK", "sustain_ms": 5000, "max_gap_ms": 1000
+    }
+    await controller.configure_security()
+    mock_serial_manager.send_coin_command.assert_awaited_once_with(
+        {"cmd": "SECURITY_CONFIG", "sustain_ms": 5000, "max_gap_ms": 1000}
+    )
+
+
+def test_tamper_settings_from_environment(monkeypatch):
+    from app.core.config import Settings
+    monkeypatch.setenv("TAMPER_SUSTAIN_MS", "4000")
+    monkeypatch.setenv("TAMPER_MAX_GAP_MS", "1000")
+    settings = Settings(_env_file=None)
+    assert (settings.tamper_sustain_ms, settings.tamper_max_gap_ms) == (4000, 1000)
