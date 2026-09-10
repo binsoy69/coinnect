@@ -5,6 +5,7 @@ import logging
 from app.core.constants import BillDenom
 from app.core.errors import HardwareError
 from app.drivers.serial_manager import SerialManager
+from app.services.machine_status import MachineStatus
 from app.models.serial_messages import (
     DispenseResponse,
     DispenseStatusResponse,
@@ -23,8 +24,11 @@ logger = logging.getLogger(__name__)
 
 
 class BillController:
-    def __init__(self, serial_manager: SerialManager):
+    def __init__(
+        self, serial_manager: SerialManager, machine_status: MachineStatus | None = None,
+    ):
         self._serial = serial_manager
+        self._status = machine_status
 
     async def sort(self, denom: BillDenom) -> SortResponse:
         """Move sorting rail to the slot for the given denomination.
@@ -39,17 +43,31 @@ class BillController:
 
     async def home(self) -> HomeResponse:
         """Home the sorting rail to position 0. Duration: 5-10s."""
+        generation = self._status.invalidate_sorter() if self._status is not None else None
         timeout = self._serial._settings.serial_homing_timeout
         raw = await self._serial.send_bill_command(
             {"cmd": "HOME"},
             timeout=timeout,
         )
-        return self._parse_or_raise(raw, HomeResponse)
+        response = self._parse_or_raise(raw, HomeResponse)
+        if self._status is not None:
+            self._status.update_sorter(
+                homed=True, position=response.position, slot=0,
+                expected_generation=generation,
+            )
+        return response
 
     async def sort_status(self) -> SortStatusResponse:
         """Query current sorter position, slot, and homed state."""
+        generation = self._status.sorter_generation if self._status is not None else None
         raw = await self._serial.send_bill_command({"cmd": "SORT_STATUS"})
-        return self._parse_or_raise(raw, SortStatusResponse)
+        response = self._parse_or_raise(raw, SortStatusResponse)
+        if self._status is not None:
+            self._status.update_sorter(
+                homed=response.homed, position=response.position, slot=response.slot,
+                expected_generation=generation,
+            )
+        return response
 
     async def dispense(self, denom: BillDenom, count: int, operation_id: str) -> DispenseResponse:
         """Dispense `count` bills of the given denomination.
@@ -88,6 +106,8 @@ class BillController:
 
     async def emergency_stop(self) -> EmergencyStopResponse:
         """Immediately stop stepper and dispensers, invalidate homed state."""
+        if self._status is not None:
+            self._status.invalidate_sorter()
         raw = await self._serial.send_bill_command(
             {"cmd": "EMERGENCY_STOP"},
             timeout=5.0,
@@ -113,6 +133,8 @@ class BillController:
         self._parse_or_raise(raw, EmergencyStopResponse)
 
     async def reset(self) -> None:
+        if self._status is not None:
+            self._status.invalidate_sorter()
         await self._serial.send_bill_command({"cmd": "RESET"})
 
     async def set_slot_positions(self, positions: list[int]) -> dict:

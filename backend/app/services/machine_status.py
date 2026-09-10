@@ -31,6 +31,7 @@ class MachineStatus:
         self._bill_device = DeviceStatus()
         self._coin_device = DeviceStatus()
         self._sorter = SorterState()
+        self._sorter_generation = 0
         self._security = SecurityState()
         self._consumables = ConsumablesState()
         self._printer_connected = False
@@ -94,6 +95,9 @@ class MachineStatus:
         with self._lock:
             if connection is not None:
                 self._bill_device.connection = DeviceConnectionState(connection)
+                if self._bill_device.connection != DeviceConnectionState.CONNECTED:
+                    self._sorter_generation += 1
+                    self._sorter.homed = False
             if firmware_version is not None:
                 self._bill_device.firmware_version = firmware_version
                 self._bill_device.controller_type = "BILL"
@@ -121,13 +125,33 @@ class MachineStatus:
 
     # --- Sorter state ---
 
+    @property
+    def sorter_generation(self) -> int:
+        with self._lock:
+            return self._sorter_generation
+
+    def invalidate_sorter(self) -> int:
+        """Invalidate homing and any in-flight confirmations atomically."""
+        with self._lock:
+            self._sorter_generation += 1
+            self._sorter.homed = False
+            generation = self._sorter_generation
+        self._notify_change()
+        return generation
+
     def update_sorter(
         self,
         homed: Optional[bool] = None,
         position: Optional[int] = None,
         slot: Optional[int] = None,
+        expected_generation: Optional[int] = None,
     ) -> None:
         with self._lock:
+            if (
+                expected_generation is not None
+                and expected_generation != self._sorter_generation
+            ):
+                return
             if homed is not None:
                 self._sorter.homed = homed
             if position is not None:

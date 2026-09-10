@@ -109,7 +109,7 @@ async def lifespan(app: FastAPI):
     claim_service = ClaimService(
         get_session_factory(), ws_manager, receipt_service
     )
-    bill_controller = BillController(serial_manager)
+    bill_controller = BillController(serial_manager, machine_status)
     coin_controller = CoinSecurityController(serial_manager)
     admin_sessions.set_coin_controller(coin_controller)
     event_dispatcher = EventDispatcher(

@@ -17,6 +17,7 @@ async def client():
     app = create_app()
     transport = ASGITransport(app=app)
     async with lifespan(app):
+        await app.state._homing_task
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             yield c
 
@@ -43,10 +44,10 @@ class TestStatusEndpoint:
         assert "consumables" in data
         assert "timestamp" in data
 
-    async def test_status_sorter_initial_state(self, client):
+    async def test_status_sorter_after_startup_homing(self, client):
         resp = await client.get("/api/v1/status")
         data = resp.json()
-        assert data["sorter"]["homed"] is False
+        assert data["sorter"]["homed"] is True
         assert data["sorter"]["current_position"] == 0
 
     async def test_status_security_initial_state(self, client):

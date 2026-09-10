@@ -182,6 +182,7 @@ class EventDispatcher:
     async def _handle_tamper(self, data: dict) -> None:
         parsed = TamperEvent(**data)
         self._status.update_security(tamper_active=True, sensor=parsed.sensor)
+        self._status.invalidate_sorter()
 
         stops = []
         if self._bill_acceptor is not None:
@@ -256,6 +257,7 @@ class EventDispatcher:
     async def _handle_ready(self, data: dict) -> None:
         parsed = ReadyEvent(**data)
         if parsed.controller == "BILL":
+            self._status.invalidate_sorter()
             self._status.update_bill_device(
                 connection="connected",
                 firmware_version=parsed.version,
