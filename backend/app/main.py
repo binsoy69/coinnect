@@ -278,6 +278,11 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.error(f"Failed to start serial manager: {exc}")
         raise
+
+    # Consume initial READY events before HOME captures its status generation.
+    # Otherwise a queued boot event can invalidate a successful homing response.
+    await event_dispatcher.start()
+    await serial_manager.event_queue.join()
     
     # Update global constants map with environment settings
     from app.core.constants import update_slot_positions
@@ -330,8 +335,6 @@ async def lifespan(app: FastAPI):
 
     printer_check_task = asyncio.create_task(_background_printer_check())
     app.state._printer_check_task = printer_check_task  # prevent GC
-
-    await event_dispatcher.start()
 
     # Recover any transactions interrupted by crash/power loss
     # Physical send intents are the recovery authority and must be resolved

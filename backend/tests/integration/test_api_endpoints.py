@@ -4,6 +4,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import create_app
+from app.drivers.serial_manager import SerialManager
 
 
 @asynccontextmanager
@@ -33,6 +34,23 @@ class TestHealthEndpoint:
 
 
 class TestStatusEndpoint:
+    async def test_startup_ready_event_does_not_invalidate_home(self, monkeypatch):
+        startup = SerialManager.startup
+
+        async def startup_with_ready(manager):
+            await startup(manager)
+            # Real Arduino startup emits READY; MockSerial does not.
+            manager.event_queue.put_nowait({
+                "event": "READY", "controller": "BILL", "version": "2.0.0",
+                "_controller": "BILL",
+            })
+
+        monkeypatch.setattr(SerialManager, "startup", startup_with_ready)
+        app = create_app()
+        async with lifespan(app):
+            await app.state._homing_task
+            assert app.state.machine_status.snapshot().sorter.homed is True
+
     async def test_status_returns_full_state(self, client):
         resp = await client.get("/api/v1/status")
         assert resp.status_code == 200

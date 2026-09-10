@@ -92,7 +92,10 @@ class EventDispatcher:
                 event_data = await asyncio.wait_for(
                     self._queue.get(), timeout=1.0
                 )
-                await self._handle_event(event_data)
+                try:
+                    await self._handle_event(event_data)
+                finally:
+                    self._queue.task_done()
             except asyncio.TimeoutError:
                 continue
             except asyncio.CancelledError:
