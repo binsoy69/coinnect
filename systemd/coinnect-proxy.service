@@ -1,0 +1,49 @@
+# Coinnect PayMongo Callback Proxy Service - systemd Unit File
+#
+# Copy this file to /etc/systemd/system/coinnect-proxy.service on the Raspberry Pi
+#
+# Installation:
+#   sudo cp systemd/coinnect-proxy.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable coinnect-proxy.service
+#   sudo systemctl start coinnect-proxy.service
+#
+# Management:
+#   sudo systemctl status coinnect-proxy.service    # Check status
+#   sudo systemctl restart coinnect-proxy.service   # Restart service
+#   sudo systemctl stop coinnect-proxy.service      # Stop service
+#   sudo journalctl -u coinnect-proxy.service -f    # View logs
+
+[Unit]
+Description=Coinnect PayMongo Callback Proxy Service
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# User and group to run the service as
+User=pi
+Group=pi
+
+# Working directory
+WorkingDirectory=/home/pi/coinnect
+
+# Environment variables
+Environment="PATH=/home/pi/coinnect/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+
+# Command to start the service
+ExecStart=/home/pi/coinnect/venv/bin/python scripts/paymongo_callback_proxy.py
+
+# Restart policy
+Restart=always
+RestartSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=coinnect-proxy
+
+[Install]
+WantedBy=multi-user.target

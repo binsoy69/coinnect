@@ -24,12 +24,14 @@ time when available, and is independent of the host's timezone setting.
 
 ## PayMongo sandbox setup
 
-Configure the PayMongo test keys, webhook secret, transfer callback URL,
+Configure the PayMongo test keys, webhook secret,
 Wallet source account, and `EWALLET_FEE_TIERS` in `.env`.
 
-- Register `/api/v1/ewallet/webhook` in PayMongo for payment events.
-- Set `PAYMONGO_TRANSFER_CALLBACK_URL` to the public
-  `/api/v1/ewallet/transfer-callback` endpoint.
+- Register `/api/v1/ewallet/webhook` in PayMongo for `payment.paid`,
+  `transfer.outward.successful`, and `transfer.outward.failed`.
+- Set `PAYMONGO_SANDBOX=true` for test keys and the matching test webhook secret.
+  The legacy `PAYMONGO_TRANSFER_CALLBACK_URL` setting is unused; the
+  `/api/v1/ewallet/transfer-callback` route no longer exists.
 
 Cash-in requires PayMongo Wallet/Money Movement access. Cash-out uses QR Ph
 Payment Intents. Live promotion also requires activated live capabilities, a

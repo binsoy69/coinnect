@@ -1,0 +1,73 @@
+# Coinnect Kiosk Backend Service - systemd Unit File
+#
+# This file is a template for the systemd service unit.
+# Copy this file to /etc/systemd/system/coinnect.service on the Raspberry Pi
+#
+# Installation:
+#   sudo cp systemd/coinnect.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable coinnect.service
+#   sudo systemctl start coinnect.service
+#
+# Management:
+#   sudo systemctl status coinnect.service    # Check status
+#   sudo systemctl restart coinnect.service   # Restart service
+#   sudo systemctl stop coinnect.service      # Stop service
+#   sudo journalctl -u coinnect.service -f    # View logs
+
+[Unit]
+Description=Coinnect Kiosk Backend Service
+Documentation=https://github.com/<your-username>/coinnect
+After=network.target multi-user.target
+Wants=network-online.target
+
+# Ensure USB devices are available before starting
+After=systemd-udev-settle.service
+Wants=systemd-udev-settle.service
+
+[Service]
+Type=simple
+
+# User and group to run the service as
+User=pi
+Group=pi
+
+# Working directory (contains app/ and .env)
+WorkingDirectory=/home/pi/coinnect/backend
+
+# Environment variables
+Environment="PATH=/home/pi/coinnect/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+Environment="PYTHONIOENCODING=utf-8"
+Environment="PYTHONUTF8=1"
+
+# One process owns the kiosk hardware. Expose only the separate callback proxy.
+ExecStart=/home/pi/coinnect/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --no-proxy-headers
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Wait longer on startup for hardware initialization
+StartLimitInterval=200
+StartLimitBurst=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=coinnect
+
+# Security hardening options (optional but recommended)
+# Uncomment to enable:
+
+# NoNewPrivileges=true
+# PrivateTmp=true
+# ProtectSystem=strict
+# ProtectHome=true
+# ReadWritePaths=/home/pi/coinnect
+
+# Note: Some security options may prevent access to hardware devices
+# Test thoroughly before enabling in production
+
+[Install]
+WantedBy=multi-user.target

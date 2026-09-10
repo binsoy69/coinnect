@@ -261,8 +261,7 @@ healthcheck/backend/.env
 healthcheck/frontend/.env
 healthcheck/frontend/.env.local
 
-# System service files (generated)
-*.service
+
 
 # ===========================================
 # Documentation Build Artifacts
