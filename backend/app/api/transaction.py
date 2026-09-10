@@ -76,6 +76,7 @@ class TransactionResponse(BaseModel):
     warning_at: Optional[str] = None
     expires_at: Optional[str] = None
     server_time: Optional[str] = None
+    inactivity_timeout_seconds: Optional[float] = None
     claim: Optional[dict] = None
     can_continue: Optional[bool] = False
     can_confirm: Optional[bool] = False

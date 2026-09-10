@@ -6,6 +6,7 @@ starts real serial connections).
 """
 
 import pytest
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 from httpx import ASGITransport, AsyncClient
@@ -218,6 +219,31 @@ async def _simulate_coin_insert(
 
 class TestStartTransaction:
     """Tests for the transaction creation endpoint."""
+
+    async def test_countdown_metadata_survives_creation_and_polling(self, client, test_app, monkeypatch):
+        duration = 123.5
+        monkeypatch.setattr(
+            test_app.state.transaction_orchestrator._settings,
+            "inactivity_timeout_seconds", duration,
+        )
+        response = await _start_transaction(client)
+        assert response.status_code == 200
+        created = response.json()
+
+        snapshots = [created]
+        for _ in range(2):
+            response = await client.get(f"/api/v1/transaction/{created['transaction_id']}")
+            assert response.status_code == 200
+            snapshots.append(response.json())
+
+        for snapshot in snapshots:
+            assert snapshot["inactivity_timeout_seconds"] == duration
+            assert snapshot["expires_at"] == created["expires_at"]
+            deadline = datetime.fromisoformat(snapshot["expires_at"])
+            server_time = datetime.fromisoformat(snapshot["server_time"])
+            assert deadline.utcoffset() == timedelta(0)
+            assert server_time.utcoffset() == timedelta(0)
+            assert 0 < (deadline - server_time).total_seconds() <= duration
 
     async def test_start_returns_200_with_transaction_id(self, client):
         payload = {
