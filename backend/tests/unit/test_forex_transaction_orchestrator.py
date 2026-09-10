@@ -1,7 +1,7 @@
 """Forex accounting tests use real SQLite, inventory, claims, and payout journals."""
 import asyncio
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -457,3 +457,11 @@ async def test_printer_failure_does_not_leak_machine_ownership(fx):
     assert result["state"] == "COMPLETE"
     assert not fx.mode.has_active_transaction
     assert not fx.o.has_active_transaction
+
+
+async def test_intake_countdown_metadata_matches_deadline(fx):
+    state = await fx.start()
+    assert state["inactivity_timeout_seconds"] == 180
+    remaining = (datetime.fromisoformat(state["deadline"]) - datetime.fromisoformat(state["server_time"])).total_seconds()
+    assert 175 < remaining <= 180
+    assert datetime.fromisoformat(state["server_time"]).utcoffset() == timedelta(0)

@@ -1,5 +1,6 @@
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
+from unittest.mock import patch
 from PIL import Image
 from app.core.config import Settings
 from app.services.receipt_service import ReceiptService, PAPERANG_WIDTH
@@ -9,6 +10,44 @@ class MockTransactionRecord:
     def __init__(self, **kwargs):
         for k, v in kwargs.items():
             setattr(self, k, v)
+
+
+@pytest.mark.parametrize("value", [
+    datetime(2026, 9, 8, 20, 30),
+    datetime(2026, 9, 8, 20, 30, tzinfo=timezone.utc),
+    "2026-09-08T20:30:00",
+    "2026-09-08T20:30:00Z",
+    "2026-09-09T04:30:00+08:00",
+    "2026-09-08T15:30:00-05:00",
+])
+def test_receipt_datetime_converts_to_philippine_time(value):
+    service = ReceiptService(Settings(paperang_enabled=False))
+    assert service._format_datetime(value) == "2026-09-09 04:30:00 UTC+08:00"
+
+
+def test_receipt_datetime_fallback_uses_utc_clock():
+    service = ReceiptService(Settings(paperang_enabled=False))
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is timezone.utc
+            return cls(2026, 9, 8, 20, 30, tzinfo=tz)
+
+    with patch("app.services.receipt_service.datetime", FrozenDatetime):
+        assert service._format_datetime(None) == "2026-09-09 04:30:00 UTC+08:00"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("method", ["print_receipt", "print_claim_ticket"])
+async def test_printed_date_uses_philippine_time(method):
+    service = ReceiptService(Settings(paperang_enabled=False))
+    record = MockTransactionRecord(
+        id="timezone-test", created_at=datetime(2026, 9, 8, 20, 30),
+    )
+    with patch.object(service, "_render_text_lines", wraps=service._render_text_lines) as render:
+        await getattr(service, method)(record)
+    assert "Date : 2026-09-09 04:30:00 UTC+08:00" in render.call_args.args[0]
 
 
 def test_resolve_paperang_repo_path():
@@ -160,4 +199,3 @@ async def test_print_claim_ticket_forex_currency():
     await service.print_claim_ticket(record, shortfall=10)
     
     assert "Shortfall : USD 10" in rendered_lines
-

@@ -1951,6 +1951,7 @@ class TransactionOrchestrator:
                 "warning_at": meta.get("warning_at"),
                 "expires_at": meta.get("expires_at"),
                 "server_time": datetime.now(timezone.utc).isoformat(),
+                "inactivity_timeout_seconds": getattr(self._settings, "inactivity_timeout_seconds", 90.0),
                 "claim": claim_payload,
                 "can_continue": can_continue,
                 "can_confirm": can_confirm,

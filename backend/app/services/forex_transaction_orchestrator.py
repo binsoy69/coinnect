@@ -15,6 +15,8 @@ from app.models.events import WSEvent, WSEventType
 from app.services.change_calculator import DispensePlan, calculate_change
 from app.services.forex_change_calculator import calculate_forex_dispense
 
+INTAKE_TIMEOUT_SECONDS = 180
+
 logger = logging.getLogger(__name__)
 TERMINAL = {"COMPLETE", "CANCELLED", "ERROR", "CLAIM_REQUIRED", "RESOLVED"}
 
@@ -92,7 +94,7 @@ class ForexTransactionOrchestrator:
             record.completed_at = now()
             meta.deadline = None
         elif reset:
-            meta.deadline = now() + timedelta(seconds=180)
+            meta.deadline = now() + timedelta(seconds=INTAKE_TIMEOUT_SECONDS)
         await session.commit()
 
     @durable
@@ -140,7 +142,7 @@ class ForexTransactionOrchestrator:
                         exchange_rate=quote.rate, rate_locked_at=now(),
                         forex_fee_percentage=quote.fee_percentage, converted_amount=int(quote.converted_amount))
                     meta = ForexSession(id=tx_id, quote_id=quote_id, idempotency_key=idempotency_key,
-                        quote=quote.model_dump(mode="json"), revision=1, deadline=now()+timedelta(seconds=180),
+                        quote=quote.model_dump(mode="json"), revision=1, deadline=now()+timedelta(seconds=INTAKE_TIMEOUT_SECONDS),
                         legs={"EXCHANGE": {"currency": quote.to_currency, "plan": plan.model_dump()}})
                     session.add_all([record, meta])
                     configured = True
@@ -440,6 +442,8 @@ class ForexTransactionOrchestrator:
             state.update(transaction_id=transaction_id, revision=meta.revision if meta else 0,
                 quote=meta.quote if meta else None, payout_legs=meta.legs if meta else {},
                 deadline=meta.deadline.isoformat()+"Z" if meta and meta.deadline else None,
+                server_time=now().isoformat()+"Z",
+                inactivity_timeout_seconds=INTAKE_TIMEOUT_SECONDS,
                 legacy_review_required=meta is None)
             state.update({key: getattr(record, key).isoformat() + "Z" if getattr(record, key) else None
                           for key in ("created_at", "updated_at", "completed_at")})

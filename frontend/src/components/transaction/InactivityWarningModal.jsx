@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useDeadlineCountdown } from "../../hooks/useDeadlineCountdown";
 import { motion } from "framer-motion";
 import Button from "../common/Button";
 
@@ -9,19 +9,8 @@ export default function InactivityWarningModal({
   onKeepAlive,
   active = false,
 }) {
-  const [secondsRemaining, setSecondsRemaining] = useState(30);
-  const [isWarningVisible, setIsWarningVisible] = useState(false);
-  useEffect(() => {
-    const receivedAt = Date.now();
-    const serverAt = serverTime ? Date.parse(serverTime) : receivedAt;
-    const check = () => {
-      const now = serverAt + Date.now() - receivedAt;
-      setIsWarningVisible(Boolean(active || (warningAt && now >= Date.parse(warningAt))));
-      setSecondsRemaining(expiresAt ? Math.max(0, Math.ceil((Date.parse(expiresAt) - now) / 1000)) : 30);
-    };
-    const interval = setInterval(check, 250);
-    return () => clearInterval(interval);
-  }, [warningAt, expiresAt, serverTime, active]);
+  const { secondsRemaining, now } = useDeadlineCountdown(expiresAt, serverTime);
+  const isWarningVisible = active || (warningAt && now >= Date.parse(warningAt));
 
   if (!isWarningVisible) return null;
 
@@ -45,7 +34,7 @@ export default function InactivityWarningModal({
         </p>
 
         <div className="text-5xl font-black text-amber-600 mb-4 font-mono tracking-tight">
-          {secondsRemaining}s
+          {secondsRemaining === null ? "Checking session…" : `${secondsRemaining}s`}
         </div>
 
         <p className="text-xs text-gray-500 mb-6 leading-relaxed">
@@ -56,7 +45,6 @@ export default function InactivityWarningModal({
           variant="primary"
           size="xl"
           onClick={() => {
-            setIsWarningVisible(false);
             onKeepAlive?.();
           }}
           className="w-full py-5 text-lg font-bold shadow-lg"

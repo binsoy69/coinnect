@@ -2,7 +2,7 @@ import asyncio
 import importlib.util
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from PIL import Image, ImageDraw, ImageFont
@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 # Constants
 PAPERANG_WIDTH = 384
+# Philippine kiosk time, independent of the host's timezone configuration.
+RECEIPT_TIMEZONE = timezone(timedelta(hours=8))
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -176,16 +178,17 @@ class ReceiptService:
         return getattr(record, field_name, default)
 
     def _format_datetime(self, dt: Any) -> str:
-        if isinstance(dt, datetime):
-            return dt.strftime("%Y-%m-%d %H:%M:%S")
         if isinstance(dt, str):
             try:
-                # Try parsing ISO format
-                parsed = datetime.fromisoformat(dt.replace("Z", "+00:00"))
-                return parsed.strftime("%Y-%m-%d %H:%M:%S")
-            except Exception:
+                dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+            except ValueError:
                 return dt
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if not isinstance(dt, datetime):
+            dt = datetime.now(timezone.utc)
+        # Database timestamps are stored as UTC without timezone metadata.
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(RECEIPT_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S UTC+08:00")
 
     def _mask_mobile_number(self, num: str | None) -> str:
         if not num:

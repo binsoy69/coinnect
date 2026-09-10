@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PageLayout from "../../components/layout/PageLayout";
+import DeadlineCountdown from "../../components/common/DeadlineCountdown";
 import Button from "../../components/common/Button";
 import InsertMoneyPanel from "../../components/transaction/InsertMoneyPanel";
 import { ROUTES, getForexRoute } from "../../constants/routes";
@@ -48,8 +49,8 @@ export default function ForexInsertMoneyScreen() {
   }, [transactionId, config, simulateForexInsert, forex.fromCurrency]);
   if (!config) return <p>Restoring forex transaction…</p>;
   return <PageLayout headerProps={{ subtitle: "Foreign Exchange" }}>
-    <div className="flex gap-8 p-8">
-      <div className="w-1/3"><InsertMoneyPanel variant="bill" cardVariant="forex" noteText={config.insertNote} /></div>
+    <div className="flex flex-col md:flex-row gap-8 p-4 md:p-8">
+      <div className="w-full md:w-1/3"><InsertMoneyPanel variant="bill" cardVariant="forex" noteText={config.insertNote} /></div>
       <div className="flex-1 text-center space-y-6">
         <h1 className="text-3xl font-bold">{config.insertHeading}</h1>
         <p className="text-5xl font-bold">{forex.fromCurrency} {forex.moneyInserted}</p>
@@ -58,7 +59,9 @@ export default function ForexInsertMoneyScreen() {
         <p>After cash is accepted, cancellation is disabled. Complete the exchange or wait for a refund claim when the session expires.</p>
         {backendState?.error_message && <p role="alert">{backendState.error_message}</p>}
         {(error || intakeError) && <div role="alert"><p>{error || intakeError}</p><Button onClick={() => { setIntakeError(null); refreshForexTransaction().catch(() => {}); }}>Retry status</Button></div>}
-        <p aria-live="polite">{secondsRemaining == null ? "Checking session…" : `${secondsRemaining} seconds remaining`}</p>
+        <DeadlineCountdown deadline={backendState?.deadline} serverTime={backendState?.server_time}
+          durationSeconds={backendState?.inactivity_timeout_seconds}
+          active={!backendState || backendState.state === "WAITING_FOR_BILL"} />
         {secondsRemaining != null && secondsRemaining <= 30 && <div><p>Your session is about to expire.</p><Button onClick={() => continueForexTransaction().catch(() => {})}>Continue</Button></div>}
         {forex.moneyInserted === 0 && <Button onClick={() => cancelForexTransaction().then(() => navigate(ROUTES.FOREX)).catch(() => {})}>Cancel</Button>}
       </div>

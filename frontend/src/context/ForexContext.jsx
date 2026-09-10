@@ -4,6 +4,8 @@ import { API_BASE, ENABLE_KEYBOARD_SIM } from "../constants/api";
 import { FOREX_CONFIG } from "../constants/forexData";
 import { useWebSocket } from "./WebSocketContext";
 
+import { useDeadlineCountdown } from "../hooks/useDeadlineCountdown";
+
 const ForexContext = createContext(null);
 const TERMINAL = ["COMPLETE", "CLAIM_REQUIRED", "CANCELLED", "ERROR", "RESOLVED"];
 export function ForexProvider({ children }) {
@@ -15,7 +17,6 @@ export function ForexProvider({ children }) {
   const [rates, setRates] = useState({ rates: {}, online: false, valid: false, availability: {} });
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [clock, setClock] = useState(Date.now());
   const stateRef = useRef(null);
   const quoteSequence = useRef(0);
   const refreshPending = useRef(null);
@@ -63,8 +64,7 @@ export function ForexProvider({ children }) {
   }, [request]);
   useEffect(() => {
     const initial = setTimeout(() => { checkConnectivity(); }, 0);
-    const timer = setInterval(() => { setClock(Date.now()); }, 1000);
-    return () => { clearTimeout(initial); clearInterval(timer); };
+    return () => { clearTimeout(initial); };
   }, [checkConnectivity]);
   useEffect(() => {
     if (!transactionId) return undefined;
@@ -147,7 +147,7 @@ export function ForexProvider({ children }) {
     feeAmount: current?.fee_amount || 0, feePercentage: current?.fee_percentage,
     totalDue: current?.input_amount || 0, amountToDispense: current?.output_amount || 0,
     moneyInserted: backendState?.inserted_amount || 0, insertedCounts: counts, rateLocked: Boolean(transactionId) };
-  const secondsRemaining = backendState?.deadline ? Math.max(0, Math.ceil((Date.parse(backendState.deadline) - clock)/1000)) : null;
+  const { secondsRemaining } = useDeadlineCountdown(backendState?.deadline, backendState?.server_time);
   const getForexConfig = useCallback(() => FOREX_CONFIG[service] || null, [service]);
   const isAmountMatched = useCallback(() => backendState?.state === "WAITING_FOR_CONFIRMATION", [backendState]);
   const api = { transactionId, backendState, isLoading, error, forexRates: rates.rates || {},

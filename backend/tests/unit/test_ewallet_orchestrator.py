@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -358,3 +359,12 @@ async def test_gateway_event_is_durable_and_idempotent(ewallet_dependencies):
         assert stored.status == "RECEIVED"
         assert stored.processed is False
         assert stored.payload["resource_id"] == "pi_missing_for_now"
+
+
+async def test_cash_in_countdown_metadata_matches_deadline(ewallet_dependencies):
+    orchestrator, _, _, _ = ewallet_dependencies
+    state = await orchestrator.start_transaction(provider="gcash", direction="cash-in", mobile_number="09171234567", account_name="Test User", amount=105)
+    assert state["inactivity_timeout_seconds"] == 120
+    remaining = (datetime.fromisoformat(state["deadline"]) - datetime.fromisoformat(state["server_time"])).total_seconds()
+    assert 115 < remaining <= 120
+    assert datetime.fromisoformat(state["server_time"]).utcoffset() == timedelta(0)

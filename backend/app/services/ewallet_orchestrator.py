@@ -4,6 +4,7 @@ import asyncio
 import logging
 import secrets
 import uuid
+from app.services.ewallet_policy import CASH_IN_TIMEOUT_SECONDS, PAYMENT_TIMEOUT_SECONDS
 from datetime import datetime, timedelta
 from sqlalchemy import select, or_
 from app.core.errors import EWalletTransactionError
@@ -186,7 +187,7 @@ class EWalletOrchestrator(EWalletIntakeMixin):
                     amount=amount, fee=fresh["fee"], transfer_amount=fresh["transfer_amount"],
                     total_due=amount, session_id=session_id, request_key=request_key,
                     policy_version=policy_version, heartbeat_at=datetime.utcnow(),
-                    deadline=datetime.utcnow()+timedelta(seconds=120 if direction == "cash-in" else 300),
+                    deadline=datetime.utcnow()+timedelta(seconds=CASH_IN_TIMEOUT_SECONDS if direction == "cash-in" else PAYMENT_TIMEOUT_SECONDS),
                     gateway_work={"qr_key": f"ewallet:{tx_id}:qr"} if direction == "cash-out" else {})
         try:
             async with self._db_factory() as session:
@@ -549,7 +550,7 @@ class EWalletOrchestrator(EWalletIntakeMixin):
         record = await self._record(tx_id)
         if record.state == "ACCEPTING_CASH":
             await self._save(tx_id, heartbeat_at=datetime.utcnow(),
-                deadline=datetime.utcnow()+timedelta(seconds=120 if record.direction == "cash-in" else 300))
+                deadline=datetime.utcnow()+timedelta(seconds=CASH_IN_TIMEOUT_SECONDS if record.direction == "cash-in" else PAYMENT_TIMEOUT_SECONDS))
         return await self.get_transaction(tx_id)
 
     @serialized
@@ -778,6 +779,8 @@ class EWalletOrchestrator(EWalletIntakeMixin):
                   "change_dispensed", "retained_amount", "wallet_credited", "refunded_fee", "intake_counts")
         data = {key: getattr(record, key) for key in fields}
         data.update(transaction_id=record.id, version=record.version,
+                    server_time=datetime.utcnow().isoformat()+"Z",
+                    inactivity_timeout_seconds=CASH_IN_TIMEOUT_SECONDS if record.direction == "cash-in" else PAYMENT_TIMEOUT_SECONDS,
                     session_closed=not record.customer_present,
                     can_cancel=record.state in {"ACCEPTING_CASH", "WAITING_FOR_PAYMENT"}
                     and record.inserted_amount == 0 and record.gateway_status not in {"paid", "succeeded"},

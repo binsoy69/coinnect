@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import PageLayout from "../../components/layout/PageLayout";
 import InsertMoneyPanel from "../../components/transaction/InsertMoneyPanel";
 import MoneyCounter from "../../components/transaction/MoneyCounter";
+import DeadlineCountdown from "../../components/common/DeadlineCountdown";
 import Button from "../../components/common/Button";
 import { ROUTES, getServiceRoute } from "../../constants/routes";
 import {
@@ -44,7 +45,6 @@ export default function InsertMoneyScreen() {
     approveQuote,
     requestClaim,
   } = useBackendTransaction();
-  const [, setResetCounter] = useState(0);
   const [isApprovingQuote, setIsApprovingQuote] = useState(false);
   const hasAcceptedCash = transaction.moneyInserted > 0 || (backendState?.inserted_amount || 0) > 0;
 
@@ -91,7 +91,6 @@ export default function InsertMoneyScreen() {
 
   const handleClearError = useCallback(() => {
     clearError();
-    setResetCounter((c) => c + 1);
   }, [clearError]);
 
   const handleChangeSelection = useCallback(async () => {
@@ -171,7 +170,7 @@ export default function InsertMoneyScreen() {
         rightContent: serviceIndicator,
       }}
     >
-      <div className="py-2 h-[calc(100vh-140px)]">
+      <div className="py-2 md:h-[calc(100dvh-100px)] md:min-h-[580px]">
         <div className="flex flex-col md:flex-row gap-6 h-full">
           {/* Left panel - Insert instructions */}
           <motion.div
@@ -190,7 +189,7 @@ export default function InsertMoneyScreen() {
           <motion.div
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            className="flex-1 flex flex-col items-center text-center pt-2 justify-between"
+            className="flex-1 min-w-0 flex flex-col items-center text-center pt-2 justify-between"
           >
             <div>
               {/* Heading */}
@@ -226,7 +225,10 @@ export default function InsertMoneyScreen() {
             </div>
 
             {/* Timer */}
-            <div className="w-full max-w-xl pb-2">
+            <div className="w-full pb-2">
+              <DeadlineCountdown deadline={backendState?.expires_at} serverTime={backendState?.server_time}
+                durationSeconds={backendState?.inactivity_timeout_seconds}
+                active={!backendState || ["WAITING_FOR_BILL", "WAITING_FOR_CONFIRMATION"].includes(backendState.state)} />
               {/* Manual proceed button */}
               <Button
                 variant="primary"

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select, func
 from app.models.db_models import EWalletTransactionRecord as Tx, EWalletIntake, EWalletCoinSession, ConverterCoinSession
 from app.services.inventory_service import InventoryLocation
-from app.services.ewallet_policy import INTAKE, serialized
+from app.services.ewallet_policy import INTAKE, serialized, CASH_IN_TIMEOUT_SECONDS
 from app.core.errors import EWalletTransactionError
 
 
@@ -41,7 +41,7 @@ class EWalletIntakeMixin:
         record.change_due = max(0, record.inserted_amount - record.total_due)
         if record.state in INTAKE:
             record.state = "CASH_ACCEPTED" if record.inserted_amount >= record.total_due else "ACCEPTING_CASH"
-            record.deadline = datetime.utcnow() + timedelta(seconds=120)
+            record.deadline = datetime.utcnow() + timedelta(seconds=CASH_IN_TIMEOUT_SECONDS)
 
     @serialized
     async def record_cash_insert(self, transaction_id, denomination):

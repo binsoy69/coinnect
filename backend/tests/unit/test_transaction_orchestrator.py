@@ -4,6 +4,7 @@ Validates the full money changer transaction lifecycle including
 start, bill/coin insertion, confirmation, cancellation, and WAL recovery.
 """
 
+from datetime import datetime
 import uuid
 import asyncio
 from unittest.mock import AsyncMock
@@ -214,6 +215,10 @@ class TestStartTransaction:
         assert state["total_due"] == 100
         assert state["inserted_amount"] == 0
         assert state["dispensed_amount"] == 0
+        duration = state["inactivity_timeout_seconds"]
+        remaining = (datetime.fromisoformat(state["expires_at"]) - datetime.fromisoformat(state["server_time"])).total_seconds()
+        assert duration == orchestrator._settings.inactivity_timeout_seconds
+        assert duration - 5 < remaining <= duration
 
         # Verify persisted in DB
         async with db_session_factory() as session:
@@ -1212,6 +1217,7 @@ class TestGetTransactionState:
             "warning_at",
             "expires_at",
             "server_time",
+            "inactivity_timeout_seconds",
             "claim",
             "can_continue",
             "can_confirm",

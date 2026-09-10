@@ -2,6 +2,11 @@
 
 Python backend for the Coinnect Kiosk.
 
+Receipt and claim-ticket dates are displayed in Philippine time (UTC+08:00).
+Stored transaction timestamps remain UTC; timestamps without timezone metadata
+are interpreted as UTC when printing. The printed date uses transaction creation
+time when available, and is independent of the host's timezone setting.
+
 ## Tech Stack
 
 - **Python 3.11+**

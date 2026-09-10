@@ -4,6 +4,9 @@ import asyncio
 
 from app.services.change_calculator import calculate_change
 
+CASH_IN_TIMEOUT_SECONDS = 120
+PAYMENT_TIMEOUT_SECONDS = 300
+
 POLICY_VERSION = "ewallet-2026-09-v1"
 TERMINAL = {"COMPLETE", "CANCELLED", "FAILED", "RESOLVED", "ABANDONED_RETAINED"}
 INTAKE = {"ACCEPTING_CASH", "CASH_ACCEPTED"}
