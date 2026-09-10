@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import PageLayout from "../../components/layout/PageLayout";
 import Button from "../../components/common/Button";
 import TransactionFeeTable from "../../components/ewallet/TransactionFeeTable";
-import { ROUTES, getEWalletRoute } from "../../constants/routes";
+import { ROUTES, getEWalletRoute, getEWalletProviderRoute } from "../../constants/routes";
 import { useEWallet } from "../../context/EWalletContext";
 import { isCashOut } from "../../constants/ewalletData";
 
@@ -36,7 +36,7 @@ export default function EWalletFeeScreen() {
   };
 
   const handleBack = () => {
-    navigate(ROUTES.EWALLET_REMINDER);
+    navigate(getEWalletProviderRoute(ROUTES.EWALLET_SERVICE, ewallet.provider));
   };
 
   return (

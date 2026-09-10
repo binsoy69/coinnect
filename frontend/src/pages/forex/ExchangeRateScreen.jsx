@@ -26,7 +26,7 @@ export default function ExchangeRateScreen() {
   };
 
   const handleBack = () => {
-    navigate(ROUTES.FOREX_REMINDER);
+    navigate(ROUTES.FOREX);
   };
 
   // Determine which currency to show for selection
