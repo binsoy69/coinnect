@@ -15,9 +15,11 @@ if hasattr(sys.stderr, "reconfigure"):
         pass
 
 from fastapi import FastAPI, Request
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from app.core.customer_errors import customer_message, validation_fields
 from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.responses import JSONResponse
-from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
@@ -398,17 +400,30 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(request: Request, exc: RequestValidationError):
-        first = exc.errors()[0] if exc.errors() else {}
+        if "/admin" in request.url.path:
+            return await request_validation_exception_handler(request, exc)
         return JSONResponse(
             status_code=422,
             content={"detail": {
                 "code": "VALIDATION_ERROR",
-                "message": first.get("msg", "Request validation failed"),
+                "message": customer_message("VALIDATION_ERROR"),
                 "transaction_id": request.path_params.get("transaction_id"),
                 "state": None,
-                "errors": jsonable_encoder(exc.errors()),
+                "errors": validation_fields(exc.errors()),
             }},
         )
+    @app.exception_handler(StarletteHTTPException)
+    async def customer_http_error(request: Request, exc: StarletteHTTPException):
+        if "/admin" in request.url.path or "/webhook" in request.url.path:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers)
+        detail = dict(exc.detail) if isinstance(exc.detail, dict) else {}
+        code = detail.get("code", "REQUEST_FAILED")
+        # Keep lifecycle/quote metadata used by recovery, but never expose raw errors.
+        safe = {key: detail[key] for key in ("transaction_id", "state", "quote", "pending_quote") if key in detail}
+        safe.update(code=code, message=customer_message(code))
+        logger.warning("Customer request failed: status=%s code=%s", exc.status_code, code)
+        return JSONResponse(status_code=exc.status_code, content={"detail": safe}, headers=exc.headers)
+
     app.include_router(api_router)
     return app
 

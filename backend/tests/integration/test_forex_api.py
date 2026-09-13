@@ -176,6 +176,9 @@ class TestGetQuote:
 
 class TestStartTransaction:
     def test_start_transaction(self, client, mock_forex_orchestrator):
+        mock_forex_orchestrator.start_transaction.return_value.update(
+            server_time="2026-09-13T00:00:00Z", inactivity_timeout_seconds=180,
+            deadline="2026-09-13T00:03:00Z")
         resp = client.post("/api/v1/forex/transaction", json={
             "quote_id": "reviewed-quote",
             "idempotency_key": "retry-key-123",
@@ -183,6 +186,8 @@ class TestStartTransaction:
         assert resp.status_code == 200
         data = resp.json()
         assert data["transaction_id"] == "test-forex-tx-1"
+        assert data["server_time"] == "2026-09-13T00:00:00Z"
+        assert data["inactivity_timeout_seconds"] == 180
         assert data["from_currency"] == "USD"
         assert data["to_currency"] == "PHP"
         mock_forex_orchestrator.start_transaction.assert_called_once()
@@ -254,3 +259,11 @@ class TestConnectivity:
         data = resp.json()
         assert "online" in data
         assert "forex_available" in data
+
+
+def test_expired_quote_keeps_machine_readable_code(client, mock_forex_orchestrator):
+    mock_forex_orchestrator.start_transaction.side_effect = ValueError("QUOTE_EXPIRED: review a fresh quote")
+    response = client.post("/api/v1/forex/transaction", json={"quote_id": "expired", "idempotency_key": "expired-retry-key"})
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "QUOTE_EXPIRED"
+    assert response.json()["detail"]["message"] == "Your quote has expired. Check availability again."

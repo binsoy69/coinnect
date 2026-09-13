@@ -1,3 +1,4 @@
+import { customerError } from "../../lib/customerErrors";
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
@@ -76,6 +77,7 @@ export default function SelectDispenseScreen() {
   };
 
   const handleProceed = async () => {
+    if (isGeneratingQuote || !Number.isFinite(targetAmount) || targetAmount <= 0 || allocatedTotal > targetAmount || Object.entries(counts).some(([denom, count]) => !Number.isInteger(count) || count < 0 || (count > 0 && !availableDenominations.includes(Number(denom))))) return;
     setIsGeneratingQuote(true);
     setQuoteError(null);
     try {
@@ -260,7 +262,7 @@ export default function SelectDispenseScreen() {
               Unavailable Payout Combination
             </h3>
             <p className="text-gray-600 mb-6 text-sm">
-              {quoteError}
+              {customerError(quoteError)}
             </p>
             <Button
               variant="primary"

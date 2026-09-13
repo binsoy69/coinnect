@@ -1,3 +1,4 @@
+import { customerError, customerFailure } from "../lib/customerErrors";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { API_BASE } from "../constants/api";
 import { useTransaction } from "../context/TransactionContext";
@@ -45,13 +46,13 @@ export function useBackendTransaction() {
       });
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
-        const err = new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
+        const err = customerFailure(errData, resp.status);
         err.code = errData.detail?.code;
         throw err;
       }
       return await resp.json();
     } catch (err) {
-      setError(err.message);
+      setError(customerError(err));
       throw err;
     } finally {
       setIsLoading(false);
@@ -63,7 +64,7 @@ export function useBackendTransaction() {
       const resp = await fetch(`${API_BASE}/transaction/options?type=${encodeURIComponent(type)}`);
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
+        throw customerFailure(errData, resp.status);
       }
       return await resp.json();
     } catch (err) {
@@ -93,7 +94,7 @@ export function useBackendTransaction() {
         });
         if (!resp.ok) {
           const errData = await resp.json().catch(() => ({}));
-          const err = new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
+          const err = customerFailure(errData, resp.status);
           err.status = resp.status;
           err.code = errData.detail?.code;
           err.quote = errData.detail?.quote;
@@ -106,7 +107,7 @@ export function useBackendTransaction() {
         applyAuthoritativeTerms(data);
         return data;
       } catch (err) {
-        setError(err.message);
+        setError(customerError(err));
         throw err;
       } finally {
         setIsLoading(false);
@@ -126,7 +127,7 @@ export function useBackendTransaction() {
       );
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
-        const err = new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
+        const err = customerFailure(errData, resp.status);
         err.status = resp.status;
         err.code = errData.detail?.code;
         err.pendingQuote = errData.detail?.pending_quote;
@@ -136,7 +137,7 @@ export function useBackendTransaction() {
       setBackendState(data);
       return data;
     } catch (err) {
-      setError(err.message);
+      setError(customerError(err));
       throw err;
     } finally {
       setIsLoading(false);
@@ -158,13 +159,13 @@ export function useBackendTransaction() {
       );
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
+        throw customerFailure(errData, resp.status);
       }
       const data = await resp.json();
       setBackendState(data);
       return data;
     } catch (err) {
-      setError(err.message);
+      setError(customerError(err));
       throw err;
     } finally {
       setIsLoading(false);
@@ -182,13 +183,13 @@ export function useBackendTransaction() {
       );
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
+        throw customerFailure(errData, resp.status);
       }
       const data = await resp.json();
       setBackendState(data);
       return data;
     } catch (err) {
-      setError(err.message);
+      setError(customerError(err));
       throw err;
     } finally {
       setIsLoading(false);
@@ -223,13 +224,13 @@ export function useBackendTransaction() {
       );
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
+        throw customerFailure(errData, resp.status);
       }
       const data = await resp.json();
       setBackendState(data);
       return data;
     } catch (err) {
-      setError(err.message);
+      setError(customerError(err));
       throw err;
     } finally {
       setIsLoading(false);
@@ -246,14 +247,14 @@ export function useBackendTransaction() {
       );
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData.detail?.message || errData.detail || `HTTP ${resp.status}`);
+        throw customerFailure(errData, resp.status);
       }
       const data = await resp.json();
       setBackendState(data);
       setBackendTransactionId(null);
       return data;
     } catch (err) {
-      setError(err.message);
+      setError(customerError(err));
       throw err;
     } finally {
       setIsLoading(false);

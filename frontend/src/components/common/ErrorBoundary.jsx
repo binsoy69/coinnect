@@ -25,11 +25,8 @@ export class ErrorBoundary extends Component {
             </div>
             <h2 className="text-2xl font-bold mb-2">Display Error Occurred</h2>
             <p className="text-white/80 text-sm mb-6 leading-relaxed">
-              An unexpected user interface error occurred. You can return to the start screen or reload the kiosk application.
+              The display could not be loaded. Reload to restore your transaction status. If you already paid, do not start another payment.
             </p>
-            <div className="bg-black/30 rounded-xl p-4 mb-6 text-left font-mono text-xs text-red-200 overflow-auto max-h-40 border border-white/10">
-              {this.state.error?.toString()}
-            </div>
             <button
               onClick={() => {
                 this.setState({ hasError: false, error: null, errorInfo: null });
@@ -37,7 +34,7 @@ export class ErrorBoundary extends Component {
               }}
               className="w-full bg-white text-coinnect-primary font-bold py-4 px-6 rounded-xl shadow-lg hover:bg-gray-100 transition-colors text-lg"
             >
-              Return to Start Screen
+              Reload transaction status
             </button>
           </div>
         </div>

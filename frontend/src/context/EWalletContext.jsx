@@ -1,3 +1,5 @@
+import { walletValidation } from "../lib/validation";
+import { customerError } from "../lib/customerErrors";
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import {
@@ -15,7 +17,6 @@ const DEFAULT_EWALLET_STATE = {
   provider: null, // 'gcash' | 'maya'
   serviceType: null, // 'gcash-cash-in' | 'gcash-cash-out' | 'maya-cash-in' | 'maya-cash-out'
   mobileNumber: "",
-  accountName: "",
   amount: 0, // Total due (amount to transfer + fee)
   fee: 0, // Calculated transaction fee
   transferAmount: 0, // Amount that goes to e-wallet (cash-in) or dispensed (cash-out)
@@ -29,6 +30,7 @@ const DEFAULT_EWALLET_STATE = {
   backendState: null,
   gatewayError: null,
   feeTiers: [],
+  maxAmount: 50000,
   quote: null,
   policyAccepted: false,
 };
@@ -68,12 +70,11 @@ export function EWalletProvider({ children }) {
     setEWallet((prev) => ({
       ...prev,
       mobileNumber,
+      gatewayError: null,
     }));
   }, []);
 
-  const setAccountName = useCallback((accountName) => {
-    setEWallet((prev) => ({ ...prev, accountName }));
-  }, []);
+
 
   // Set amount and calculate fee/totalDue
   const setAmount = useCallback((amount) => {
@@ -164,10 +165,9 @@ export function EWalletProvider({ children }) {
       provider: data.provider,
       serviceType: `${data.provider}-${data.direction}`,
       mobileNumber: data.mobile_number || "",
-      accountName: data.account_name || "",
       transactionId: data.transaction_id,
       backendState: data,
-      gatewayError: data.error_message || null,
+      gatewayError: data.error_message ? customerError(data) : null,
       totalInserted: data.inserted_amount ?? prev.totalInserted,
       insertedBillCounts: bills,
       insertedCoinCounts: coins,
@@ -195,7 +195,7 @@ export function EWalletProvider({ children }) {
       activeId.current = data.transaction_id;
       syncBackendState(data);
     }).catch(error => {
-      setEWallet(prev => ({ ...prev, gatewayError: error.message }));
+      setEWallet(prev => ({ ...prev, gatewayError: customerError(error) }));
     });
     const receive = event => {
       if (event.payload?.transaction_id === activeId.current) syncBackendState(event.payload);
@@ -207,7 +207,7 @@ export function EWalletProvider({ children }) {
       if (!id) return;
       walletRequest(`/ewallet/transactions/${id}/heartbeat`, { method: "POST" })
         .then(data => { if (activeId.current === id) syncBackendState(data); })
-        .catch(error => setEWallet(prev => ({ ...prev, gatewayError: error.message })));
+        .catch(error => setEWallet(prev => ({ ...prev, gatewayError: customerError(error) })));
     }, 5000);
     return () => { clearInterval(timer); events.forEach(event => unsubscribe(event, receive)); };
   }, [subscribe, unsubscribe, syncBackendState]);
@@ -230,11 +230,14 @@ export function EWalletProvider({ children }) {
     setEWallet((prev) => ({
       ...prev,
       feeTiers: data.fee_tiers || [],
+      maxAmount: data.max_amount || 50000,
     }));
     return data.fee_tiers || [];
   }, [request]);
 
   const startBackendTransaction = useCallback(async () => {
+    const validation = walletValidation(ewallet);
+    if (validation) throw new Error(validation);
     const epoch = generation.current;
     try {
       const cashIn = isCashIn(ewallet.serviceType);
@@ -248,7 +251,6 @@ export function EWalletProvider({ children }) {
       };
       if (cashIn) {
         payload.mobile_number = ewallet.mobileNumber;
-        payload.account_name = ewallet.accountName;
       }
       const data = await request("/ewallet/transactions", {
         method: "POST",
@@ -258,7 +260,7 @@ export function EWalletProvider({ children }) {
       activeId.current = data.transaction_id;
       return syncBackendState(data);
     } catch (error) {
-      setEWallet((prev) => ({ ...prev, gatewayError: error.message }));
+      setEWallet((prev) => ({ ...prev, gatewayError: customerError(error) }));
       throw error;
     }
   }, [ewallet, request, syncBackendState]);
@@ -363,7 +365,6 @@ export function EWalletProvider({ children }) {
     startEWalletTransaction,
     setServiceType,
     setMobileNumber,
-    setAccountName,
     setAmount,
     addInsertedBill,
     addInsertedCoin,

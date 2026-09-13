@@ -93,7 +93,7 @@ export function useBillAcceptance(transactionId, apiPrefix, enabled, onAccepted)
             setLastError(data.last_rejection || data.error);
           }
         } catch (err) {
-          if (apiPrefix.startsWith("/ewallet") && !cancelled && err.message !== "NO_BILL_DETECTED") setLastError(err.message);
+          if (apiPrefix.startsWith("/ewallet") && !cancelled && err.code !== "NO_BILL_DETECTED" && err.message !== "NO_BILL_DETECTED") setLastError(err);
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
       }

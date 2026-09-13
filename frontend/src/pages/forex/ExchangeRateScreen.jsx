@@ -1,3 +1,4 @@
+import { customerError } from "../../lib/customerErrors";
 import { useForexTransaction } from "../../hooks/useForexTransaction";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -20,7 +21,7 @@ export default function ExchangeRateScreen() {
   }
 
   const handleProceed = () => {
-    if (forex.selectedAmount) {
+    if (!isLoading && isOnline && choices.some(choice => choice.amount === forex.selectedAmount && choice.available)) {
       navigate(getForexRoute(ROUTES.FOREX_CONFIRM, forex.serviceType));
     }
   };
@@ -36,7 +37,7 @@ export default function ExchangeRateScreen() {
 
   const choices = availability[forex.serviceType] || [];
   const disabledAmounts = (config.amountOptions || []).filter(amount => !choices.some(c => c.amount === amount && c.available));
-  const warningMessage = error || (!isOnline ? "Forex requires an internet connection and valid rates." : choices.filter(c => !c.available).map(c => `${c.amount}: ${c.reason}`).join("; "));
+  const warningMessage = (error ? customerError(error) : null) || (!isOnline ? "Forex requires an internet connection and valid rates." : choices.filter(c => !c.available).map(c => `${c.amount}: ${customerError(c.reason, "Currently unavailable")}`).join("; "));
 
   // Get the label for selection
   const selectionLabel = isForeignToPhp(forex.serviceType)

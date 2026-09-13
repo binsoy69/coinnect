@@ -114,7 +114,7 @@ async def test_untrusted_origin_cannot_bootstrap_customer_session(ewallet_client
 
 
 @pytest.mark.asyncio
-async def test_cash_in_requires_mobile_number_and_account_name(ewallet_client):
+async def test_cash_in_requires_mobile_number(ewallet_client):
     response = await ewallet_client.post(
         "/api/v1/ewallet/transactions",
         json={
@@ -265,3 +265,22 @@ async def test_webhook_accepts_transfer_failed(ewallet_client):
         },
     )
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["gcash", "maya"])
+@pytest.mark.parametrize("legacy_name", [None, "Old Customer"])
+async def test_cash_in_supplies_fixed_api_name(ewallet_client, provider, legacy_name):
+    from app.services.ewallet_policy import POLICY_VERSION
+    quote = await ewallet_client.post("/api/v1/ewallet/quotes", json={"provider": provider, "direction": "cash-in", "amount": 105})
+    body = {"provider": provider, "direction": "cash-in", "amount": 105,
+            "mobile_number": "09171234567", "quote_id": quote.json()["quote_id"],
+            "policy_version": POLICY_VERSION, "request_key": "fixed-name-request-1"}
+    if legacy_name is not None:
+        body["account_name"] = legacy_name
+    response = await ewallet_client.post("/api/v1/ewallet/transactions", json=body)
+    assert response.status_code == 201, response.text
+    assert response.json()["account_name"] == "coinnect"
+    repeated = await ewallet_client.post("/api/v1/ewallet/transactions", json={**body, "account_name": "Ignored"})
+    assert repeated.status_code == 201
+    assert repeated.json()["transaction_id"] == response.json()["transaction_id"]

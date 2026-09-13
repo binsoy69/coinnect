@@ -1,3 +1,4 @@
+import { mobileError } from "../../lib/validation";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -16,7 +17,7 @@ export default function EWalletMobileScreen() {
   } = useEWallet();
   const config = getEWalletConfig();
   const styles = getProviderStyles();
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(ewallet.mobileNumber || "");
 
   if (!config) {
     navigate(ROUTES.EWALLET);
@@ -24,12 +25,13 @@ export default function EWalletMobileScreen() {
   }
 
   const handleSubmit = (mobile) => {
+    if (mobileError(mobile)) return;
     setMobileNumber(mobile);
     navigate(getEWalletRoute(ROUTES.EWALLET_CONFIRM, ewallet.serviceType));
   };
 
   const handleBack = () => {
-    navigate(getEWalletRoute(ROUTES.EWALLET_NAME, ewallet.serviceType));
+    navigate(getEWalletRoute(ROUTES.EWALLET_AMOUNT, ewallet.serviceType));
   };
 
   return (
@@ -57,18 +59,7 @@ export default function EWalletMobileScreen() {
           Enter Mobile Number
         </motion.h1>
 
-        {ewallet.accountName && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-6 text-center"
-          >
-            <span className="text-gray-500 text-sm block mb-1">Account Name</span>
-            <span className={`text-xl font-bold ${styles.text}`}>
-              {ewallet.accountName}
-            </span>
-          </motion.div>
-        )}
+
 
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -81,6 +72,10 @@ export default function EWalletMobileScreen() {
             onChange={setValue}
             onSubmit={handleSubmit}
             maxLength={11}
+            label="Mobile number"
+            error={value ? mobileError(value) : ""}
+            hint="Enter 11 digits starting with 09."
+            disabled={Boolean(mobileError(value))}
             placeholder="09XXXXXXXXX"
             submitLabel="Proceed"
             colorClass={`coinnect-${ewallet.provider}`}

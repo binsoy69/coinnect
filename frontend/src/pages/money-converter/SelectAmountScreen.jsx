@@ -1,3 +1,4 @@
+import { customerError } from "../../lib/customerErrors";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMemo, useState, useEffect } from "react";
 import { motion } from "framer-motion";
@@ -59,7 +60,7 @@ export default function SelectAmountScreen() {
       const reasons = Object.fromEntries(
         optionsData.options
           .filter((o) => !o.enabled)
-          .map((o) => [o.amount, o.reason || "Temporarily unavailable"])
+          .map((o) => [o.amount, o.reason_code ? { code: o.reason_code } : (o.reason || "Temporarily unavailable")])
       );
       return { denominations: denoms, disabledValues: disabled, reasonsMap: reasons };
     }
@@ -71,11 +72,12 @@ export default function SelectAmountScreen() {
   }, [optionsData, config?.amountOptions]);
 
   const handleSelectAmount = (amount) => {
+    if (!denominations.includes(amount) || disabledValues.includes(amount)) return;
     setSelectedAmount(amount);
   };
 
   const handleProceed = async () => {
-    if (!transaction.selectedAmount) return;
+    if (isGeneratingQuote || !denominations.includes(transaction.selectedAmount) || disabledValues.includes(transaction.selectedAmount)) return;
 
     // For Coin-to-Bill, generate quote now and proceed directly to confirmation
     if (type === SERVICE_TYPES.COIN_TO_BILL) {
@@ -179,7 +181,7 @@ export default function SelectAmountScreen() {
               Unavailable Selection
             </h3>
             <p className="text-gray-600 mb-6 text-sm">
-              {quoteError}
+              {customerError(quoteError)}
             </p>
             <Button
               variant="primary"

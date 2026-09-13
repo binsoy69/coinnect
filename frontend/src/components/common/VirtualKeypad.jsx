@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { motion } from "framer-motion";
 import { Delete } from "lucide-react";
 
@@ -11,7 +12,13 @@ export default function VirtualKeypad({
   className = "",
   colorClass = "coinnect-ewallet", // 'coinnect-gcash' or 'coinnect-maya'
   mask = false,
+  disabled = false,
+  label = "Value",
+  error = "",
+  hint = "",
 }) {
+  const descriptionId = useId();
+  const canSubmit = value.length > 0 && !disabled;
   const borderColor = `border-${colorClass}`;
   const textColor = `text-${colorClass}`;
   const bgColor = `bg-${colorClass}`;
@@ -34,7 +41,7 @@ export default function VirtualKeypad({
     <div className={`flex flex-col items-center ${className}`}>
       {/* Display field */}
       <div className="w-full max-w-lg mb-4 lg:mb-8">
-        <div
+        <div role="textbox" aria-label={label} aria-readonly="true" aria-invalid={Boolean(error)} aria-describedby={descriptionId}
           className={`border-2 ${borderColor} rounded-xl p-3 lg:p-4 min-h-[50px] lg:min-h-[70px] flex items-center justify-center`}
         >
           {value ? (
@@ -51,6 +58,8 @@ export default function VirtualKeypad({
         </div>
       </div>
 
+      <p id={descriptionId} role={error ? "alert" : undefined} className={`mb-4 text-center ${error ? "text-red-700" : "text-gray-600"}`}>{error || hint}</p>
+
       {/* Keypad grid */}
       <div className="grid grid-cols-3 gap-2 lg:gap-4 max-w-md w-full mb-4 lg:mb-8">
         {keys.flat().map((key, index) => {
@@ -62,6 +71,7 @@ export default function VirtualKeypad({
             return (
               <motion.button
                 key="backspace"
+                aria-label="Delete last digit"
                 type="button"
                 whileTap={{ scale: 0.9 }}
                 onClick={() => handleKeyPress("backspace")}
@@ -89,14 +99,14 @@ export default function VirtualKeypad({
       {/* Submit button */}
       <motion.button
         type="button"
-        whileHover={value.length > 0 ? { scale: 1.02 } : {}}
-        whileTap={value.length > 0 ? { scale: 0.98 } : {}}
-        onClick={() => value.length > 0 && onSubmit?.(value)}
-        disabled={value.length === 0}
+        whileHover={canSubmit ? { scale: 1.02 } : {}}
+        whileTap={canSubmit ? { scale: 0.98 } : {}}
+        onClick={() => canSubmit && onSubmit?.(value)}
+        disabled={!canSubmit}
         className={`
           px-12 py-3 rounded-button text-xl font-semibold border-2 ${borderColor} transition-colors
           ${
-            value.length > 0
+            canSubmit
               ? `${textColor} hover:${bgColor} hover:text-white cursor-pointer`
               : "text-gray-300 border-gray-300 cursor-not-allowed"
           }

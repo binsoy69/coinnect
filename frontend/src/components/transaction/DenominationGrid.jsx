@@ -1,3 +1,4 @@
+import { customerError } from "../../lib/customerErrors";
 import { motion } from "framer-motion";
 import { DENOMINATION_DISPLAY } from "../../constants/denominations";
 
@@ -42,7 +43,7 @@ export default function DenominationGrid({
             <span>{denom}</span>
             {isItemDisabled && reason && (
               <span className="text-xs font-medium text-amber-700 mt-1 max-w-[170px] text-center leading-tight">
-                {reason}
+                {customerError(reason, "This selection is currently unavailable.")}
               </span>
             )}
           </motion.button>

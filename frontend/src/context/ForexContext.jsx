@@ -1,3 +1,4 @@
+import { customerError, customerFailure } from "../lib/customerErrors";
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import { API_BASE, ENABLE_KEYBOARD_SIM } from "../constants/api";
@@ -40,13 +41,13 @@ export function ForexProvider({ children }) {
       signal: AbortSignal.timeout(15000), ...options, headers: { "Content-Type": "application/json", ...options.headers },
     });
     const data = await resp.json();
-    if (!resp.ok) { const failure = new Error(data.detail?.message || data.detail || `HTTP ${resp.status}`); failure.status = resp.status; throw failure; }
+    if (!resp.ok) { const failure = customerFailure(data, resp.status); failure.status = resp.status; throw failure; }
     return data;
   }, []);
   const run = useCallback(async action => {
     setError(null); setIsLoading(true);
     try { return await action(); }
-    catch (err) { setError(err.message); throw err; }
+    catch (err) { setError(customerError(err)); throw err; }
     finally { setIsLoading(false); }
   }, []);
   const refreshForexTransaction = useCallback(() => {
@@ -101,6 +102,7 @@ export function ForexProvider({ children }) {
     resetForexTransaction(); setService(selected); sessionStorage.setItem("forexService", selected);
   }, [transactionId, resetForexTransaction]);
   const setSelectedAmount = useCallback(amount => run(async () => {
+    if (!Number.isSafeInteger(amount) || amount <= 0 || !FOREX_CONFIG[service]?.amountOptions.includes(amount)) throw customerFailure({code: "VALIDATION_ERROR"});
     const seq = ++quoteSequence.current;
     setQuote(null);
     const data = await request(`/quote/${service}?amount=${amount}`);

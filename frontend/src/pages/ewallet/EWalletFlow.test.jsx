@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import EWalletSummaryScreen from "./EWalletSummaryScreen";
 import EWalletSessionStatus from "../../components/ewallet/EWalletSessionStatus";
@@ -16,11 +16,11 @@ test.each(["CANCELLED", "ABANDONED_RETAINED", "CLAIM_REQUIRED", "DISBURSEMENT_PE
   expect(screen.queryByText("Transaction complete")).not.toBeInTheDocument();
 });
 
-test("funded session hides cancellation and warns before partial inactivity expires", () => {
+test("funded session hides cancellation and warns before partial inactivity expires", async () => {
   render(<EWalletSessionStatus />);
   expect(screen.queryByRole("button", { name: "Cancel before payment" })).not.toBeInTheDocument();
   expect(screen.getByText(/partial cash is retained/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Continue" })));
   expect(wallet.continueSession).toHaveBeenCalled();
 });
 

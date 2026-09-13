@@ -146,3 +146,10 @@ at each durable/physical boundary. Verify that late payment results never cause
 unattended output. Check Uno memory headroom under sustained serial traffic and
 EEPROM endurance against expected transaction volume. Compilation and mock tests
 do not establish these physical guarantees.
+
+
+## Customer identity and error presentation
+
+Cash-in collects a Philippine mobile number (11 ASCII digits starting with `09`) and a whole-peso amount. The kiosk request no longer requires `account_name`; legacy values are accepted but ignored. The backend stores `coinnect` on newly created cash-in transactions and supplies that exact value to name-required disbursement requests. Existing stored names are not migrated. Customer screens and receipts omit the account-name field. Cash-out does not accept identity fields.
+
+Customer validation errors use `detail.code = VALIDATION_ERROR`, a safe message, and `detail.errors` entries containing a field identifier and guidance. Do not display exception text or raw gateway/validation payloads. Quote and transaction identifiers remain available for recovery. E-wallet and forex insertion views share their layout while using server deadlines, per-medium/currency counts, and existing cancellation rules.

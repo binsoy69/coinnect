@@ -199,3 +199,25 @@ async def test_print_claim_ticket_forex_currency():
     await service.print_claim_ticket(record, shortfall=10)
     
     assert "Shortfall : USD 10" in rendered_lines
+
+
+@pytest.mark.asyncio
+async def test_wallet_receipts_omit_names_and_private_error_details():
+    from unittest.mock import AsyncMock
+    service = ReceiptService(Settings(paperang_enabled=True, use_mock_hardware=True))
+    service._queue_print_job = AsyncMock()
+    lines = []
+    def render(captured):
+        lines.extend(captured)
+        return Image.new("1", (PAPERANG_WIDTH, 16), 1)
+    service._render_text_lines = render
+    record = {"transaction_id": "test-receipt", "provider": "gcash", "direction": "cash-in",
+              "account_name": "coinnect", "mobile_number": "09171234567", "amount": 100,
+              "inserted_amount": 100, "error_message": "Traceback: private failure", "error_code": "UNKNOWN"}
+    await service.print_receipt(record)
+    await service.print_claim_ticket(record)
+    text = "\n".join(lines)
+    assert "coinnect" not in text
+    assert "Traceback" not in text
+    assert "09171234567" not in text
+    assert "Provider : GCASH" in text

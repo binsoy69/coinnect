@@ -1,3 +1,4 @@
+import { customerError } from "../../lib/customerErrors";
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useEWallet } from "../../context/EWalletContext";
@@ -28,7 +29,7 @@ export default function EWalletSummaryScreen() {
       </>}
       {state.claim_ticket_code && <p className="font-bold">Claim reference: {state.claim_ticket_code}</p>}
       {state.claims?.map(claim => <p key={claim.claim_ticket_code}>₱{claim.amount} · {claim.status === "PROVISIONAL" ? "Pending verification — amount is provisional" : "Operator settlement required"}</p>)}
-      {state.error_message && <p role="status">{state.error_message}</p>}
+      {state.error_message && <p role="status">{customerError(state)}</p>}
       <button className="rounded-lg bg-gray-900 text-white px-8 py-4" onClick={() => { resetTransaction(); navigate(ROUTES.HOME); }}>Finish</button>
     </section>
   </main>;

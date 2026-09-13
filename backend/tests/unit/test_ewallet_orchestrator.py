@@ -146,6 +146,7 @@ async def test_cash_in_submits_disbursement_only_after_cash_confirmed(
     assert result["state"] == "DISBURSEMENT_PENDING"
     gateway.create_disbursement.assert_awaited_once()
     kwargs = gateway.create_disbursement.await_args.kwargs
+    assert kwargs["account_name"] == "coinnect"
     assert kwargs["account_number"] == "09171234567"
     assert kwargs["amount_centavos"] == 9_000
 

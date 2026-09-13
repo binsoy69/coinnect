@@ -1,3 +1,4 @@
+import { customerError } from "../lib/customerErrors";
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { CheckCircle2, AlertCircle, Loader2, RefreshCw, Wrench } from 'lucide-react';
@@ -66,7 +67,7 @@ export default function StartupChecksScreen({ startupChecks, isConnecting }) {
 
   const getErrorDetail = (itemKey) => {
     if (!startupChecks) return null;
-    return startupChecks.errors ? startupChecks.errors[itemKey] : null;
+    return startupChecks.errors?.[itemKey] ? customerError(null, "This device needs attention. Please ask an operator for assistance.") : null;
   };
 
   return (

@@ -31,6 +31,9 @@ lib/
 !frontend/src/lib/
 frontend/src/lib/*
 !frontend/src/lib/ewalletApi.js
+!frontend/src/lib/customerErrors.js
+!frontend/src/lib/customerErrors.test.js
+!frontend/src/lib/validation.js
 lib64/
 parts/
 sdist/

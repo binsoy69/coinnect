@@ -1,3 +1,4 @@
+import { customerError } from "../../lib/customerErrors";
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -130,7 +131,7 @@ export default function WarningScreen() {
             </motion.h1>
 
             <p className="text-white/80 text-base mb-6">
-              {backendState?.error_message ||
+              {(backendState?.error_message ? customerError(backendState) : null) ||
                 "A hardware issue occurred while dispensing your cash."}
             </p>
 

@@ -1,3 +1,4 @@
+from app.core.customer_errors import customer_message
 import asyncio
 import importlib.util
 import logging
@@ -369,7 +370,7 @@ class ReceiptService:
                 shortfall = max(0, inserted - dispensed)
                 
             ticket_code = claim_code or self._get_field(record, "claim_ticket_code", "N/A")
-            reason = error_reason or self._get_field(record, "error_message") or self._get_field(record, "error_code") or "PARTIAL_DISPENSE"
+            reason = customer_message(self._get_field(record, "error_code"))
             
             to_curr = self._get_field(record, "to_currency")
             shortfall_currency = to_curr if to_curr else "PHP"

@@ -1,3 +1,4 @@
+import { customerError } from "../../lib/customerErrors";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertTriangle } from "lucide-react";
 import Button from "../common/Button";
@@ -60,11 +61,11 @@ export default function RejectionModal({
       : error.includes("JAM") ? "JAM"
       : error.includes("HARDWARE") ? "HARDWARE_FAULT"
       : "UNEXPECTED_DENOMINATION")
-    : (error.reason || error.error_code || "UNEXPECTED_DENOMINATION");
+    : (error.code || error.reason || error.error_code || "UNEXPECTED_DENOMINATION");
 
   const config = REJECTION_MESSAGES[reasonCode] || {
     title: "Bill Rejected",
-    message: typeof error === "string" ? error : (error.message || error.reason || "The bill was rejected. Please try again."),
+    message: customerError(error, "The bill was rejected. Please try again."),
     isCritical: false,
   };
 

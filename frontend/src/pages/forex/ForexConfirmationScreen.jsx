@@ -1,3 +1,4 @@
+import { customerError } from "../../lib/customerErrors";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -22,6 +23,7 @@ export default function ForexConfirmationScreen() {
   }
 
   const handleProceed = async () => {
+    if (loading) return;
     setLoading(true);
     setErrorMsg(null);
     try {
@@ -33,9 +35,9 @@ export default function ForexConfirmationScreen() {
       lockRate();
       navigate(getForexRoute(ROUTES.FOREX_INSERT, forex.serviceType));
     } catch (err) {
-      if (err.message?.includes("QUOTE_EXPIRED")) {
+      if (err.code === "QUOTE_EXPIRED") {
         await setSelectedAmount(forex.selectedAmount).catch(() => {});
-        setErrorMsg("Quote expired. Review the refreshed amounts before proceeding.");
+        setErrorMsg(customerError({ code: "QUOTE_EXPIRED" }));
         return;
       }
       setErrorMsg(err.message || "Failed to start forex transaction. Please check machine inventory and try again.");
@@ -166,7 +168,7 @@ export default function ForexConfirmationScreen() {
             </h3>
             
             <p className="text-gray-600 mb-8 leading-relaxed">
-              {errorMsg}
+              {customerError(errorMsg)}
             </p>
             
             <div className="flex gap-4">

@@ -10,6 +10,7 @@ from sqlalchemy import select
 from app.api.kiosk_access import wallet_access
 from app.models.db_models import KioskSession, EWalletTransactionRecord
 from app.services.ewallet_policy import POLICY_VERSION, TERMINAL
+from app.core.customer_errors import customer_message
 
 from fastapi import (
     APIRouter,
@@ -28,13 +29,9 @@ class StartEWalletRequest(BaseModel):
     direction: Literal["cash-in", "cash-out"]
     mobile_number: str | None = Field(
         default=None,
-        pattern=r"^09\d{9}$",
+        pattern=r"^09[0-9]{9}$",
     )
-    account_name: str | None = Field(
-        default=None,
-        min_length=2,
-        max_length=120,
-    )
+    account_name: str | None = None  # Legacy clients may still send this field.
     amount: int = Field(gt=0, le=50_000)
     quote_id: str
     request_key: str = Field(min_length=16, max_length=128)
@@ -44,14 +41,16 @@ class StartEWalletRequest(BaseModel):
     def validate_identity_fields(self):
         has_mobile = self.mobile_number is not None
         has_name = self.account_name is not None
-        if self.direction == "cash-in" and not (has_mobile and has_name):
+        if self.direction == "cash-in" and not has_mobile:
             raise ValueError(
-                "Cash-in requires mobile_number and account_name"
+                "Cash-in requires mobile_number"
             )
         if self.direction == "cash-out" and (has_mobile or has_name):
             raise ValueError(
                 "Cash-out does not accept mobile_number or account_name"
             )
+        if self.direction == "cash-in":
+            self.account_name = "coinnect"
         return self
 
 
@@ -162,7 +161,8 @@ async def accept_bill(transaction_id: str, request: Request):
             transaction_id
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        code = getattr(exc, "code", "NO_BILL_DETECTED" if str(exc) == "NO_BILL_DETECTED" else "EWALLET_ERROR")
+        raise HTTPException(status_code=400, detail={"code": code, "message": customer_message(code)}) from exc
 
 
 @router.post("/transactions/{transaction_id}/simulate-insert")
@@ -181,7 +181,8 @@ async def simulate_insert(
             transaction_id, body.denomination
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        code = getattr(exc, "code", "NO_BILL_DETECTED" if str(exc) == "NO_BILL_DETECTED" else "EWALLET_ERROR")
+        raise HTTPException(status_code=400, detail={"code": code, "message": customer_message(code)}) from exc
 
 
 @router.post("/transactions/{transaction_id}/confirm")
@@ -196,7 +197,8 @@ async def confirm_transaction(transaction_id: str, request: Request):
             transaction_id
         )
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        code = getattr(exc, "code", "NO_BILL_DETECTED" if str(exc) == "NO_BILL_DETECTED" else "EWALLET_ERROR")
+        raise HTTPException(status_code=400, detail={"code": code, "message": customer_message(code)}) from exc
 
 
 @router.delete("/transactions/{transaction_id}")
@@ -234,7 +236,8 @@ async def paymongo_webhook(request: Request):
             raise ValueError("Gateway event id and resource_id are required")
         return await request.app.state.ewallet_orchestrator.enqueue_gateway_event(event)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        code = getattr(exc, "code", "NO_BILL_DETECTED" if str(exc) == "NO_BILL_DETECTED" else "EWALLET_ERROR")
+        raise HTTPException(status_code=400, detail={"code": code, "message": customer_message(code)}) from exc
 
 
 

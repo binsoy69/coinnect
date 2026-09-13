@@ -1,3 +1,4 @@
+import { customerError } from "../../lib/customerErrors";
 import { useNavigate, useParams } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
@@ -281,7 +282,7 @@ export default function ConfirmationScreen() {
             </h3>
             
             <p className="text-gray-600 mb-8 leading-relaxed">
-              {errorMsg}
+              {customerError(errorMsg)}
             </p>
             
             <div className="flex gap-4">

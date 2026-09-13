@@ -1,3 +1,5 @@
+import { walletValidation, mobileError, amountError } from "../../lib/validation";
+import { customerError } from "../../lib/customerErrors";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -21,6 +23,8 @@ export default function EWalletConfirmScreen() {
   const styles = getProviderStyles();
   const [submitting, setSubmitting] = useState(false);
   const [quoteMessage, setQuoteMessage] = useState("");
+  const fieldError = amountError(ewallet.totalDue, ewallet.maxAmount) ||
+    (isCashIn(ewallet.serviceType) ? mobileError(ewallet.mobileNumber) : "");
 
   if (!config) {
     navigate(ROUTES.EWALLET);
@@ -29,6 +33,9 @@ export default function EWalletConfirmScreen() {
 
   const handleProceed = async () => {
     if (submitting || (isCashIn(ewallet.serviceType) && !ewallet.policyAccepted)) return;
+    const validation = walletValidation(ewallet);
+    if (validation) { setQuoteMessage(validation); return; }
+    setQuoteMessage("");
     setSubmitting(true);
     try {
       await startBackendTransaction();
@@ -45,8 +52,8 @@ export default function EWalletConfirmScreen() {
         try {
           await obtainQuote(ewallet.totalDue);
           setQuoteMessage("The quote was updated. Review the amount, fee, and intake options, then confirm again.");
-        } catch (quoteError) { setQuoteMessage(quoteError.message); }
-      }
+        } catch (quoteError) { setQuoteMessage(customerError(quoteError)); }
+      } else { setQuoteMessage(customerError(error)); }
     } finally {
       setSubmitting(false);
     }
@@ -79,6 +86,8 @@ export default function EWalletConfirmScreen() {
           onChange={event => acceptPolicy(event.target.checked)} className="mt-1 h-6 w-6" />I understand and accept these cash-in rules.</label>
       </div>}
 
+      {fieldError && <p role="alert" className="max-w-2xl rounded-xl bg-white text-red-800 p-4 mb-4">{fieldError}</p>}
+
       {/* Confirmation Details */}
       {quoteMessage && <p role="alert" className="max-w-2xl rounded-xl bg-white p-4 mb-4">{quoteMessage}</p>}
       <motion.div
@@ -90,12 +99,9 @@ export default function EWalletConfirmScreen() {
         {isCashIn(ewallet.serviceType) && (
           <>
             <p className="text-xl mb-4">
-              <span className="font-normal">Account Name: </span>
-              <span className="font-bold">{ewallet.accountName}</span>
-            </p>
-            <p className="text-xl mb-4">
               <span className="font-normal">Mobile Number: </span>
               <span className="font-bold">{ewallet.mobileNumber}</span>
+              <button className="ml-3 underline text-base" disabled={submitting} onClick={() => navigate(getEWalletRoute(ROUTES.EWALLET_MOBILE, ewallet.serviceType))}>Edit mobile number</button>
             </p>
           </>
         )}
@@ -115,12 +121,14 @@ export default function EWalletConfirmScreen() {
         </p>
       </motion.div>
 
+      {ewallet.gatewayError && !quoteMessage && <p role="alert" className="w-full max-w-2xl rounded-xl bg-white text-red-800 p-4 mb-4">{customerError(ewallet.gatewayError)}</p>}
+
       {/* Buttons */}
       <motion.div
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.4 }}
-        className="flex gap-4"
+        className="flex flex-wrap justify-center gap-4"
       >
         <Button
           variant="outline"
@@ -135,16 +143,12 @@ export default function EWalletConfirmScreen() {
           variant={ewallet.provider === "maya" ? "white-green" : "white-blue"}
           size="xl"
           onClick={handleProceed}
-          disabled={submitting || (isCashIn(ewallet.serviceType) && !ewallet.policyAccepted)}
+          disabled={submitting || Boolean(walletValidation(ewallet))}
           className="min-w-[150px]"
         >
           {submitting ? "Connecting..." : "Proceed"}
         </Button>
-        {ewallet.gatewayError && (
-          <p className="text-white bg-red-700/50 rounded-lg px-4 py-2">
-            {ewallet.gatewayError}
-          </p>
-        )}
+
       </motion.div>
 
       {/* Note */}

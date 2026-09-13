@@ -3,6 +3,7 @@
 import logging
 from typing import List, Optional
 
+from app.core.customer_errors import customer_message
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -62,6 +63,8 @@ class ForexTransactionResponse(BaseModel):
     completed_at: Optional[str] = None
     revision: int = 0
     deadline: Optional[str] = None
+    server_time: Optional[str] = None
+    inactivity_timeout_seconds: Optional[int] = None
     quote: Optional[dict] = None
     payout_legs: dict = {}
     claim: Optional[dict] = None
@@ -135,7 +138,8 @@ async def start_forex_transaction(req: ForexStartRequest, request: Request):
         response_status = 423 if "maintenance mode" in detail.lower() else (
             409 if "already in progress" in detail else 400
         )
-        raise HTTPException(status_code=response_status, detail=detail)
+        code = getattr(e, "code", "QUOTE_EXPIRED" if detail.startswith("QUOTE_EXPIRED:") else "FOREX_TRANSACTION_ERROR")
+        raise HTTPException(status_code=response_status, detail={"code": code, "message": customer_message(code)}) from e
 
 
 @router.get("/transaction/{transaction_id}", response_model=ForexTransactionResponse)
@@ -301,6 +305,8 @@ async def check_connectivity(request: Request):
 def _map_state(state: dict) -> dict:
     """Map internal state dict to response fields."""
     mapped = dict(state)
+    if mapped.get("error_message"):
+        mapped["error_message"] = customer_message(mapped.get("error_code"))
     # Handle field name conflict: converted_amount -> converted_amount_forex
     if "converted_amount" in mapped:
         mapped["converted_amount_forex"] = mapped.pop("converted_amount")

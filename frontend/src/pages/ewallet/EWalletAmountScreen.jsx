@@ -1,3 +1,5 @@
+import { amountError } from "../../lib/validation";
+import { customerError } from "../../lib/customerErrors";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -13,7 +15,7 @@ export default function EWalletAmountScreen() {
     useEWallet();
   const config = getEWalletConfig();
   const styles = getProviderStyles();
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(ewallet.amount ? String(ewallet.amount) : "");
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
 
@@ -23,13 +25,14 @@ export default function EWalletAmountScreen() {
   }
 
   const handleSubmit = async (amountStr) => {
-    if (checking) return;
-    const amount = parseInt(amountStr, 10);
+    if (checking || amountError(amountStr, ewallet.maxAmount)) return;
+    setError("");
+    const amount = Number(amountStr);
     setChecking(true);
     try {
       await obtainQuote(amount);
-      navigate(getEWalletRoute(isCashOut(ewallet.serviceType) ? ROUTES.EWALLET_CONFIRM : ROUTES.EWALLET_NAME, ewallet.serviceType));
-    } catch (failure) { setError(failure.message); }
+      navigate(getEWalletRoute(isCashOut(ewallet.serviceType) ? ROUTES.EWALLET_CONFIRM : ROUTES.EWALLET_MOBILE, ewallet.serviceType));
+    } catch (failure) { setError(customerError(failure)); }
     finally { setChecking(false); }
   };
 
@@ -71,9 +74,13 @@ export default function EWalletAmountScreen() {
         >
           <VirtualKeypad
             value={value}
-            onChange={setValue}
+            onChange={next => { setValue(next); setError(""); }}
             onSubmit={handleSubmit}
-            maxLength={5}
+            maxLength={String(ewallet.maxAmount || 50000).length}
+            label="Amount in pesos"
+            error={value ? amountError(value, ewallet.maxAmount) : ""}
+            hint={`Maximum amount: ₱${(ewallet.maxAmount || 50000).toLocaleString()}`}
+            disabled={checking || Boolean(amountError(value, ewallet.maxAmount))}
             placeholder="0000"
             submitLabel={checking ? "Checking inventory…" : "Check availability"}
             colorClass={`coinnect-${ewallet.provider}`}

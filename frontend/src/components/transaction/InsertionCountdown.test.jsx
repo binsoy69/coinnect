@@ -47,7 +47,7 @@ test("failed Continue keeps the deadline and accepted cash expiry waits for back
   mocks.continueSession.mockRejectedValue(new Error("Offline"));
   mount(<EWalletIntakeScreen medium="bills" />);
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Continue" })));
-  expect(screen.getByRole("alert")).toHaveTextContent("Offline");
+  expect(screen.getByRole("alert")).toHaveTextContent("Check the transaction status");
   act(() => vi.advanceTimersByTime(91000));
   expect(screen.getByRole("timer")).toHaveTextContent("0s");
   expect(screen.getByText("Checking transaction status…")).toBeInTheDocument();

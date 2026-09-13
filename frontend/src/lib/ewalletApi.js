@@ -1,3 +1,4 @@
+import { customerFailure } from "./customerErrors";
 import { API_BASE } from "../constants/api";
 
 let bootstrap;
@@ -8,6 +9,7 @@ export async function walletRequest(path, options = {}) {
       .then(async response => {
         if (!response.ok) throw new Error("Cannot open a kiosk session");
         const data = await response.json();
+        if (typeof data?.token !== "string" || !data.token) throw customerFailure({}, response.status);
         sessionStorage.setItem("ewalletSession", data.token);
         return data.token;
       }).finally(() => { bootstrap = null; });
@@ -17,10 +19,11 @@ export async function walletRequest(path, options = {}) {
     ...options,
     headers: { "Content-Type": "application/json", "X-Kiosk-Session": token, ...options.headers },
   });
-  const data = await response.json().catch(() => ({}));
+  let data;
+  try { data = await response.json(); }
+  catch { throw customerFailure({}, response.status); }
   if (!response.ok) {
-    const error = new Error(data.detail?.message || data.detail || `Request failed (${response.status})`);
-    error.code = data.detail?.code;
+    const error = customerFailure(data, response.status);
     throw error;
   }
   return data;

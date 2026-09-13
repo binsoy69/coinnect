@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PageLayout from "../../components/layout/PageLayout";
-import DeadlineCountdown from "../../components/common/DeadlineCountdown";
+import CashInsertionLayout from "../../components/transaction/CashInsertionLayout";
+import { customerError, customerFailure } from "../../lib/customerErrors";
 import Button from "../../components/common/Button";
-import InsertMoneyPanel from "../../components/transaction/InsertMoneyPanel";
 import { ROUTES, getForexRoute } from "../../constants/routes";
 import { useForex } from "../../context/ForexContext";
 import { API_BASE, ENABLE_KEYBOARD_SIM } from "../../constants/api";
@@ -25,10 +25,10 @@ export default function ForexInsertMoneyScreen() {
       try {
         const resp = await fetch(`${API_BASE}/forex/transaction/${transactionId}/accept-bill`, { method: "POST" });
         const data = await resp.json();
-        if (!resp.ok) throw new Error(data.detail?.message || data.detail || "Bill acceptance unavailable");
+        if (!resp.ok) throw customerFailure(data, resp.status);
         await refreshForexTransaction();
         if (!disposed && data.state === "WAITING_FOR_BILL") timer = setTimeout(accept, 500);
-      } catch (err) { if (!disposed) setIntakeError(err.message); }
+      } catch (err) { if (!disposed) setIntakeError(customerError(err)); }
       finally { accepting.current = false; }
     };
     timer = setTimeout(accept, 0);
@@ -48,23 +48,17 @@ export default function ForexInsertMoneyScreen() {
     return () => window.removeEventListener("keydown", key);
   }, [transactionId, config, simulateForexInsert, forex.fromCurrency]);
   if (!config) return <p>Restoring forex transaction…</p>;
-  return <PageLayout headerProps={{ subtitle: "Foreign Exchange" }}>
-    <div className="flex flex-col md:flex-row gap-8 p-4 md:p-8">
-      <div className="w-full md:w-1/3"><InsertMoneyPanel variant="bill" cardVariant="forex" noteText={config.insertNote} /></div>
-      <div className="flex-1 text-center space-y-6">
-        <h1 className="text-3xl font-bold">{config.insertHeading}</h1>
-        <p className="text-5xl font-bold">{forex.fromCurrency} {forex.moneyInserted}</p>
-        <p className="text-2xl">Total due: {forex.fromCurrency} {forex.totalDue}</p>
+  return <PageLayout headerProps={{ className: "flex-wrap gap-3 [&>div]:max-w-full [&>div>div]:flex-wrap", subtitle: "Foreign Exchange" }}>
+    <CashInsertionLayout theme="forex" heading={config.insertHeading} note={config.insertNote}
+      currency={forex.fromCurrency} inserted={forex.moneyInserted} totalDue={forex.totalDue}
+      groups={[{ label: "Bills", denominations: config.acceptDenominations || [], counts: forex.insertedCounts }]}
+      timing={backendState || {}} active={!backendState || backendState.state === "WAITING_FOR_BILL"}>
         <p>PHP change is accepted only when exact change is available.</p>
         <p>After cash is accepted, cancellation is disabled. Complete the exchange or wait for a refund claim when the session expires.</p>
-        {backendState?.error_message && <p role="alert">{backendState.error_message}</p>}
-        {(error || intakeError) && <div role="alert"><p>{error || intakeError}</p><Button onClick={() => { setIntakeError(null); refreshForexTransaction().catch(() => {}); }}>Retry status</Button></div>}
-        <DeadlineCountdown deadline={backendState?.deadline} serverTime={backendState?.server_time}
-          durationSeconds={backendState?.inactivity_timeout_seconds}
-          active={!backendState || backendState.state === "WAITING_FOR_BILL"} />
-        {secondsRemaining != null && secondsRemaining <= 30 && <div><p>Your session is about to expire.</p><Button onClick={() => continueForexTransaction().catch(() => {})}>Continue</Button></div>}
-        {forex.moneyInserted === 0 && <Button onClick={() => cancelForexTransaction().then(() => navigate(ROUTES.FOREX)).catch(() => {})}>Cancel</Button>}
-      </div>
-    </div>
+        {backendState?.error_message && <p role="alert">{customerError(backendState)}</p>}
+        {(error || intakeError) && <div role="alert"><p>{customerError(error || intakeError)}</p><Button onClick={() => { setIntakeError(null); refreshForexTransaction().catch(() => {}); }}>Retry status</Button></div>}
+        {backendState?.state === "WAITING_FOR_BILL" && secondsRemaining != null && secondsRemaining <= 30 && <div><p>Your session is about to expire.</p><Button onClick={() => continueForexTransaction().catch(() => {})}>Continue</Button></div>}
+        {backendState?.state === "WAITING_FOR_BILL" && forex.moneyInserted === 0 && <Button onClick={() => cancelForexTransaction().then(() => navigate(ROUTES.FOREX)).catch(() => {})}>Cancel</Button>}
+    </CashInsertionLayout>
   </PageLayout>;
 }

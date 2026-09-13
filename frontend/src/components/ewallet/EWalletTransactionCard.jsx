@@ -10,7 +10,6 @@ import {
 export default function EWalletTransactionCard({
   serviceName = "",
   mobileNumber = "",
-  accountName = "",
   totalInserted = 0,
   fee = 0,
   transferAmount = 0,
@@ -57,7 +56,6 @@ export default function EWalletTransactionCard({
       {mobileNumber && (
         <div className="mb-4">
           <p className="text-xs font-semibold text-white/70">Account</p>
-          <p className="text-xl font-bold">{accountName}</p>
           <p className="text-2xl font-bold">{mobileNumber}</p>
         </div>
       )}

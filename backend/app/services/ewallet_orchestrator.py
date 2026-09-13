@@ -1,5 +1,7 @@
 """Durable, owner-scoped e-wallet transaction orchestration."""
 from __future__ import annotations
+
+from app.core.customer_errors import customer_message
 import asyncio
 import logging
 import secrets
@@ -145,13 +147,15 @@ class EWalletOrchestrator(EWalletIntakeMixin):
     async def start_transaction(self, *, provider, direction, amount, mobile_number=None,
                                 account_name=None, session_id=None, request_key=None,
                                 quote_id=None, policy_version=None):
+        if direction == "cash-in":
+            account_name = "coinnect"
         if request_key:
             async with self._db_factory() as session:
                 prior = (await session.execute(select(Tx).where(Tx.request_key == request_key))).scalar_one_or_none()
                 if prior:
                     if prior.session_id != session_id:
                         raise EWalletTransactionError("Request belongs to another session")
-                    if (prior.provider, prior.direction, prior.amount, prior.mobile_number or "", prior.account_name or "") != (provider, direction, amount, mobile_number or "", (account_name or "").strip()):
+                    if (prior.provider, prior.direction, prior.amount, prior.mobile_number or "") != (provider, direction, amount, mobile_number or ""):
                         raise EWalletTransactionError("The request key belongs to different transaction details", "IDEMPOTENCY_CONFLICT")
                     return await self.get_transaction(prior.id)
         self._check_ready(direction)
@@ -295,7 +299,7 @@ class EWalletOrchestrator(EWalletIntakeMixin):
             return await self._mark_claim_required(tx_id, "SUBMISSION_RECONCILIATION", "Transfer must be reconciled by reference; automatic resubmission is disabled", True)
         try:
             result = await self._gateway.create_disbursement(provider=record.provider,
-                account_number=record.mobile_number, account_name=record.account_name,
+                account_number=record.mobile_number, account_name="coinnect",
                 amount_centavos=record.transfer_amount*100, reference=tx_id,
                 idempotency_key=f"ewallet:{tx_id}:transfer")
         except Exception as exc:
@@ -778,6 +782,8 @@ class EWalletOrchestrator(EWalletIntakeMixin):
                   "test_url", "claim_ticket_code", "error_code", "error_message", "change_due",
                   "change_dispensed", "retained_amount", "wallet_credited", "refunded_fee", "intake_counts")
         data = {key: getattr(record, key) for key in fields}
+        if data.get("error_message"):
+            data["error_message"] = customer_message(data.get("error_code"))
         data.update(transaction_id=record.id, version=record.version,
                     server_time=datetime.utcnow().isoformat()+"Z",
                     inactivity_timeout_seconds=CASH_IN_TIMEOUT_SECONDS if record.direction == "cash-in" else PAYMENT_TIMEOUT_SECONDS,
